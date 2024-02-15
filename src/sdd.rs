@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 
-use crate::options::SddOptions;
+use crate::options::SDDOptions;
 use crate::structs::{VarLabel, VarLabelManager};
 use crate::vtree::{VTree, VTreeManager};
 
@@ -14,16 +15,12 @@ pub enum SDDNode {
     Decision(SDDOr), // Decision node represents decomposition
 }
 
-impl Hash for SDDNode {
-    fn hash<H: Hasher>(&self, state: &mut H) {}
-}
-
 // Decision node, disjunction of its elements
 pub struct SDDOr {
     // TODO: In rsdd, SddOr contains also VTreeIndex (and a scratch field), do we need it as well?
     // TODO: Should `element` be a vector or a single SDDAnd node? Original C library uses a single node,
     // rsdd uses a vector. What's the difference?
-    element: Vec<SDDAnd>,
+    element: Vec<Rc<SDDAnd>>,
 
     // for GC
     ref_count: usize,
@@ -31,15 +28,15 @@ pub struct SDDOr {
 // Element node (a paired box), conjunction of prime and sub
 pub struct SDDAnd {
     // prime, sub, both are either: ptr to decision node, constant (True or False) or a literal (X or !X)
-    prime: Box<SDDNode>,
-    sub: Box<SDDNode>,
+    prime: Rc<SDDNode>,
+    sub: Rc<SDDNode>,
 
     // for GC
     ref_count: usize,
 }
 
 pub struct SDDManager {
-    options: SddOptions,
+    options: SDDOptions,
 
     vtree_manager: VTreeManager,
     vtree_root: VTree,
@@ -50,7 +47,8 @@ pub struct SDDManager {
 }
 
 impl SDDManager {
-    pub fn new(options: SddOptions) -> SDDManager {
+    #[must_use]
+    pub fn new(options: SDDOptions) -> SDDManager {
         SDDManager {
             options,
             vtree_manager: VTreeManager::new(),

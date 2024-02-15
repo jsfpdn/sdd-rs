@@ -1,10 +1,12 @@
 pub struct VTree {
     // TODO: Search states, shadow vtree.
+    // To save implementation time, don't do fancy rollback (at least in the beginning).
     left: Option<Box<VTree>>,
     right: Option<Box<VTree>>,
 }
 
 impl VTree {
+    #[must_use]
     pub fn new(left: Option<Box<VTree>>, right: Option<Box<VTree>>) -> VTree {
         VTree { left, right }
     }
@@ -49,11 +51,18 @@ pub struct VTreeManager {
 }
 
 impl VTreeManager {
+    #[must_use]
     pub fn new() -> VTreeManager {
         VTreeManager {
             root: None,
             dfs_to_bfs: Vec::new(),
             bfs_to_dfs: Vec::new(),
         }
+    }
+}
+
+impl Default for VTreeManager {
+    fn default() -> Self {
+        Self::new()
     }
 }

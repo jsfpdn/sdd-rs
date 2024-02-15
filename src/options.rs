@@ -17,17 +17,19 @@ pub enum InitialVTree {
     RightLinear,
 }
 
+#[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone, Copy)]
-pub struct SddOptions {
+pub struct SDDOptions {
     gc_schedule: GcSchedule,
 
     vtree_strategy: VTreeStrategy,
     initial_vtree: InitialVTree,
 }
 
-impl Default for SddOptions {
+impl Default for SDDOptions {
+    #[must_use]
     fn default() -> Self {
-        SddOptions {
+        SDDOptions {
             gc_schedule: GcSchedule::Automatic(1000),
 
             vtree_strategy: VTreeStrategy::Cycle,
@@ -36,9 +38,10 @@ impl Default for SddOptions {
     }
 }
 
-impl SddOptions {
-    pub fn new() -> SddOptions {
-        SddOptions::default()
+impl SDDOptions {
+    #[must_use]
+    pub fn new() -> SDDOptions {
+        SDDOptions::default()
     }
 
     pub fn set_gc_strategy(&mut self, strategy: VTreeStrategy) -> &mut Self {

@@ -8,8 +8,16 @@ pub struct VarLabel {
 }
 
 impl VarLabel {
+    #[must_use]
     pub fn new() -> VarLabel {
         VarLabel {}
+    }
+}
+
+impl Default for VarLabel {
+    #[must_use]
+    fn default() -> Self {
+        VarLabel::new()
     }
 }
 
@@ -18,8 +26,16 @@ pub struct VarLabelManager {
 }
 
 impl VarLabelManager {
+    #[must_use]
     pub fn new() -> VarLabelManager {
         VarLabelManager {}
+    }
+}
+
+impl Default for VarLabelManager {
+    #[must_use]
+    fn default() -> Self {
+        VarLabelManager::new()
     }
 }
 
@@ -30,6 +46,7 @@ pub struct Literal {
 }
 
 impl Literal {
+    #[must_use]
     pub fn new(polarity: bool, var_label: VarLabel) -> Literal {
         Literal {
             var_label,
