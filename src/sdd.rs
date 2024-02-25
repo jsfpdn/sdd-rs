@@ -63,6 +63,20 @@ impl Sdd {
         matches!(self, Sdd::Element(_)) || matches!(self, Sdd::ElementCompl(_))
     }
 
+    fn as_element(&self) -> &SddAnd {
+        match self {
+            Sdd::Element(elem) | Sdd::ElementCompl(elem) => elem,
+            _ => panic!("Cannot cast to element!"),
+        }
+    }
+
+    fn as_decision(&self) -> &SddOr {
+        match self {
+            Sdd::Decision(decision) | Sdd::DecisionCompl(decision) => decision,
+            _ => panic!("Cannot cast to decision!"),
+        }
+    }
+
     #[must_use]
     pub fn negate(&self) -> Sdd {
         match self {
@@ -128,12 +142,7 @@ impl SddOr {
         }
 
         for element_idx in &self.elements {
-            // Check for element `(True, A)`.
-            let element: SddAnd = match manager.get_node(element_idx).unwrap().sdd {
-                Sdd::ElementCompl(elem) | Sdd::Element(elem) => elem,
-                _ => panic!("Decision node must contain only a boxed element!"),
-            };
-
+            let element = manager.get_node(element_idx).unwrap().sdd.as_element();
             let (prime, sub) = element.get_prime_sub(manager);
 
             // Check for `{(true, A)}`.
@@ -176,11 +185,7 @@ impl SddOr {
     pub fn is_compressed(&self, manager: &SddManager) -> bool {
         let mut subs: HashSet<Sdd> = HashSet::new();
         for element_idx in &self.elements {
-            let element: SddAnd = match manager.get_node(element_idx).unwrap().sdd {
-                Sdd::ElementCompl(elem) | Sdd::Element(elem) => elem,
-                _ => panic!("Decision node must contain only a boxed element!"),
-            };
-
+            let element = manager.get_node(element_idx).unwrap().sdd.as_element();
             let sub = element.get_sub(manager);
 
             if subs.contains(&sub.sdd) {
@@ -198,7 +203,9 @@ impl SddOr {
 
     /// Recursivelly trims and compresses SDD.
     ///
-    /// SDD is trimmed by traversing bottom up, replacing decompositions {(True, alpha)} and {(alpha, True), (!alpha, False)} with alpha.
+    /// SDD is trimmed by traversing bottom up, replacing decompositions {(true, alpha)} and {(alpha, true), (!alpha, false)} with alpha.
+    /// SDD is decompressed by repeatedly replacing elements `(p, s)` and `(q, s)` with
+    /// `(p || q, s)`.
     pub fn trim_and_compress(&mut self) {
         todo!("Implement me!")
     }

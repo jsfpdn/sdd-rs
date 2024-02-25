@@ -1,10 +1,10 @@
 use crate::manager::SddManager;
 use crate::options::{GcSchedule, InitialVTree, SddOptions, VTreeStrategy};
 
+pub mod literal;
 pub mod manager;
 pub mod options;
 pub mod sdd;
-pub mod literal;
 pub mod vtree;
 
 fn main() {
