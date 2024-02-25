@@ -1,23 +1,10 @@
-pub struct VarLabel {
-    // TODO: uint64, int64 or String?
-    // uint64: rsdd (=> varset)
-    // int64: original c library (=> negation of variable with index X represented as -X)
-    // ?String: biodivine-lib-bdd?
-
-    // can be true or false
-}
+#[derive(Hash, Eq, PartialEq, Debug, Copy, Clone)]
+pub struct VarLabel(u64);
 
 impl VarLabel {
     #[must_use]
-    pub fn new() -> VarLabel {
-        VarLabel {}
-    }
-}
-
-impl Default for VarLabel {
-    #[must_use]
-    fn default() -> Self {
-        VarLabel::new()
+    pub fn new(vl: u64) -> VarLabel {
+        VarLabel(vl)
     }
 }
 
@@ -40,6 +27,7 @@ impl Default for VarLabelManager {
 }
 
 // Either true or false
+#[derive(Hash, Eq, PartialEq, Debug, Clone, Copy)]
 pub struct Literal {
     var_label: VarLabel,
     polarity: bool,
@@ -52,5 +40,23 @@ impl Literal {
             var_label,
             polarity,
         }
+    }
+
+    #[must_use]
+    pub fn negate(literal: &Literal) -> Literal {
+        Literal {
+            var_label: VarLabel::new(literal.var_label.0),
+            polarity: !literal.polarity,
+        }
+    }
+
+    #[must_use]
+    pub fn polarity(self) -> bool {
+        self.polarity
+    }
+
+    #[must_use]
+    pub fn var_label(self) -> VarLabel {
+        self.var_label
     }
 }
