@@ -2,7 +2,16 @@
 name = "sdd-rs"
 version = "0.1.0"
 edition = "2021"
+authors = ["josef podany"]
+repository = "https://github.com/jsfpdn/sdd-rs"
+description = "Bottom-up sentential decision diagram compiler."
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "sddrs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "bottom_up_compiler"
+path = "bin/main.rs"
 
 [dependencies]

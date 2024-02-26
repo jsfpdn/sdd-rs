@@ -1,11 +1,5 @@
-use crate::manager::SddManager;
-use crate::options::{GcSchedule, InitialVTree, SddOptions, VTreeStrategy};
-
-pub mod literal;
-pub mod manager;
-pub mod options;
-pub mod sdd;
-pub mod vtree;
+use sddrs::manager::SddManager;
+use sddrs::options::{GcSchedule, InitialVTree, SddOptions, VTreeStrategy};
 
 fn main() {
     let options = SddOptions::default()

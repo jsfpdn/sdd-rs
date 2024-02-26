@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::hash::Hash;
 
 use crate::literal::Literal;
-use crate::SddManager;
+use crate::manager::SddManager;
 
 type NodeIndex = u64;
 
