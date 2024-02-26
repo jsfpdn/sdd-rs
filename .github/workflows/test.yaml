@@ -6,7 +6,7 @@ concurrency:
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 jobs:
   test:
-    name: Tests
+    name: Unit Tests
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
