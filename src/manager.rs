@@ -14,7 +14,9 @@ pub struct SddManager {
 
     var_label_manager: VarLabelManager,
 
-    nodes: HashMap<u64, Node>,
+    // Unique table holding all the decision nodes.
+    // More details can be found in [Algorithms and Data Structures in VLSI Design](https://link.springer.com/book/10.1007/978-3-642-58940-9).
+    unqiue_table: HashMap<u64, Node>,
 }
 
 impl SddManager {
@@ -24,7 +26,7 @@ impl SddManager {
             options,
             vtree_manager: VTreeManager::new(),
             var_label_manager: VarLabelManager::new(),
-            nodes: HashMap::new(),
+            unqiue_table: HashMap::new(),
         }
     }
 
@@ -34,13 +36,13 @@ impl SddManager {
             options,
             vtree_manager: VTreeManager::new(),
             var_label_manager: VarLabelManager::new(),
-            nodes,
+            unqiue_table: nodes,
         }
     }
 
     #[must_use]
     pub fn get_node(&self, id: &u64) -> Option<&Node> {
-        self.nodes.get(id)
+        self.unqiue_table.get(id)
     }
 
     pub fn conjoin(&self, _fst: &Sdd, _snd: &Sdd) {}

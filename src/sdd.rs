@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::hash::Hash;
 
 use crate::literal::Literal;
@@ -10,14 +10,13 @@ mod sdd_test;
 
 type NodeIndex = u64;
 
-#[derive(PartialEq, Eq, Clone)]
-// TODO: Implement custom hashing scheme.
+#[derive(PartialEq, Eq, Clone, Hash)]
 pub struct Node {
     sdd: Sdd,
 
     // Index of the parent node in the SDDManager.nodes vector.
     parent: Option<NodeIndex>,
-    index: NodeIndex,
+    index: NodeIndex, // index == sdd::hash
 }
 
 impl Node {
@@ -123,7 +122,7 @@ impl Sdd {
 #[derive(Hash, PartialEq, Eq, Clone)]
 #[allow(clippy::module_name_repetitions)]
 pub struct SddOr {
-    elements: Vec<NodeIndex>,
+    elements: BTreeSet<NodeIndex>,
 }
 
 impl SddOr {

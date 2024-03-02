@@ -1,10 +1,12 @@
-mod tests {
+#[allow(clippy::module_inception)]
+mod sdd_test {
     use std::collections::HashMap;
 
     use crate::{
         literal::{Literal, VarLabel},
         options::SddOptions,
         sdd::{Node, Sdd, SddAnd, SddManager, SddOr},
+        util::btreeset,
     };
 
     #[test]
@@ -25,7 +27,13 @@ mod tests {
                 // Decomposition `{(true, false)}`.
                 (
                     3_u64,
-                    Node::new(Sdd::Decision(SddOr { elements: vec![2] }), None, 3),
+                    Node::new(
+                        Sdd::Decision(SddOr {
+                            elements: btreeset!(2),
+                        }),
+                        None,
+                        3,
+                    ),
                 ),
             ]),
         );
@@ -59,7 +67,13 @@ mod tests {
                 // Decomposition `{(true, A)}`.
                 (
                     3_u64,
-                    Node::new(Sdd::Decision(SddOr { elements: vec![2] }), None, 3),
+                    Node::new(
+                        Sdd::Decision(SddOr {
+                            elements: btreeset!(2),
+                        }),
+                        None,
+                        3,
+                    ),
                 ),
             ]),
         );
@@ -111,7 +125,7 @@ mod tests {
                     6_u64,
                     Node::new(
                         Sdd::Decision(SddOr {
-                            elements: vec![4, 5],
+                            elements: btreeset!(4, 5),
                         }),
                         Some(42),
                         6,
@@ -158,7 +172,13 @@ mod tests {
                 // Decomposition `{(true, !B)}`. This is where the SDD stops being trimmed.
                 (
                     4_u64,
-                    Node::new(Sdd::Decision(SddOr { elements: vec![3] }), Some(42), 4),
+                    Node::new(
+                        Sdd::Decision(SddOr {
+                            elements: btreeset!(3),
+                        }),
+                        Some(42),
+                        4,
+                    ),
                 ),
                 // Element `(A, true)`.
                 (
@@ -177,7 +197,7 @@ mod tests {
                     8_u64,
                     Node::new(
                         Sdd::Decision(SddOr {
-                            elements: vec![4, 7],
+                            elements: btreeset!(4, 7),
                         }),
                         Some(42),
                         8,
@@ -251,7 +271,7 @@ mod tests {
                     6_u64,
                     Node::new(
                         Sdd::Decision(SddOr {
-                            elements: vec![3, 5],
+                            elements: btreeset!(3, 5),
                         }),
                         None,
                         6,
@@ -305,7 +325,13 @@ mod tests {
                 // Decomposition `{(!B, true)}`.
                 (
                     6_u64,
-                    Node::new(Sdd::Decision(SddOr { elements: vec![4] }), Some(42), 6),
+                    Node::new(
+                        Sdd::Decision(SddOr {
+                            elements: btreeset!(4),
+                        }),
+                        Some(42),
+                        6,
+                    ),
                 ),
                 // Element `(ptr, false)` where ptr is `{(!B, true)}`.
                 (
@@ -317,7 +343,7 @@ mod tests {
                     8_u64,
                     Node::new(
                         Sdd::Decision(SddOr {
-                            elements: vec![5, 7],
+                            elements: btreeset!(5, 7),
                         }),
                         Some(42),
                         8,
