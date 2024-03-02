@@ -3,8 +3,8 @@ pub struct VarLabel(u64);
 
 impl VarLabel {
     #[must_use]
-    pub fn new(vl: u64) -> VarLabel {
-        VarLabel(vl)
+    pub fn new(v: u64) -> VarLabel {
+        VarLabel(v)
     }
 }
 

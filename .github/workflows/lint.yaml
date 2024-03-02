@@ -11,6 +11,12 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - run: cargo fmt --check
+  check:
+    name: cargo check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - run: cargo check
   clippy:
     name: Clippy
     runs-on: ubuntu-latest

@@ -1,7 +1,10 @@
 pub struct VTree {
     // TODO: Search states, shadow vtree.
     // To save implementation time, don't do fancy rollback (at least in the beginning).
+    #[allow(dead_code)]
     left: Option<Box<VTree>>,
+
+    #[allow(dead_code)]
     right: Option<Box<VTree>>,
 }
 
@@ -44,9 +47,13 @@ impl VTree {
 }
 
 pub struct VTreeManager {
+    #[allow(dead_code)]
     root: Option<VTree>,
 
+    #[allow(dead_code)]
     dfs_to_bfs: Vec<u64>,
+
+    #[allow(dead_code)]
     bfs_to_dfs: Vec<u64>,
 }
 

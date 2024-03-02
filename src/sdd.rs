@@ -54,14 +54,17 @@ impl Sdd {
         self.is_true() || self.is_false()
     }
 
+    #[allow(dead_code)]
     fn is_literal(&self) -> bool {
         matches!(self, Sdd::Literal(_))
     }
 
+    #[allow(dead_code)]
     fn is_decision_node(&self) -> bool {
         matches!(self, Sdd::Decision(_)) || matches!(self, Sdd::DecisionCompl(_))
     }
 
+    #[allow(dead_code)]
     fn is_element_node(&self) -> bool {
         matches!(self, Sdd::Element(_)) || matches!(self, Sdd::ElementCompl(_))
     }
@@ -73,6 +76,7 @@ impl Sdd {
         }
     }
 
+    #[allow(dead_code)]
     fn as_decision(&self) -> &SddOr {
         match self {
             Sdd::Decision(decision) | Sdd::DecisionCompl(decision) => decision,

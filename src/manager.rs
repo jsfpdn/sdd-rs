@@ -8,10 +8,14 @@ use crate::vtree::VTreeManager;
 
 #[allow(clippy::module_name_repetitions)]
 pub struct SddManager {
+    // TODO: Remove all #[allow(unused)] directives.
+    #[allow(unused)]
     options: SddOptions,
 
+    #[allow(unused)]
     vtree_manager: VTreeManager,
 
+    #[allow(unused)]
     var_label_manager: VarLabelManager,
 
     // Unique table holding all the decision nodes.
