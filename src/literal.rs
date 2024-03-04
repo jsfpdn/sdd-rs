@@ -1,4 +1,4 @@
-#[derive(Hash, Eq, PartialEq, Debug, Copy, Clone)]
+#[derive(Hash, Eq, PartialEq, Debug, Copy, Clone, PartialOrd, Ord)]
 pub struct VarLabel(u64);
 
 impl VarLabel {
@@ -27,7 +27,7 @@ impl Default for VarLabelManager {
 }
 
 // Either true or false
-#[derive(Hash, Eq, PartialEq, Debug, Clone, Copy)]
+#[derive(Hash, Eq, PartialEq, Debug, Clone, Copy, PartialOrd, Ord)]
 pub struct Literal {
     var_label: VarLabel,
     polarity: bool,
@@ -43,10 +43,10 @@ impl Literal {
     }
 
     #[must_use]
-    pub fn negate(literal: &Literal) -> Literal {
+    pub fn negate(&self) -> Literal {
         Literal {
-            var_label: VarLabel::new(literal.var_label.0),
-            polarity: !literal.polarity,
+            var_label: VarLabel::new(self.var_label.0),
+            polarity: !self.polarity,
         }
     }
 

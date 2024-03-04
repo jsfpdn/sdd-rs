@@ -5,9 +5,13 @@ mod sdd_test {
     use crate::{
         literal::{Literal, VarLabel},
         options::SddOptions,
-        sdd::{Node, Sdd, SddAnd, SddManager, SddOr},
+        sdd::{Box, Decision, Element, Node, SddManager},
         util::btreeset,
     };
+
+    fn boxed_literal(polarity: bool, var_label: u64) -> Box {
+        Box::Literal(Literal::new(polarity, VarLabel::new(var_label)))
+    }
 
     #[test]
     fn not_trimmed_simple() {
@@ -15,32 +19,22 @@ mod sdd_test {
         let manager = SddManager::new_with_nodes(
             SddOptions::new(),
             HashMap::from([
-                // Constant `true`.
-                (0_u64, Node::new(Sdd::True, Some(2), 0)),
-                // Constant `false`.
-                (1_u64, Node::new(Sdd::False, Some(2), 1)),
-                // Element `(true, false).`
-                (
-                    2_u64,
-                    Node::new(Sdd::Element(SddAnd { prime: 0, sub: 1 }), Some(42), 2),
-                ),
                 // Decomposition `{(true, false)}`.
                 (
-                    3_u64,
-                    Node::new(
-                        Sdd::Decision(SddOr {
-                            elements: btreeset!(2),
+                    0_u64,
+                    Node::new(Decision {
+                        elements: btreeset!(Element {
+                            prime: Box::True,
+                            sub: Box::False
                         }),
-                        None,
-                        3,
-                    ),
+                    }),
                 ),
             ]),
         );
 
         // Decomposition {(True, False)} is not trimmed.
-        let node = manager.get_node(&3_u64).unwrap();
-        assert!(!node.sdd.is_trimmed(&manager));
+        let node = manager.get_node(&0_u64).unwrap();
+        assert!(!node.decision.is_trimmed(&manager));
     }
 
     #[test]
@@ -48,39 +42,22 @@ mod sdd_test {
         let manager = SddManager::new_with_nodes(
             SddOptions::new(),
             HashMap::from([
-                // Constant `true`.
-                (0_u64, Node::new(Sdd::True, Some(42), 0)),
-                // Literal `A`.
-                (
-                    1_u64,
-                    Node::new(
-                        Sdd::Literal(Literal::new(true, VarLabel::new(0))),
-                        Some(42),
-                        1,
-                    ),
-                ),
-                // Element `(true, A)`.
-                (
-                    2_u64,
-                    Node::new(Sdd::Element(SddAnd { prime: 0, sub: 1 }), Some(42), 2),
-                ),
                 // Decomposition `{(true, A)}`.
                 (
-                    3_u64,
-                    Node::new(
-                        Sdd::Decision(SddOr {
-                            elements: btreeset!(2),
+                    0_u64,
+                    Node::new(Decision {
+                        elements: btreeset!(Element {
+                            prime: Box::True,
+                            sub: boxed_literal(true, 0),
                         }),
-                        None,
-                        3,
-                    ),
+                    }),
                 ),
             ]),
         );
 
         // Decomposition {(A, true)} is not trimmed.
-        let node = manager.get_node(&3_u64).unwrap();
-        assert!(!node.sdd.is_trimmed(&manager));
+        let node = manager.get_node(&0_u64).unwrap();
+        assert!(!node.decision.is_trimmed(&manager));
     }
 
     #[test]
@@ -88,55 +65,28 @@ mod sdd_test {
         let manager = SddManager::new_with_nodes(
             SddOptions::new(),
             HashMap::from([
-                // Constant `true`.
-                (0_u64, Node::new(Sdd::True, Some(4), 0)),
-                // Constant `false`.
-                (1_u64, Node::new(Sdd::False, Some(5), 1)),
-                // Literal `A`.
-                (
-                    2_u64,
-                    Node::new(
-                        Sdd::Literal(Literal::new(true, VarLabel::new(0))),
-                        Some(4),
-                        2,
-                    ),
-                ),
-                // Literal `!A`.
-                (
-                    3_u64,
-                    Node::new(
-                        Sdd::Literal(Literal::new(false, VarLabel::new(0))),
-                        Some(5),
-                        3,
-                    ),
-                ),
-                // Element `(A, True)`.
-                (
-                    4_u64,
-                    Node::new(Sdd::Element(SddAnd { prime: 2, sub: 0 }), Some(42), 4),
-                ),
-                // Element `(!A, False)`.
-                (
-                    5_u64,
-                    Node::new(Sdd::Element(SddAnd { prime: 3, sub: 1 }), Some(42), 5),
-                ),
                 // Decomposition `{(A, true), (!A, false)}`.
                 (
-                    6_u64,
-                    Node::new(
-                        Sdd::Decision(SddOr {
-                            elements: btreeset!(4, 5),
-                        }),
-                        Some(42),
-                        6,
-                    ),
+                    0_u64,
+                    Node::new(Decision {
+                        elements: btreeset!(
+                            Element {
+                                prime: boxed_literal(true, 0),
+                                sub: Box::True
+                            },
+                            Element {
+                                prime: boxed_literal(false, 0),
+                                sub: Box::False
+                            }
+                        ),
+                    }),
                 ),
             ]),
         );
 
         // Decomposition `{(A, true), (!A, false)}` is not trimmed.
-        let node = manager.get_node(&6_u64).unwrap();
-        assert!(!node.sdd.is_trimmed(&manager));
+        let node = manager.get_node(&0_u64).unwrap();
+        assert!(!node.decision.is_trimmed(&manager));
     }
 
     #[test]
@@ -145,88 +95,37 @@ mod sdd_test {
         let manager = SddManager::new_with_nodes(
             SddOptions::new(),
             HashMap::from([
-                // Constant `true`.
-                (0_u64, Node::new(Sdd::True, Some(42), 0)),
-                // Literal `A`.
-                (
-                    1_u64,
-                    Node::new(
-                        Sdd::Literal(Literal::new(true, VarLabel::new(0))),
-                        Some(42),
-                        1,
-                    ),
-                ),
-                // Literal `!B`.
-                (
-                    2_u64,
-                    Node::new(
-                        Sdd::Literal(Literal::new(false, VarLabel::new(1))),
-                        Some(42),
-                        2,
-                    ),
-                ),
-                (
-                    3_u64,
-                    Node::new(Sdd::Element(SddAnd { prime: 0, sub: 2 }), Some(42), 3),
-                ),
                 // Decomposition `{(true, !B)}`. This is where the SDD stops being trimmed.
                 (
-                    4_u64,
-                    Node::new(
-                        Sdd::Decision(SddOr {
-                            elements: btreeset!(3),
+                    0_u64,
+                    Node::new(Decision {
+                        elements: btreeset!(Element {
+                            prime: Box::True,
+                            sub: boxed_literal(false, 1)
                         }),
-                        Some(42),
-                        4,
-                    ),
-                ),
-                // Element `(A, true)`.
-                (
-                    5_u64,
-                    Node::new(Sdd::Element(SddAnd { prime: 1, sub: 0 }), Some(42), 5),
-                ),
-                // Constant `false`.
-                (6_u64, Node::new(Sdd::False, Some(42), 6)),
-                // Element `(ptr, false)` where ptr is the decomposition `{(true, !B)}`.
-                (
-                    7_u64,
-                    Node::new(Sdd::Element(SddAnd { prime: 4, sub: 6 }), Some(42), 7),
+                    }),
                 ),
                 // Decomposition `{(A, true), (ptr, false)}` where ptr is the decomposition `{(true, !B)}`.
                 (
-                    8_u64,
-                    Node::new(
-                        Sdd::Decision(SddOr {
-                            elements: btreeset!(4, 7),
-                        }),
-                        Some(42),
-                        8,
-                    ),
-                ),
-            ]),
-        );
-
-        let node = manager.get_node(&7_u64).unwrap();
-        assert!(!node.sdd.is_trimmed(&manager));
-    }
-
-    #[test]
-    fn trimmed_simple() {
-        // TODO: Remove the hardcoded indices once the hashing scheme is implemented.
-        let manager = SddManager::new_with_nodes(
-            SddOptions::new(),
-            HashMap::from([
-                (0_u64, Node::new(Sdd::False, Some(42), 0)),
-                (
                     1_u64,
-                    Node::new(Sdd::Element(SddAnd { prime: 0, sub: 0 }), None, 1),
+                    Node::new(Decision {
+                        elements: btreeset!(
+                            Element {
+                                prime: boxed_literal(true, 0),
+                                sub: Box::True
+                            },
+                            Element {
+                                prime: Box::DecisionRegular(0_u64),
+                                sub: Box::False
+                            }
+                        ),
+                    }),
                 ),
             ]),
         );
 
-        // Decomposition {(false, false)} is trimmed.
         let node = manager.get_node(&1_u64).unwrap();
-        assert!(node.sdd.is_trimmed(&manager));
+        assert!(!node.decision.is_trimmed(&manager));
     }
 
     #[test]
@@ -234,55 +133,28 @@ mod sdd_test {
         let manager = SddManager::new_with_nodes(
             SddOptions::new(),
             HashMap::from([
-                // Constant `True`.
-                (0_u64, Node::new(Sdd::True, Some(42), 0)),
-                // Literal `A`.
-                (
-                    1_u64,
-                    Node::new(
-                        Sdd::Literal(Literal::new(true, VarLabel::new(0))),
-                        Some(42),
-                        1,
-                    ),
-                ),
-                // Literal `!B`.
-                (
-                    2_u64,
-                    Node::new(
-                        Sdd::Literal(Literal::new(false, VarLabel::new(1))),
-                        Some(42),
-                        2,
-                    ),
-                ),
-                // Element `(A, true)`.
-                (
-                    3_u64,
-                    Node::new(Sdd::Element(SddAnd { prime: 1, sub: 0 }), Some(42), 3),
-                ),
-                // Constant `false`.
-                (4_u64, Node::new(Sdd::False, Some(42), 4)),
-                // Element `(!B, false)`.
-                (
-                    5_u64,
-                    Node::new(Sdd::Element(SddAnd { prime: 2, sub: 4 }), Some(42), 5),
-                ),
                 // Decomposition `{(A, true), (B, false)}`.
                 (
-                    6_u64,
-                    Node::new(
-                        Sdd::Decision(SddOr {
-                            elements: btreeset!(3, 5),
-                        }),
-                        None,
-                        6,
-                    ),
+                    0_u64,
+                    Node::new(Decision {
+                        elements: btreeset!(
+                            Element {
+                                prime: boxed_literal(true, 0),
+                                sub: Box::True
+                            },
+                            Element {
+                                prime: boxed_literal(true, 0),
+                                sub: Box::False
+                            }
+                        ),
+                    }),
                 ),
             ]),
         );
 
         // Decomposition {(A, true), (B, false)} is trimmed.
-        let node = manager.get_node(&6_u64).unwrap();
-        assert!(node.sdd.is_trimmed(&manager));
+        let node = manager.get_node(&0_u64).unwrap();
+        assert!(node.decision.is_trimmed(&manager));
     }
 
     #[test]
@@ -290,70 +162,37 @@ mod sdd_test {
         let manager = SddManager::new_with_nodes(
             SddOptions::new(),
             HashMap::from([
-                // Constant `true`.
-                (0_u64, Node::new(Sdd::True, Some(42), 0)),
-                // Constant `false`.
-                (1_u64, Node::new(Sdd::False, Some(42), 1)),
-                // Literal `A`.
-                (
-                    2_u64,
-                    Node::new(
-                        Sdd::Literal(Literal::new(true, VarLabel::new(0))),
-                        Some(42),
-                        2,
-                    ),
-                ),
-                // Literal `!B`.
-                (
-                    3_u64,
-                    Node::new(
-                        Sdd::Literal(Literal::new(false, VarLabel::new(1))),
-                        Some(42),
-                        3,
-                    ),
-                ),
-                // Element `(!B, true)`
-                (
-                    4_u64,
-                    Node::new(Sdd::Element(SddAnd { prime: 3, sub: 0 }), Some(42), 4),
-                ),
-                // Element `(A, true)`
-                (
-                    5_u64,
-                    Node::new(Sdd::Element(SddAnd { prime: 2, sub: 0 }), Some(42), 5),
-                ),
                 // Decomposition `{(!B, true)}`.
                 (
-                    6_u64,
-                    Node::new(
-                        Sdd::Decision(SddOr {
-                            elements: btreeset!(4),
+                    0_u64,
+                    Node::new(Decision {
+                        elements: btreeset!(Element {
+                            prime: boxed_literal(false, 1),
+                            sub: Box::True
                         }),
-                        Some(42),
-                        6,
-                    ),
-                ),
-                // Element `(ptr, false)` where ptr is `{(!B, true)}`.
-                (
-                    7_u64,
-                    Node::new(Sdd::Element(SddAnd { prime: 6, sub: 1 }), Some(42), 7),
+                    }),
                 ),
                 // Decomposition `{(A, true), (ptr, false)}`, where ptr is `{(!B, true)}`.
                 (
-                    8_u64,
-                    Node::new(
-                        Sdd::Decision(SddOr {
-                            elements: btreeset!(5, 7),
-                        }),
-                        Some(42),
-                        8,
-                    ),
+                    1_u64,
+                    Node::new(Decision {
+                        elements: btreeset!(
+                            Element {
+                                prime: boxed_literal(true, 0),
+                                sub: Box::True
+                            },
+                            Element {
+                                prime: Box::DecisionRegular(0_u64),
+                                sub: Box::False
+                            }
+                        ),
+                    }),
                 ),
             ]),
         );
 
-        let node = manager.get_node(&8_u64).unwrap();
-        assert!(node.sdd.is_trimmed(&manager));
+        let node = manager.get_node(&1_u64).unwrap();
+        assert!(node.decision.is_trimmed(&manager));
     }
 
     #[test]

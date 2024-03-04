@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use crate::literal::VarLabelManager;
 use crate::options::SddOptions;
 use crate::sdd::Node;
-use crate::sdd::Sdd;
 use crate::vtree::VTreeManager;
 
 #[allow(clippy::module_name_repetitions)]
@@ -21,6 +20,8 @@ pub struct SddManager {
     // Unique table holding all the decision nodes.
     // More details can be found in [Algorithms and Data Structures in VLSI Design](https://link.springer.com/book/10.1007/978-3-642-58940-9).
     unqiue_table: HashMap<u64, Node>,
+    // u64 is the hash of sdd::Decision
+    // TODO: Should we store sdd::Decision or sdd::Node?
 }
 
 impl SddManager {
@@ -49,11 +50,11 @@ impl SddManager {
         self.unqiue_table.get(id)
     }
 
-    pub fn conjoin(&self, _fst: &Sdd, _snd: &Sdd) {}
-    pub fn disjoin(&self, _fst: &Sdd, _snd: &Sdd) {}
-    pub fn negate(&self, _fst: &Sdd) {}
-    pub fn imply(&self, _fst: &Sdd, _snd: &Sdd) {}
-    pub fn equiv(&self, _fst: &Sdd, _snd: &Sdd) {}
+    pub fn conjoin(&self, _fst: &Node, _snd: &Node) {}
+    pub fn disjoin(&self, _fst: &Node, _snd: &Node) {}
+    pub fn negate(&self, _fst: &Node) {}
+    pub fn imply(&self, _fst: &Node, _snd: &Node) {}
+    pub fn equiv(&self, _fst: &Node, _snd: &Node) {}
 
     pub fn condition() {}
     pub fn exist() {}
