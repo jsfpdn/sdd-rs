@@ -51,6 +51,11 @@ impl Literal {
     }
 
     #[must_use]
+    pub fn eq_negated(&self, other: &Literal) -> bool {
+        self.var_label() == other.var_label() && self.polarity() != other.polarity()
+    }
+
+    #[must_use]
     pub fn polarity(self) -> bool {
         self.polarity
     }
