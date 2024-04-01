@@ -4,14 +4,9 @@ version = "0.1.0"
 edition = "2021"
 authors = ["josef podany"]
 repository = "https://github.com/jsfpdn/sdd-rs"
-description = "Bottom-up sentential decision diagram compiler."
+description = "Bottom-up sentential decision diagram compiler binary."
 
-[lib]
-name = "sddrs"
-path = "src/lib.rs"
-
-[[bin]]
-name = "bottom_up_compiler"
-path = "bin/main.rs"
+[workspace]
 
 [dependencies]
+sdd-rs-lib = { path = "sdd-rs-lib" }

@@ -1,0 +1,11 @@
+[package]
+name = "sdd-rs-lib"
+version = "0.1.0"
+edition = "2021"
+authors = ["josef podany"]
+repository = "https://github.com/jsfpdn/sdd-rs"
+description = "Bottom-up sentential decision diagram compiler library."
+
+[lib]
+name = "sddrs"
+path = "lib.rs"
