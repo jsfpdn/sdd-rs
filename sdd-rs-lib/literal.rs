@@ -1,7 +1,6 @@
 use std::fmt::Display;
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, PartialOrd, Ord)]
-// TODO: Do we want String labels?
 pub struct VarLabel(String);
 
 impl VarLabel {
@@ -9,23 +8,10 @@ impl VarLabel {
     pub fn new(v: &str) -> VarLabel {
         VarLabel(v.to_owned())
     }
-}
 
-pub struct VarLabelManager {
-    // TODO: bitset?, vector, hashmap?
-}
-
-impl VarLabelManager {
     #[must_use]
-    pub fn new() -> VarLabelManager {
-        VarLabelManager {}
-    }
-}
-
-impl Default for VarLabelManager {
-    #[must_use]
-    fn default() -> Self {
-        VarLabelManager::new()
+    pub fn str(&self) -> String {
+        self.0.clone()
     }
 }
 

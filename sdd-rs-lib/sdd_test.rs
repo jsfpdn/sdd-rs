@@ -25,7 +25,7 @@ mod sdd_test {
         let sdd = &Sdd::DecisionRegular(decision);
 
         let decisions = &vec![sdd];
-        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
+        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions, None);
 
         // Decomposition {(True, False)} is not trimmed.
         let node = manager.get_node(sdd.id());
@@ -46,7 +46,7 @@ mod sdd_test {
         let sdd = &Sdd::DecisionRegular(decision);
 
         let decisions = &vec![sdd];
-        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
+        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions, None);
 
         // Decomposition {(A, true)} is not trimmed.
         let node = manager.get_node(sdd.id());
@@ -71,7 +71,7 @@ mod sdd_test {
         let sdd = &Sdd::DecisionRegular(decision);
 
         let decisions = &vec![sdd];
-        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
+        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions, None);
 
         // Decomposition `{(A, true), (!A, false)}` is not trimmed.
         let node = manager.get_node(sdd.id());
@@ -111,7 +111,7 @@ mod sdd_test {
         let sdd_2 = &Sdd::DecisionRegular(decision_2);
 
         let decisions = &vec![sdd_1, sdd_2];
-        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
+        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions, None);
 
         let node = manager.get_node(sdd_2.id());
         assert!(!node.is_trimmed(&manager));
@@ -135,7 +135,7 @@ mod sdd_test {
         let sdd = &Sdd::DecisionRegular(decision);
 
         let decisions = &vec![sdd];
-        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
+        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions, None);
 
         // Decomposition {(A, true), (B, false)} is trimmed.
         let node = manager.get_node(sdd.id());
@@ -171,7 +171,7 @@ mod sdd_test {
         let sdd_2 = &Sdd::DecisionRegular(decision_2);
 
         let decisions = &vec![sdd_1, sdd_2];
-        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
+        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions, None);
 
         let node = manager.get_node(sdd_2.id());
         assert!(node.is_trimmed(&manager));
@@ -185,5 +185,32 @@ mod sdd_test {
     #[test]
     fn compressed() {
         // TODO: Implement me!
+    }
+
+    #[test]
+    fn sdd_hashing() {
+        let element_1 = Element {
+            prime: &boxed_literal(Polarity::Positive, "A"),
+            sub: &Sdd::True,
+        };
+
+        let element_2 = Element {
+            prime: &boxed_literal(Polarity::Negative, "A"),
+            sub: &Sdd::True,
+        };
+
+        let decision_1 = &Decision {
+            elements: btreeset!(&element_1),
+        };
+
+        let decision_2 = &Decision {
+            elements: btreeset!(&element_2),
+        };
+
+        assert!(
+            &Sdd::DecisionRegular(decision_1).id() == &Sdd::DecisionComplement(decision_1).id()
+        );
+
+        assert!(&Sdd::DecisionRegular(decision_1).id() != &Sdd::DecisionRegular(decision_2).id());
     }
 }

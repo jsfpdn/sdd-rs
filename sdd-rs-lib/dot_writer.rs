@@ -29,6 +29,7 @@ pub struct DotWriter {
 pub enum NodeType {
     Box(String),
     Circle(u32),
+    CircleStr(String),
     Record(String, String),
 }
 
@@ -37,7 +38,7 @@ impl NodeType {
         let shape_type = match self {
             NodeType::Box(_) => "box",
             NodeType::Record(_, _) => "record",
-            NodeType::Circle(_) => "circle",
+            NodeType::Circle(_) | NodeType::CircleStr(_) => "circle",
         }
         .to_owned();
 
@@ -48,6 +49,7 @@ impl NodeType {
         match self {
             NodeType::Record(fst, snd) => format!("label=\"<f0> {fst} | <f1> {snd}\""),
             NodeType::Circle(label) => format!("label=\"{label}\""),
+            NodeType::CircleStr(label) => format!("label=\"{label}\""),
             NodeType::Box(_) => String::new(),
         }
     }
