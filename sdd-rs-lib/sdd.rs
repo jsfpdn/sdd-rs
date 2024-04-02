@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashSet};
 use std::hash::Hash;
 
-use crate::dot_writer::{Dot, DotWriter, NodeType};
+use crate::dot_writer::{Dot, DotWriter, Edge, NodeType};
 use crate::literal::Literal;
 use crate::manager::SddManager;
 
@@ -60,10 +60,10 @@ impl<'a> Dot for Element<'a> {
         );
 
         if let Sdd::DecisionRegular(node) | Sdd::DecisionComplement(node) = self.prime {
-            writer.add_edge((idx, Some(0)), fxhash::hash(node));
+            writer.add_edge(Edge::Prime(idx, fxhash::hash(node)));
         }
         if let Sdd::DecisionRegular(node) | Sdd::DecisionComplement(node) = self.sub {
-            writer.add_edge((idx, Some(1)), fxhash::hash(node));
+            writer.add_edge(Edge::Sub(idx, fxhash::hash(node)));
         };
     }
 }
@@ -88,7 +88,7 @@ impl<'a> Dot for Sdd<'a> {
                 idx = fxhash::hash(node);
                 for elem in &node.elements {
                     elem.draw(writer);
-                    writer.add_edge((idx, None), fxhash::hash(elem));
+                    writer.add_edge(Edge::Simple(idx, fxhash::hash(elem)));
                 }
                 // TODO: Add proper vtree index to the NodeType::Circle once implemented.
                 NodeType::Circle(42)
@@ -100,6 +100,16 @@ impl<'a> Dot for Sdd<'a> {
 }
 
 impl<'a> Sdd<'a> {
+    #[must_use]
+    pub fn id(&self) -> usize {
+        match self {
+            Sdd::DecisionComplement(decision) | Sdd::DecisionRegular(decision) => {
+                fxhash::hash(decision)
+            }
+            _ => fxhash::hash(self),
+        }
+    }
+
     fn is_true(&self) -> bool {
         matches!(self, Sdd::True)
     }

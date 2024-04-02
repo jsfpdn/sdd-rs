@@ -1,7 +1,5 @@
 #[allow(clippy::module_inception)]
 mod sdd_test {
-    use std::collections::HashMap;
-
     use crate::{
         btreeset,
         literal::{Literal, Polarity, VarLabel},
@@ -15,25 +13,22 @@ mod sdd_test {
 
     #[test]
     fn not_trimmed_simple() {
-        // TODO: Remove the hardcoded indices once the hashing scheme is implemented.
         let element = Element {
             prime: &Sdd::True,
             sub: &Sdd::False,
         };
-        let decision = Decision {
+
+        // Decomposition `{(true, false)}`.
+        let decision = &Decision {
             elements: btreeset!(&element),
         };
+        let sdd = &Sdd::DecisionRegular(decision);
 
-        let manager = SddManager::new_with_nodes(
-            SddOptions::new(),
-            HashMap::from([
-                // Decomposition `{(true, false)}`.
-                (0_u64, Sdd::DecisionRegular(&decision)),
-            ]),
-        );
+        let decisions = &vec![sdd];
+        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
 
         // Decomposition {(True, False)} is not trimmed.
-        let node = manager.get_node(&0_u64).unwrap();
+        let node = manager.get_node(sdd.id());
         assert!(!node.is_trimmed(&manager));
     }
 
@@ -43,20 +38,18 @@ mod sdd_test {
             prime: &Sdd::True,
             sub: &boxed_literal(Polarity::Positive, "A"),
         };
-        let decision = Decision {
+
+        // Decomposition `{(true, A)}`.
+        let decision = &Decision {
             elements: btreeset!(&element),
         };
+        let sdd = &Sdd::DecisionRegular(decision);
 
-        let manager = SddManager::new_with_nodes(
-            SddOptions::new(),
-            HashMap::from([
-                // Decomposition `{(true, A)}`.
-                (0_u64, Sdd::DecisionRegular(&decision)),
-            ]),
-        );
+        let decisions = &vec![sdd];
+        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
 
         // Decomposition {(A, true)} is not trimmed.
-        let node = manager.get_node(&0_u64).unwrap();
+        let node = manager.get_node(sdd.id());
         assert!(!node.is_trimmed(&manager));
     }
 
@@ -70,20 +63,18 @@ mod sdd_test {
             prime: &boxed_literal(Polarity::Negative, "A"),
             sub: &Sdd::False,
         };
-        let decision = Decision {
+
+        // Decomposition `{(A, true), (!A, false)}`.
+        let decision = &Decision {
             elements: btreeset!(&element_1, &element_2),
         };
+        let sdd = &Sdd::DecisionRegular(decision);
 
-        let manager = SddManager::new_with_nodes(
-            SddOptions::new(),
-            HashMap::from([
-                // Decomposition `{(A, true), (!A, false)}`.
-                (0_u64, Sdd::DecisionRegular(&decision)),
-            ]),
-        );
+        let decisions = &vec![sdd];
+        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
 
         // Decomposition `{(A, true), (!A, false)}` is not trimmed.
-        let node = manager.get_node(&0_u64).unwrap();
+        let node = manager.get_node(sdd.id());
         assert!(!node.is_trimmed(&manager));
     }
 
@@ -94,32 +85,35 @@ mod sdd_test {
             prime: &Sdd::True,
             sub: &boxed_literal(Polarity::Negative, "B"),
         };
+
+        // Decomposition `{(true, !B)}`. This is where the SDD stops being trimmed.
         let decision_1 = &Decision {
             elements: btreeset!(&element_1_1),
         };
+
+        let sdd_1 = &Sdd::DecisionRegular(decision_1);
+
         let element_2_1 = Element {
             prime: &boxed_literal(Polarity::Positive, "A"),
             sub: &Sdd::True,
         };
+
         let element_2_2 = Element {
             prime: &Sdd::DecisionRegular(decision_1),
             sub: &Sdd::False,
         };
-        let decision_2 = Decision {
+
+        // Decomposition `{(A, true), (ptr, false)}` where ptr is the decomposition `{(true, !B)}`.
+        let decision_2 = &Decision {
             elements: btreeset!(&element_2_1, &element_2_2),
         };
 
-        let manager = SddManager::new_with_nodes(
-            SddOptions::new(),
-            HashMap::from([
-                // Decomposition `{(true, !B)}`. This is where the SDD stops being trimmed.
-                (0_u64, Sdd::DecisionRegular(&decision_1)),
-                // Decomposition `{(A, true), (ptr, false)}` where ptr is the decomposition `{(true, !B)}`.
-                (1_u64, Sdd::DecisionRegular(&decision_2)),
-            ]),
-        );
+        let sdd_2 = &Sdd::DecisionRegular(decision_2);
 
-        let node = manager.get_node(&1_u64).unwrap();
+        let decisions = &vec![sdd_1, sdd_2];
+        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
+
+        let node = manager.get_node(sdd_2.id());
         assert!(!node.is_trimmed(&manager));
     }
 
@@ -133,20 +127,18 @@ mod sdd_test {
             prime: &boxed_literal(Polarity::Positive, "A"),
             sub: &Sdd::False,
         };
-        let decision = Decision {
+
+        // Decomposition `{(A, true), (B, false)}`.
+        let decision = &Decision {
             elements: btreeset!(&element_1, &element_2),
         };
+        let sdd = &Sdd::DecisionRegular(decision);
 
-        let manager = SddManager::new_with_nodes(
-            SddOptions::new(),
-            HashMap::from([
-                // Decomposition `{(A, true), (B, false)}`.
-                (0_u64, Sdd::DecisionRegular(&decision)),
-            ]),
-        );
+        let decisions = &vec![sdd];
+        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
 
         // Decomposition {(A, true), (B, false)} is trimmed.
-        let node = manager.get_node(&0_u64).unwrap();
+        let node = manager.get_node(sdd.id());
         assert!(node.is_trimmed(&manager));
     }
 
@@ -156,33 +148,32 @@ mod sdd_test {
             prime: &boxed_literal(Polarity::Negative, "B"),
             sub: &Sdd::True,
         };
+
+        // Decomposition `{(!B, true)}`.
         let decision_1 = &Decision {
             elements: btreeset!(&element_1_1),
         };
+        let sdd_1 = &Sdd::DecisionRegular(decision_1);
 
         let element_2_1 = Element {
             prime: &boxed_literal(Polarity::Positive, "A"),
             sub: &Sdd::True,
         };
         let element_2_2 = Element {
-            prime: &Sdd::DecisionRegular(decision_1),
+            prime: sdd_1,
             sub: &Sdd::False,
         };
-        let decision_2 = Decision {
+
+        // Decomposition `{(A, true), (ptr, false)}`, where ptr is `{(!B, true)}`.
+        let decision_2 = &Decision {
             elements: btreeset!(&element_2_1, &element_2_2),
         };
+        let sdd_2 = &Sdd::DecisionRegular(decision_2);
 
-        let manager = SddManager::new_with_nodes(
-            SddOptions::new(),
-            HashMap::from([
-                // Decomposition `{(!B, true)}`.
-                (0_u64, Sdd::DecisionRegular(&decision_1)),
-                // Decomposition `{(A, true), (ptr, false)}`, where ptr is `{(!B, true)}`.
-                (1_u64, Sdd::DecisionRegular(&decision_2)),
-            ]),
-        );
+        let decisions = &vec![sdd_1, sdd_2];
+        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
 
-        let node = manager.get_node(&1_u64).unwrap();
+        let node = manager.get_node(sdd_2.id());
         assert!(node.is_trimmed(&manager));
     }
 

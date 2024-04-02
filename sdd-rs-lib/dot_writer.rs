@@ -1,13 +1,29 @@
-use crate::manager::Result;
+use crate::Result;
 
 pub trait Dot {
     fn draw(&self, writer: &mut DotWriter);
 }
 
+pub enum Edge {
+    Simple(usize, usize),
+    Prime(usize, usize),
+    Sub(usize, usize),
+}
+
+impl std::fmt::Display for Edge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Edge::Simple(from, to) => write!(f, "{from} -> {to}"),
+            Edge::Prime(from, to) => write!(f, "{from}:f0 -> {to}"),
+            Edge::Sub(from, to) => write!(f, "{from}:f1 -> {to}"),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct DotWriter {
     nodes: Vec<(usize, NodeType)>,
-    edges: Vec<((usize, Option<usize>), usize)>,
+    edges: Vec<Edge>,
 }
 
 pub enum NodeType {
@@ -51,8 +67,8 @@ impl DotWriter {
         self.nodes.push((node_idx, node_type));
     }
 
-    pub fn add_edge(&mut self, from: (usize, Option<usize>), to: usize) {
-        self.edges.push((from, to));
+    pub fn add_edge(&mut self, edge: Edge) {
+        self.edges.push(edge);
     }
 
     /// # Errors
@@ -63,21 +79,16 @@ impl DotWriter {
         for (node, node_type) in &self.nodes {
             write!(
                 writer,
-                "\n  {} [{} {} {}]",
-                node,
+                "\n  {node} [{} {} {}]",
                 node_type.shape(),
                 node_type.label(),
                 NodeType::metadata(),
             )?;
         }
 
-        for ((from, from_child), to) in &self.edges {
-            if let Some(from_child) = from_child {
-                // TODO: Make the edge begin in the middle of the child.
-                write!(writer, "\n  {from}:f{from_child} -> {to} [arrowsize=.50]")?;
-            } else {
-                write!(writer, "\n  {from} -> {to} [arrowsize=.50]")?;
-            }
+        for edge in &self.edges {
+            // TODO: Make the edge begin in the middle of the child.
+            write!(writer, "\n  {edge} [arrowsize=.50]")?;
         }
 
         write!(writer, "\n}}")?;
