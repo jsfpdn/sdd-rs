@@ -1,4 +1,4 @@
-#[allow(unused_macros)]
+#[macro_export]
 macro_rules! btreeset {
     ( $( $x:expr ),* ) => {
         {
@@ -11,6 +11,3 @@ macro_rules! btreeset {
         }
     };
 }
-
-#[allow(unused_imports)]
-pub(crate) use btreeset;

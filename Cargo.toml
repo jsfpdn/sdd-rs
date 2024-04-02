@@ -9,4 +9,5 @@ description = "Bottom-up sentential decision diagram compiler binary."
 [workspace]
 
 [dependencies]
+clap = { version = "4.5.4", features = ["derive"] }
 sdd-rs-lib = { path = "sdd-rs-lib" }

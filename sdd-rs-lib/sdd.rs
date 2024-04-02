@@ -1,6 +1,7 @@
 use std::collections::{BTreeSet, HashSet};
 use std::hash::Hash;
 
+use crate::dot_writer::{Dot, DotWriter, NodeType};
 use crate::literal::Literal;
 use crate::manager::SddManager;
 
@@ -8,7 +9,7 @@ use crate::manager::SddManager;
 #[path = "./sdd_test.rs"]
 mod sdd_test;
 
-#[derive(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone, Hash)]
 pub struct Node<'a> {
     decision: &'a Decision<'a>,
 
@@ -34,8 +35,9 @@ impl<'a> Node<'a> {
 // Element node (a paired box) is a conjunction of prime and sub.
 #[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord)]
 pub struct Element<'a> {
-    prime: &'a Sdd,
-    sub: &'a Sdd,
+    // TODO: Remove `pub` visibility modifiers once done with testing.
+    pub prime: &'a Sdd<'a>,
+    pub sub: &'a Sdd<'a>,
 }
 
 impl<'a> Element<'a> {
@@ -48,18 +50,56 @@ impl<'a> Element<'a> {
     }
 }
 
-type NodeIndex = u64;
+impl<'a> Dot for Element<'a> {
+    fn draw(&self, writer: &mut DotWriter) {
+        let idx = fxhash::hash(self);
+
+        writer.add_node(
+            idx,
+            NodeType::Record(self.prime.dot_repr(), self.sub.dot_repr()),
+        );
+
+        if let Sdd::DecisionRegular(node) | Sdd::DecisionComplement(node) = self.prime {
+            writer.add_edge((idx, Some(0)), fxhash::hash(node));
+        }
+        if let Sdd::DecisionRegular(node) | Sdd::DecisionComplement(node) = self.sub {
+            writer.add_edge((idx, Some(1)), fxhash::hash(node));
+        };
+    }
+}
 
 #[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord)]
-pub enum Sdd {
+pub enum Sdd<'a> {
     True,
     False,
     Literal(Literal),
-    DecisionRegular(NodeIndex),
-    DecisionComplement(NodeIndex),
+    DecisionRegular(&'a Decision<'a>),
+    DecisionComplement(&'a Decision<'a>),
 }
 
-impl<'a> Sdd {
+impl<'a> Dot for Sdd<'a> {
+    fn draw(&self, writer: &mut DotWriter) {
+        let mut idx = fxhash::hash(self);
+        let node_type = match self {
+            Sdd::True => NodeType::Box("True".to_owned()),
+            Sdd::False => NodeType::Box("False".to_owned()),
+            Sdd::Literal(literal) => NodeType::Box(format!("{literal}")),
+            Sdd::DecisionComplement(node) | Sdd::DecisionRegular(node) => {
+                idx = fxhash::hash(node);
+                for elem in &node.elements {
+                    elem.draw(writer);
+                    writer.add_edge((idx, None), fxhash::hash(elem));
+                }
+                // TODO: Add proper vtree index to the NodeType::Circle once implemented.
+                NodeType::Circle(42)
+            }
+        };
+
+        writer.add_node(idx, node_type);
+    }
+}
+
+impl<'a> Sdd<'a> {
     fn is_true(&self) -> bool {
         matches!(self, Sdd::True)
     }
@@ -96,22 +136,18 @@ impl<'a> Sdd {
     fn is_trimmed(&self, manager: &SddManager) -> bool {
         match self {
             Sdd::True | Sdd::False | Sdd::Literal(_) => true,
-            Sdd::DecisionRegular(decision_idx) | Sdd::DecisionComplement(decision_idx) => manager
-                .get_node(decision_idx)
-                .unwrap()
-                .decision
-                .is_trimmed(manager),
+            Sdd::DecisionRegular(decision) | Sdd::DecisionComplement(decision) => {
+                decision.is_trimmed(manager)
+            }
         }
     }
 
     fn is_compressed(&self, manager: &SddManager) -> bool {
         match self {
             Sdd::True | Sdd::False | Sdd::Literal(_) => true,
-            Sdd::DecisionRegular(decision_idx) | Sdd::DecisionComplement(decision_idx) => manager
-                .get_node(decision_idx)
-                .unwrap()
-                .decision
-                .is_compressed(manager),
+            Sdd::DecisionRegular(decision) | Sdd::DecisionComplement(decision) => {
+                decision.is_compressed(manager)
+            }
         }
     }
 
@@ -119,7 +155,7 @@ impl<'a> Sdd {
     /// Function panics if `self` or `other` are decision nodes containing indexes
     /// to SDD nodes not existing in the manager.
     #[must_use]
-    pub fn and(&'a self, other: &'a Sdd, manager: &SddManager) -> &'a Sdd {
+    pub fn and(&'a self, other: &'a Sdd, _manager: &SddManager) -> &'a Sdd {
         // Handle simple cases first.
         if other.is_false() {
             return &Sdd::False;
@@ -137,24 +173,17 @@ impl<'a> Sdd {
             return &Sdd::False;
         }
 
-        let (sdd1, sdd2) = match (self, other) {
+        let (_sdd1, _sdd2) = match (self, other) {
             (Sdd::True, _) => return other,
             (_, Sdd::True) => return self,
             (Sdd::False, _) | (_, Sdd::False) => return &Sdd::False,
             (
-                Sdd::DecisionRegular(id1) | Sdd::DecisionComplement(id1),
-                Sdd::DecisionRegular(id2) | Sdd::DecisionComplement(id2),
-            ) => (
-                manager.get_node(id1).unwrap(),
-                manager.get_node(id2).unwrap(),
-            ),
+                Sdd::DecisionRegular(fst) | Sdd::DecisionComplement(fst),
+                Sdd::DecisionRegular(snd) | Sdd::DecisionComplement(snd),
+            ) => (fst, snd),
             (Sdd::Literal(_fst), Sdd::Literal(_snd)) => unimplemented!(""),
             _ => unimplemented!(""),
         };
-
-        for _ in &sdd1.decision.elements {
-            for _ in &sdd2.decision.elements {}
-        }
 
         unimplemented!("TODO");
     }
@@ -164,11 +193,21 @@ impl<'a> Sdd {
         // Compute by De Morgan's laws?
         unimplemented!("TODO")
     }
+
+    fn dot_repr(&self) -> String {
+        match self {
+            Sdd::True => "⊤".to_owned(),
+            Sdd::False => "⊥".to_owned(),
+            Sdd::Literal(literal) => format!("{literal}"),
+            _ => String::new(),
+        }
+    }
 }
 
-#[derive(PartialEq, Eq, Clone, Hash)]
+#[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord)]
 pub struct Decision<'a> {
-    elements: BTreeSet<&'a Element<'a>>,
+    // TODO: Remove `pub` visibility modifiers once done with testing.
+    pub elements: BTreeSet<&'a Element<'a>>,
 }
 
 impl<'a> Decision<'a> {

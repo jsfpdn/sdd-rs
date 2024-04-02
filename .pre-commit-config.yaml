@@ -26,6 +26,6 @@ repos:
     name: cargo test
     description: Run unit tests
     language: rust
-    entry: cargo test
+    entry: cargo test --workspace
     files: \.rs$
     pass_filenames: false

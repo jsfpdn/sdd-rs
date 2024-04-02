@@ -9,3 +9,6 @@ description = "Bottom-up sentential decision diagram compiler library."
 [lib]
 name = "sddrs"
 path = "lib.rs"
+
+[dependencies]
+fxhash = "0.2.1"
