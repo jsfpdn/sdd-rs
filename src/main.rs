@@ -3,8 +3,11 @@ use std::io::BufWriter;
 
 use clap::Parser;
 
-use sddrs::manager::SddManager;
-use sddrs::options::{GcSchedule, InitialVTree, SddOptions, VTreeStrategy};
+use sddrs::{
+    manager::SddManager,
+    options::{GcSchedule, InitialVTree, SddOptions, VTreeStrategy},
+    Result,
+};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -17,8 +20,6 @@ struct Cli {
     #[arg(short, long, value_name = "FILE.dot")]
     vtree_dot_path: Option<String>,
 }
-
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn main() {
     let cli = Cli::parse();

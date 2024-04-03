@@ -1,9 +1,11 @@
 use std::collections::{BTreeSet, HashSet};
 use std::hash::Hash;
 
-use crate::dot_writer::{Dot, DotWriter, Edge, NodeType};
-use crate::literal::Literal;
-use crate::manager::SddManager;
+use crate::{
+    dot_writer::{Dot, DotWriter, Edge, NodeType},
+    literal::Literal,
+    manager::SddManager,
+};
 
 #[cfg(test)]
 #[path = "./sdd_test.rs"]
