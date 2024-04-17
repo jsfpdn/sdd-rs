@@ -5,7 +5,7 @@ use crate::{
     literal::VarLabel,
     options::SddOptions,
     sdd::{Node, Sdd},
-    vtree::{VTree, VTreeManager},
+    vtree::VTreeManager,
     Result,
 };
 
@@ -28,10 +28,10 @@ pub struct SddManager<'a> {
 
 impl<'a> SddManager<'a> {
     #[must_use]
-    pub fn new(options: SddOptions, vtree: Option<VTree>) -> SddManager<'a> {
+    pub fn new(options: SddOptions) -> SddManager<'a> {
         SddManager {
             options,
-            vtree_manager: VTreeManager::new(vtree),
+            vtree_manager: VTreeManager::new(),
             var_labels: HashSet::new(),
             unqiue_table: HashMap::new(),
         }
@@ -40,11 +40,7 @@ impl<'a> SddManager<'a> {
     // TODO: This function should be removed as user should not be able to fill the unique_table
     // directly.
     #[must_use]
-    pub fn new_with_nodes(
-        options: SddOptions,
-        sdds: &'a [&'a Sdd<'a>],
-        vtree: Option<VTree>,
-    ) -> SddManager<'a> {
+    pub fn new_with_nodes(options: SddOptions, sdds: &'a [&'a Sdd<'a>]) -> SddManager<'a> {
         let mut table = HashMap::new();
         for sdd in sdds {
             table.insert(sdd.id(), *sdd);
@@ -52,10 +48,14 @@ impl<'a> SddManager<'a> {
 
         SddManager {
             options,
-            vtree_manager: VTreeManager::new(vtree),
+            vtree_manager: VTreeManager::new(),
             var_labels: HashSet::new(),
             unqiue_table: table,
         }
+    }
+
+    pub fn add_variable(&mut self, variable: VarLabel) {
+        self.vtree_manager.add_variable(variable);
     }
 
     pub fn tautology(&self) {}
@@ -81,7 +81,7 @@ impl<'a> SddManager<'a> {
     /// # Errors
     /// Returns an error if TBD.
     pub fn draw_sdd_graph(&self, writer: &mut dyn std::io::Write) -> Result<()> {
-        let mut dot_writer = DotWriter::new();
+        let mut dot_writer = DotWriter::new(String::from("sdd"));
         for node in self.unqiue_table.values() {
             node.draw(&mut dot_writer);
         }
@@ -91,7 +91,7 @@ impl<'a> SddManager<'a> {
     /// # Errors
     /// Returns an error if TBD.
     pub fn draw_vtree_graph(&self, writer: &mut dyn std::io::Write) -> Result<()> {
-        let mut dot_writer = DotWriter::new();
+        let mut dot_writer = DotWriter::new(String::from("vtree"));
         self.vtree_manager.draw(&mut dot_writer);
         dot_writer.write(writer)
     }

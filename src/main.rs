@@ -29,7 +29,7 @@ fn main() {
         .set_initial_vtree(InitialVTree::Balanced)
         .to_owned();
 
-    let manager = SddManager::new(options, None);
+    let manager = SddManager::new(options);
 
     let _ = write_to_file(
         cli.sdd_dot_path.as_deref(),

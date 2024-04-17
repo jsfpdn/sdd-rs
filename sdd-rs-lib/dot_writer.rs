@@ -22,6 +22,8 @@ impl std::fmt::Display for Edge {
 
 #[derive(Default)]
 pub struct DotWriter {
+    graph_name: String,
+
     nodes: Vec<(usize, NodeType)>,
     edges: Vec<Edge>,
 }
@@ -61,8 +63,11 @@ impl NodeType {
 
 impl DotWriter {
     #[must_use]
-    pub fn new() -> DotWriter {
-        DotWriter::default()
+    pub fn new(graph_name: String) -> DotWriter {
+        DotWriter {
+            graph_name,
+            ..Default::default()
+        }
     }
 
     pub fn add_node(&mut self, node_idx: usize, node_type: NodeType) {
@@ -76,7 +81,7 @@ impl DotWriter {
     /// # Errors
     /// Function returns an error if the writing to a file or flushing fails.
     pub fn write(&self, writer: &mut dyn std::io::Write) -> Result<()> {
-        write!(writer, "digraph sdd {{\n  overlap=false")?;
+        write!(writer, "digraph {} {{\n  overlap=false", self.graph_name)?;
 
         for (node, node_type) in &self.nodes {
             write!(
