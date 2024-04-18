@@ -82,47 +82,6 @@ impl VTree {
 
 pub type VTreeRef = Rc<RefCell<VTree>>;
 
-impl VTree {
-    //       w
-    //      / \
-    //     a   x
-    //        / \
-    //       b   c
-    //
-    //  rotate_left(x):
-    //
-    //       x
-    //      / \
-    //     w   c
-    //    / \
-    //   a   b
-    //
-    pub fn rotate_left(&mut self) {
-        // self.left.parent = self.parent
-        // self.parent.right = self.left
-        // self.left = self.parent
-        unimplemented!("TBD")
-    }
-
-    pub fn rotate_right(&mut self) {
-        unimplemented!("TBD")
-    }
-
-    /// Swaps children of in internal node.
-    ///
-    /// # Panics
-    ///
-    /// Panics if called on a vtree representing a leaf node.
-    pub fn swap(&mut self) {
-        match self.node.clone() {
-            Node::Leaf(_) => panic!("cannot swap children of a leaf node"),
-            Node::Internal(lc, rc) => {
-                self.node = Node::Internal(rc, lc);
-            }
-        }
-    }
-}
-
 pub struct VTreeManager {
     root: Option<VTreeRef>,
 
@@ -201,6 +160,122 @@ impl VTreeManager {
 
         order
     }
+
+    /// Rotates the vtree to the left. Given the following tree,
+    ///
+    /// ```ignore
+    ///       w
+    ///      / \
+    ///     a   x
+    ///        / \
+    ///       b   c
+    /// ```
+    ///
+    /// `rotate_left(x)` will mutate the tree as follows:
+    ///
+    /// ```ignore
+    ///       x
+    ///      / \
+    ///     w   c
+    ///    / \
+    ///   a   b
+    /// ```
+    /// # Panics
+    ///
+    /// Panics if called on a vtree that cannot be rotated.
+    pub fn rotate_left(&mut self, vtree: &VTreeRef) {
+        // Set right child of `w` to `b`.
+        let mut borrowed = vtree.borrow_mut();
+        match borrowed.node.clone() {
+            Node::Leaf(_) => panic!("cannot rotate leaf"),
+            Node::Internal(lc, _) => borrowed
+                .parent
+                .clone()
+                .unwrap()
+                .as_ref()
+                .borrow_mut()
+                .set_right_child(&lc),
+        }
+
+        // Set left child of `x` to `w`.
+        let parent = borrowed.parent.clone().unwrap();
+        borrowed.set_left_child(&parent);
+
+        // Set parent of `x` to the parent of `w`.
+        borrowed.parent = parent.borrow().parent.clone();
+        if borrowed.parent.is_none() {
+            // Set it as the root.
+            self.root = Some(vtree.clone());
+        }
+
+        // Set parent of `w` to `x`.
+        parent.borrow_mut().parent = Some(vtree.clone());
+    }
+
+    /// Rotates the vtree to the right. Given the following tree,
+    ///
+    /// ```ignore
+    ///       w
+    ///      / \
+    ///     x   c
+    ///    / \
+    ///   a   b
+    /// ```
+    ///
+    /// `rotate_right(x)` will mutate the tree as follows:
+    ///
+    /// ```ignore
+    ///      x
+    ///     / \
+    ///    a   w
+    ///       / \
+    ///      b   c
+    /// ```
+    /// # Panics
+    ///
+    /// Panics if called on a vtree that cannot be rotated.
+    pub fn rotate_right(&mut self, vtree: &VTreeRef) {
+        // Set left child of `w` to `b`.
+        let mut borrowed = vtree.borrow_mut();
+        match borrowed.node.clone() {
+            Node::Leaf(_) => panic!("cannot rotate leaf"),
+            Node::Internal(_, rc) => borrowed
+                .parent
+                .clone()
+                .unwrap()
+                .borrow_mut()
+                .set_left_child(&rc),
+        }
+
+        // Set right child of `x` to `w`.
+        let parent = borrowed.parent.clone().unwrap();
+        borrowed.set_right_child(&parent);
+
+        // Set parent of `x` to the parent of `w`.
+        borrowed.parent = parent.borrow().parent.clone();
+        if borrowed.parent.is_none() {
+            // `w` was the root therefore make `x` the new root.
+            self.root = Some(vtree.clone());
+        }
+
+        // Set parent of `w` to `x`.
+        parent.borrow_mut().parent = Some(vtree.clone());
+    }
+
+    /// Swaps children of in internal node.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called on a vtree representing a leaf node.
+    pub fn swap(&mut self, vtree: &VTreeRef) {
+        let mut borrowed = vtree.borrow_mut();
+        match &borrowed.node {
+            Node::Leaf(_) => panic!("cannot swap children of a leaf node"),
+            Node::Internal(lc, rc) => {
+                borrowed.node = Node::Internal(rc.clone(), lc.clone());
+            }
+        }
+    }
 }
 
 impl Dot for VTreeManager {
@@ -249,7 +324,6 @@ mod test {
 
     fn orders_eq(got_order: Vec<(VarLabel, u16)>, want_order: Vec<VarLabel>) {
         assert_eq!(got_order.len(), want_order.len());
-        println!("want: {:?}, got: {:?}", want_order, got_order);
         for ((got, _), want) in got_order.iter().zip(want_order) {
             assert_eq!(got, &want);
         }
@@ -316,18 +390,113 @@ mod test {
         manager.add_variable(VarLabel::new("A"));
         manager.add_variable(VarLabel::new("B"));
 
+        let root = manager.root.clone().unwrap();
+
         // <A, B> ~> <B, A>
-        manager.root.clone().unwrap().as_ref().borrow_mut().swap();
+        manager.swap(&root);
         orders_eq(
             manager.total_order(),
             vec![VarLabel::new("B"), VarLabel::new("A")],
         );
 
         // <B, A> ~> <A, B>
-        manager.root.clone().unwrap().as_ref().borrow_mut().swap();
+        manager.swap(&root);
         orders_eq(
             manager.total_order(),
             vec![VarLabel::new("A"), VarLabel::new("B")],
         );
+    }
+
+    #[test]
+    fn rotate() {
+        let mut manager = VTreeManager::new();
+        manager.add_variable(VarLabel::new("A"));
+        manager.add_variable(VarLabel::new("B"));
+        manager.add_variable(VarLabel::new("C"));
+        let want_order = vec![VarLabel::new("A"), VarLabel::new("B"), VarLabel::new("C")];
+
+        // The tree intially looks like this:
+        //    x
+        //   / \
+        //  A   y
+        //     / \
+        //    B   C
+
+        let x = manager.root.clone().unwrap().as_ref().borrow().node.clone();
+
+        let rc = match x {
+            Node::Leaf(_) => panic!("cannot happen"),
+            Node::Internal(_, rc) => rc,
+        };
+
+        manager.rotate_left(&rc);
+
+        // The total order must not change when rotating.
+        orders_eq(manager.total_order(), want_order.clone());
+
+        // The tree must look like this:
+        //     y
+        //    / \
+        //   x   C
+        //  / \
+        // A   B
+
+        let y = manager.root.as_ref().unwrap().borrow().node.clone();
+        let x = match y {
+            Node::Leaf(_) => panic!("root cannot be currently a leaf"),
+            Node::Internal(lc, rc) => {
+                let c = rc.borrow().node.clone();
+
+                assert!(matches!(c, Node::Leaf(label) if label.eq(&VarLabel::new("C"))));
+
+                lc.clone()
+            }
+        };
+
+        match x.borrow().node.clone() {
+            Node::Leaf(_) => panic!("this should've been an internal node"),
+            Node::Internal(lc, rc) => {
+                let a = lc.borrow().node.clone();
+                let b = rc.borrow().node.clone();
+
+                assert!(matches!(a, Node::Leaf(label) if label.eq(&VarLabel::new("A"))));
+                assert!(matches!(b, Node::Leaf(label) if label.eq(&VarLabel::new("B"))));
+            }
+        };
+
+        manager.rotate_right(&x);
+
+        // The total order must not change when rotating.
+        orders_eq(manager.total_order(), want_order.clone());
+
+        // The tree should like exactly like in the beginning:
+        //    x
+        //   / \
+        //  A   y
+        //     / \
+        //    B   C
+
+        let x = manager.root.as_ref().unwrap().borrow().node.clone();
+        let y = match x {
+            Node::Leaf(_) => panic!("root cannot be currently a leaf"),
+            Node::Internal(lc, rc) => {
+                let a = lc.borrow().node.clone();
+
+                assert!(matches!(a, Node::Leaf(label) if label.eq(&VarLabel::new("A"))));
+
+                rc.clone()
+            }
+        };
+
+        match y.borrow().node.clone() {
+            Node::Leaf(_) => panic!("this should've been an internal node"),
+            Node::Internal(lc, rc) => {
+                let b = lc.borrow().node.clone();
+                let c = rc.borrow().node.clone();
+
+                assert!(matches!(b, Node::Leaf(label) if label.eq(&VarLabel::new("B"))));
+                assert!(matches!(c, Node::Leaf(label) if label.eq(&VarLabel::new("C"))));
+            }
+        };
     }
 }
