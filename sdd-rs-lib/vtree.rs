@@ -37,8 +37,8 @@ impl Debug for VTree {
                 f,
                 "internal {} ({}, {})",
                 self.idx,
-                lc.as_ref().borrow().idx,
-                rc.as_ref().borrow().idx
+                lc.borrow().idx,
+                rc.borrow().idx
             ),
         }
     }
@@ -123,18 +123,18 @@ impl VTreeManager {
                 }
 
                 let parent = VTree::new_as_ref(
-                    rightest.as_ref().borrow().parent.clone(),
+                    rightest.borrow().parent.clone(),
                     self.next_idx,
                     Node::Internal(rightest.clone(), new_leaf.clone()),
                 );
                 self.next_idx += 1;
 
-                rightest.as_ref().borrow_mut().parent = Some(parent.clone());
-                new_leaf.as_ref().borrow_mut().parent = Some(parent.clone());
+                rightest.borrow_mut().parent = Some(parent.clone());
+                new_leaf.borrow_mut().parent = Some(parent.clone());
 
                 match parent.borrow().parent.as_ref() {
                     None => self.root = Some(parent.clone()),
-                    Some(p_parent) => p_parent.as_ref().borrow_mut().set_right_child(&parent),
+                    Some(p_parent) => p_parent.borrow_mut().set_right_child(&parent),
                 };
             }
         }
@@ -143,8 +143,8 @@ impl VTreeManager {
     #[must_use]
     pub fn total_order(&self) -> Vec<(VarLabel, u16)> {
         fn dfs(vtree: &VTreeRef, order: &mut Vec<(VarLabel, u16)>) {
-            let idx = vtree.as_ref().borrow().idx;
-            match vtree.as_ref().borrow().node.clone() {
+            let idx = vtree.borrow().idx;
+            match vtree.borrow().node.clone() {
                 Node::Leaf(label) => order.push((label, idx)),
                 Node::Internal(lc, rc) => {
                     dfs(&lc, order);
@@ -192,7 +192,6 @@ impl VTreeManager {
                 .parent
                 .clone()
                 .unwrap()
-                .as_ref()
                 .borrow_mut()
                 .set_right_child(&lc),
         }
@@ -262,7 +261,7 @@ impl VTreeManager {
         parent.borrow_mut().parent = Some(vtree.clone());
     }
 
-    /// Swaps children of in internal node.
+    /// Swaps children of internal node.
     ///
     /// # Panics
     ///
@@ -355,16 +354,16 @@ mod test {
         //  A   *
         //     / \
         //    B   C
-        if let Node::Internal(lc, rc) = manager.root.unwrap().as_ref().borrow().node.clone() {
-            let a = lc.as_ref().borrow().node.clone();
+        if let Node::Internal(lc, rc) = manager.root.unwrap().borrow().node.clone() {
+            let a = lc.borrow().node.clone();
             assert!(matches!(a, Node::Leaf(label) if label.eq(&VarLabel::new("A"))));
 
-            let inner = rc.as_ref().borrow().node.clone();
+            let inner = rc.borrow().node.clone();
             match inner {
                 Node::Leaf(_) => panic!("Node should've been internal"),
                 Node::Internal(lc, rc) => {
-                    let b = lc.as_ref().borrow().node.clone();
-                    let c = rc.as_ref().borrow().node.clone();
+                    let b = lc.borrow().node.clone();
+                    let c = rc.borrow().node.clone();
 
                     assert!(matches!(b, Node::Leaf(label) if label.eq(&VarLabel::new("B"))));
                     assert!(matches!(c, Node::Leaf(label) if label.eq(&VarLabel::new("C"))));
@@ -422,7 +421,7 @@ mod test {
         //     / \
         //    B   C
 
-        let x = manager.root.clone().unwrap().as_ref().borrow().node.clone();
+        let x = manager.root.clone().unwrap().borrow().node.clone();
 
         let rc = match x {
             Node::Leaf(_) => panic!("cannot happen"),
