@@ -104,7 +104,7 @@ impl VTree {
         self.inorder_last.clone().unwrap().borrow().idx
     }
 
-    fn least_common_ancestor(fst: &VTreeRef, snd: &VTreeRef) -> (VTreeRef, VTreeOrder) {
+    pub(crate) fn least_common_ancestor(fst: &VTreeRef, snd: &VTreeRef) -> (VTreeRef, VTreeOrder) {
         let (fst_idx, snd_idx) = (fst.borrow().idx, snd.borrow().idx);
         assert!(
             fst_idx <= snd_idx,
@@ -146,6 +146,7 @@ impl VTree {
     }
 }
 
+/// VTreeOrder describes the relation between two vtrees.
 #[derive(Debug, PartialEq)]
 pub(crate) enum VTreeOrder {
     // The two compared vtrees are one and the same.
@@ -163,6 +164,8 @@ pub(crate) type VTreeRef = Rc<RefCell<VTree>>;
 pub struct VTreeManager {
     root: Option<VTreeRef>,
 
+    // TODO: Fix the meaningless bookkeeping and computation of
+    // next_idx in `VTreeManager::add_variable`.
     next_idx: u16,
 }
 
@@ -184,6 +187,7 @@ impl VTreeManager {
         if self.root.is_none() {
             self.next_idx += 1;
             self.root = Some(new_leaf);
+            VTreeManager::set_inorder_indices(self.root.clone().unwrap(), 0);
             return;
         }
 

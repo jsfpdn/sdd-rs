@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, PartialOrd, Ord)]
-pub struct VarLabel(String);
+pub(crate) struct VarLabel(String);
 
 impl VarLabel {
     #[must_use]
@@ -16,12 +16,6 @@ impl VarLabel {
 }
 
 // Either true or false
-#[derive(Hash, Eq, PartialEq, Debug, Clone, PartialOrd, Ord)]
-pub struct Literal {
-    var_label: VarLabel,
-    polarity: Polarity,
-}
-
 #[derive(Hash, Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Copy)]
 pub enum Polarity {
     Positive,
@@ -39,11 +33,17 @@ impl std::ops::Not for Polarity {
     }
 }
 
+#[derive(Hash, Eq, PartialEq, Debug, Clone, PartialOrd, Ord)]
+pub struct Literal {
+    var_label: VarLabel,
+    polarity: Polarity,
+}
+
 impl Literal {
     #[must_use]
-    pub fn new(polarity: Polarity, var_label: VarLabel) -> Literal {
+    pub fn new(polarity: Polarity, variable: &str) -> Literal {
         Literal {
-            var_label,
+            var_label: VarLabel::new(variable),
             polarity,
         }
     }
@@ -67,7 +67,7 @@ impl Literal {
     }
 
     #[must_use]
-    pub fn var_label(self) -> VarLabel {
+    pub(crate) fn var_label(self) -> VarLabel {
         self.var_label
     }
 }

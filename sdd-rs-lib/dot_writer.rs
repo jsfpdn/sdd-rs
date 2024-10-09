@@ -1,7 +1,7 @@
-use crate::Result;
+use crate::{manager::SddManager, Result};
 
 pub trait Dot {
-    fn draw(&self, writer: &mut DotWriter);
+    fn draw<'a>(&self, writer: &mut DotWriter, manager: &SddManager);
 }
 
 pub enum Edge {
