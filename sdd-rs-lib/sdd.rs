@@ -641,11 +641,61 @@ mod test {
 
     #[test]
     fn not_compressed() {
-        // TODO: Implement me!
+        let pos_a = create_literal(Literal::new(Polarity::Positive, "A"));
+        let neg_b = create_literal(Literal::new(Polarity::Negative, "B"));
+        let element_1 = Element {
+            prime: Sdd::new_true().id(),
+            sub: neg_b.id(),
+        };
+
+        let element_2 = Element {
+            prime: pos_a.id(),
+            sub: neg_b.id(),
+        };
+
+        // Decomposition `{(true, !B), (A, !B)}` is not compressed due to identical subs.
+        let decision_1 = Decision {
+            elements: btreeset!(element_1, element_2),
+        };
+
+        let sdd = Sdd {
+            sdd_type: SddType::DecisionRegular(decision_1),
+            vtree_idx: 0, // TODO: Fix vtree index
+        };
+
+        let decisions = &vec![sdd.clone(), pos_a, neg_b];
+        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
+
+        assert!(!sdd.is_compressed(&manager));
     }
 
     #[test]
     fn compressed() {
-        // TODO: Implement me!
+        let pos_a = create_literal(Literal::new(Polarity::Positive, "A"));
+        let neg_b = create_literal(Literal::new(Polarity::Negative, "B"));
+        let element_1 = Element {
+            prime: Sdd::new_true().id(),
+            sub: neg_b.id(),
+        };
+
+        let element_2 = Element {
+            prime: pos_a.id(),
+            sub: Sdd::new_true().id(),
+        };
+
+        // Decomposition `{(true, !B), (A, true)}` is compressed.
+        let decision_1 = Decision {
+            elements: btreeset!(element_1, element_2),
+        };
+
+        let sdd = Sdd {
+            sdd_type: SddType::DecisionRegular(decision_1),
+            vtree_idx: 0, // TODO: Fix vtree index
+        };
+
+        let decisions = &vec![sdd.clone(), pos_a, neg_b];
+        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
+
+        assert!(sdd.is_compressed(&manager));
     }
 }
