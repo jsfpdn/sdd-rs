@@ -51,12 +51,20 @@ impl Element {
 
     fn get_prime_sub<'a>(&self, manager: &'a SddManager) -> (Sdd, Sdd) {
         (
-            manager
-                .get_node(self.prime)
-                .expect("element_prime not present in unique_table"),
-            manager
-                .get_node(self.sub)
-                .expect("element_sub not present in unique_table"),
+            manager.get_node(self.prime).expect(
+                format!(
+                    "element_prime with id {} not present in unique_table",
+                    self.prime
+                )
+                .as_str(),
+            ),
+            manager.get_node(self.sub).expect(
+                format!(
+                    "element_sub with id {} not present in unique_table",
+                    self.sub
+                )
+                .as_str(),
+            ),
         )
     }
 }
@@ -399,173 +407,236 @@ impl Decision {
 
 #[cfg(test)]
 mod test {
-    use super::{Element, Sdd, SddType};
+    // TODO: Fix the tests.
+    // TODO: Test apply for normalized SDDs.
+    use super::{Decision, Element, Sdd, SddType};
+    use crate::btreeset;
     use crate::literal::{Literal, Polarity};
+    use crate::manager::SddManager;
+    use crate::options::SddOptions;
 
     #[test]
     fn not_trimmed_simple() {
         // TODO: Fix tests to use the hashes. This means properly loading the table with nodes.
-        // let element = Element {
-        //     prime: Sdd::True,
-        //     sub: Sdd::False,
-        // };
+        let element = Element {
+            prime: Sdd::new_true().id(),
+            sub: Sdd::new_false().id(),
+        };
 
-        // // Decomposition `{(true, false)}`.
-        // let decision = &Decision {
-        //     elements: btreeset!(&element),
-        // };
-        // let sdd = &Sdd::DecisionRegular(decision);
+        // Decomposition `{(true, false)}`.
+        let decision = Decision {
+            elements: btreeset!(element),
+        };
+        let sdd = Sdd {
+            sdd_type: SddType::DecisionRegular(decision),
+            vtree_idx: 0, // TODO: Fix vtree index.
+        };
 
-        // let decisions = &vec![sdd];
-        // let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
+        let decisions = &vec![sdd.clone()];
+        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
 
-        // // Decomposition {(True, False)} is not trimmed.
-        // let node = manager.get_node(sdd.id());
-        // assert!(!node.is_trimmed(&manager));
+        // Decomposition {(True, False)} is not trimmed.
+        let node = manager
+            .get_node(sdd.id())
+            .expect("node is not present in the unique table");
+        assert!(!node.is_trimmed(&manager));
+    }
+
+    fn create_literal(literal: Literal) -> Sdd {
+        Sdd {
+            sdd_type: SddType::Literal(literal),
+            // TODO: Fix vtree index
+            vtree_idx: 0,
+        }
     }
 
     #[test]
     fn not_trimmed_simple_2() {
-        // let element = Element {
-        //     prime: &Sdd::True,
-        //     sub: &boxed_literal(Polarity::Positive, "A"),
-        // };
+        let mut all_sdds: Vec<Sdd> = vec![];
+
+        let a = create_literal(Literal::new(Polarity::Positive, "A"));
+        let element = Element {
+            prime: Sdd::new_true().id(),
+            sub: a.id(),
+        };
+
+        all_sdds.push(a);
 
         // // Decomposition `{(true, A)}`.
-        // let decision = &Decision {
-        //     elements: btreeset!(&element),
-        // };
-        // let sdd = &Sdd::DecisionRegular(decision);
+        let decision = Decision {
+            elements: btreeset!(element),
+        };
+        let sdd = Sdd {
+            sdd_type: SddType::DecisionRegular(decision),
+            vtree_idx: 0, // TODO: Fix vtree index.
+        };
+        all_sdds.push(sdd.clone());
 
-        // let decisions = &vec![sdd];
-        // let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
+        let manager = SddManager::new_with_nodes(SddOptions::new(), &all_sdds);
 
-        // // Decomposition {(A, true)} is not trimmed.
-        // let node = manager.get_node(sdd.id());
-        // assert!(!node.is_trimmed(&manager));
+        // Decomposition {(A, true)} is not trimmed.
+        let node = manager
+            .get_node(sdd.id())
+            .expect("node is not present in the unique table");
+        assert!(!node.is_trimmed(&manager));
     }
 
     #[test]
     fn not_trimmed_complex() {
-        // let element_1 = Element {
-        //     prime: &boxed_literal(Polarity::Positive, "A"),
-        //     sub: &Sdd::True,
-        // };
-        // let element_2 = Element {
-        //     prime: &boxed_literal(Polarity::Negative, "A"),
-        //     sub: &Sdd::False,
-        // };
+        let pos_a = create_literal(Literal::new(Polarity::Positive, "A"));
+        let element_1 = Element {
+            prime: pos_a.id(),
+            sub: Sdd::new_true().id(),
+        };
+
+        let neg_a = create_literal(Literal::new(Polarity::Negative, "A"));
+        let element_2 = Element {
+            prime: neg_a.id(),
+            sub: Sdd::new_false().id(),
+        };
 
         // // Decomposition `{(A, true), (!A, false)}`.
-        // let decision = &Decision {
-        //     elements: btreeset!(&element_1, &element_2),
-        // };
-        // let sdd = &Sdd::DecisionRegular(decision);
+        let decision = Decision {
+            elements: btreeset!(element_1, element_2),
+        };
+        let sdd = Sdd {
+            sdd_type: SddType::DecisionRegular(decision),
+            vtree_idx: 0, // TODO: Fix vtree index
+        };
 
-        // let decisions = &vec![sdd];
-        // let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
+        let decisions = &vec![sdd.clone(), neg_a, pos_a];
+        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
 
-        // // Decomposition `{(A, true), (!A, false)}` is not trimmed.
-        // let node = manager.get_node(sdd.id());
-        // assert!(!node.is_trimmed(&manager));
+        // Decomposition `{(A, true), (!A, false)}` is not trimmed.
+        let node = manager
+            .get_node(sdd.id())
+            .expect("node is not present in the unique table");
+        assert!(!node.is_trimmed(&manager));
     }
 
     #[test]
     fn not_trimmed_recursive() {
-        // // Check that decomposition is recursivelly checked.
-        // let element_1_1 = Element {
-        //     prime: &Sdd::True,
-        //     sub: &boxed_literal(Polarity::Negative, "B"),
-        // };
+        // Check that decomposition is recursivelly checked.
+        let neg_b = create_literal(Literal::new(Polarity::Negative, "B"));
+        let element_1_1 = Element {
+            prime: Sdd::new_true().id(),
+            sub: neg_b.id(),
+        };
 
-        // // Decomposition `{(true, !B)}`. This is where the SDD stops being trimmed.
-        // let decision_1 = &Decision {
-        //     elements: btreeset!(&element_1_1),
-        // };
+        // Decomposition `{(true, !B)}`. This is where the SDD stops being trimmed.
+        let decision_1 = Decision {
+            elements: btreeset!(element_1_1),
+        };
 
-        // let sdd_1 = &Sdd::DecisionRegular(decision_1);
+        let sdd_1 = Sdd {
+            sdd_type: SddType::DecisionRegular(decision_1),
+            vtree_idx: 0, // TODO: Fix vtree index
+        };
 
-        // let element_2_1 = Element {
-        //     prime: &boxed_literal(Polarity::Positive, "A"),
-        //     sub: &Sdd::True,
-        // };
+        let pos_a = create_literal(Literal::new(Polarity::Positive, "A"));
+        let element_2_1 = Element {
+            prime: pos_a.id(),
+            sub: Sdd::new_true().id(),
+        };
 
-        // let element_2_2 = Element {
-        //     prime: &Sdd::DecisionRegular(decision_1),
-        //     sub: &Sdd::False,
-        // };
+        let element_2_2 = Element {
+            prime: sdd_1.id(),
+            sub: Sdd::new_false().id(),
+        };
 
         // // Decomposition `{(A, true), (ptr, false)}` where ptr is the decomposition `{(true, !B)}`.
-        // let decision_2 = &Decision {
-        //     elements: btreeset!(&element_2_1, &element_2_2),
-        // };
+        let decision_2 = Decision {
+            elements: btreeset!(element_2_1, element_2_2),
+        };
 
-        // let sdd_2 = &Sdd::DecisionRegular(decision_2);
+        let sdd_2 = Sdd {
+            sdd_type: SddType::DecisionRegular(decision_2),
+            vtree_idx: 0, // TODO: Fix vtree index
+        };
 
-        // let decisions = &vec![sdd_1, sdd_2];
-        // let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
-
-        // assert!(!node.is_trimmed(&manager));
+        let decisions = &vec![sdd_1, sdd_2.clone(), pos_a, neg_b];
+        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
+        let node = manager
+            .get_node(sdd_2.id())
+            .expect("node is not present in the unique table");
+        assert!(!node.is_trimmed(&manager));
     }
 
     #[test]
     fn trimmed_complex() {
-        // let element_1 = Element {
-        //     prime: &boxed_literal(Polarity::Positive, "A"),
-        //     sub: &Sdd::True,
-        // };
-        // let element_2 = Element {
-        //     prime: &boxed_literal(Polarity::Positive, "A"),
-        //     sub: &Sdd::False,
-        // };
+        let pos_a = create_literal(Literal::new(Polarity::Positive, "A"));
+        let element_1 = Element {
+            prime: pos_a.id(),
+            sub: Sdd::new_true().id(),
+        };
 
-        // // Decomposition `{(A, true), (B, false)}`.
-        // let decision = &Decision {
-        //     elements: btreeset!(&element_1, &element_2),
-        // };
-        // let sdd = &Sdd::DecisionRegular(decision);
+        let element_2 = Element {
+            prime: pos_a.id(),
+            sub: Sdd::new_false().id(),
+        };
 
-        // let decisions = &vec![sdd];
-        // let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
+        // Decomposition `{(A, true), (B, false)}`.
+        let decision = Decision {
+            elements: btreeset!(element_1, element_2),
+        };
+        let sdd = Sdd {
+            sdd_type: SddType::DecisionRegular(decision),
+            vtree_idx: 0, // TODO: Fix vtree index.
+        };
 
-        // // Decomposition {(A, true), (B, false)} is trimmed.
-        // let node = manager.get_node(sdd.id());
-        // assert!(node.is_trimmed(&manager));
+        let decisions = &vec![sdd.clone(), pos_a];
+        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
+
+        // Decomposition {(A, true), (B, false)} is trimmed.
+        let node = manager
+            .get_node(sdd.id())
+            .expect("node is not present in the unique table");
+        assert!(node.is_trimmed(&manager));
     }
 
     #[test]
     fn trimmed_recursive() {
-        // let element_1_1 = Element {
-        //     prime: &boxed_literal(Polarity::Negative, "B"),
-        //     sub: &Sdd::True,
-        // };
+        let neg_b = create_literal(Literal::new(Polarity::Negative, "B"));
+        let element_1_1 = Element {
+            prime: neg_b.id(),
+            sub: Sdd::new_true().id(),
+        };
 
-        // // Decomposition `{(!B, true)}`.
-        // let decision_1 = &Decision {
-        //     elements: btreeset!(&element_1_1),
-        // };
-        // let sdd_1 = &Sdd::DecisionRegular(decision_1);
+        // Decomposition `{(!B, true)}`.
+        let decision_1 = Decision {
+            elements: btreeset!(element_1_1),
+        };
+        let sdd_1 = Sdd {
+            sdd_type: SddType::DecisionRegular(decision_1),
+            vtree_idx: 0, // TODO: Fix vtree index
+        };
 
-        // let element_2_1 = Element {
-        //     prime: &boxed_literal(Polarity::Positive, "A"),
-        //     sub: &Sdd::True,
-        // };
-        // let element_2_2 = Element {
-        //     prime: sdd_1,
-        //     sub: &Sdd::False,
-        // };
+        let pos_a = create_literal(Literal::new(Polarity::Positive, "A"));
+        let element_2_1 = Element {
+            prime: pos_a.id(),
+            sub: Sdd::new_true().id(),
+        };
+        let element_2_2 = Element {
+            prime: sdd_1.id(),
+            sub: Sdd::new_false().id(),
+        };
 
-        // // Decomposition `{(A, true), (ptr, false)}`, where ptr is `{(!B, true)}`.
-        // let decision_2 = &Decision {
-        //     elements: btreeset!(&element_2_1, &element_2_2),
-        // };
-        // let sdd_2 = &Sdd::DecisionRegular(decision_2);
+        // Decomposition `{(A, true), (ptr, false)}`, where ptr is `{(!B, true)}`.
+        let decision_2 = Decision {
+            elements: btreeset!(element_2_1, element_2_2),
+        };
+        let sdd_2 = Sdd {
+            sdd_type: SddType::DecisionRegular(decision_2),
+            vtree_idx: 0, // TODO: Fix vtree index
+        };
 
-        // let decisions = &vec![sdd_1, sdd_2];
-        // let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
+        let decisions = &vec![sdd_1, sdd_2.clone(), pos_a, neg_b];
+        let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
 
-        // let node = manager.get_node(sdd_2.id());
-        // assert!(node.is_trimmed(&manager));
+        let node = manager
+            .get_node(sdd_2.id())
+            .expect("node is not present in the unique table");
+        assert!(node.is_trimmed(&manager));
     }
 
     #[test]

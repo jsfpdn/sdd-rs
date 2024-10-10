@@ -4,7 +4,7 @@ use crate::{
     literal::{self, Polarity},
     options::SddOptions,
     sdd::{Decision, Element, Sdd, SddType},
-    vtree::VTreeManager,
+    vtree::{VTree, VTreeManager},
     Result,
 };
 
@@ -64,16 +64,18 @@ impl SddManager {
     // TODO: This function should be removed as user should not be able to fill the unique_table
     // directly.
     #[must_use]
-    pub fn new_with_nodes(options: SddOptions, sdds: &[Sdd]) -> SddManager {
+    pub(crate) fn new_with_nodes(options: SddOptions, sdds: &[Sdd]) -> SddManager {
         let mut table = HashMap::new();
         for sdd in sdds {
-            table.insert(sdd.id(), sdd);
+            table.insert(sdd.id(), sdd.clone());
         }
+        table.insert(Sdd::new_true().id(), Sdd::new_true());
+        table.insert(Sdd::new_false().id(), Sdd::new_false());
 
         SddManager {
             options,
             vtree_manager: RefCell::new(VTreeManager::new()),
-            unique_table: RefCell::new(HashMap::new()),
+            unique_table: RefCell::new(table),
             op_cache: RefCell::new(HashMap::new()),
         }
     }
