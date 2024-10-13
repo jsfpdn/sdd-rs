@@ -99,7 +99,7 @@ impl Dot for Element {
 }
 
 #[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord, Debug)]
-pub enum SddType {
+pub(crate) enum SddType {
     True,
     False,
     Literal(Literal),
@@ -281,24 +281,49 @@ impl Sdd {
         }
     }
 
-    pub fn is_consistent(&self) -> bool {
+    /// Canonicalize SDD by trimming and compressing it. Only decision nodes can
+    /// be canonicalized. Returns the SDD and flag whether it had to be canonicalized or not.
+    ///
+    /// Decision node is trimmed by replacing decompositions {(true, alpha)}
+    /// and {(alpha, true), (!alpha, false)} with alpha. SDD is compressed by repeatedly
+    /// replacing elements `(p, s)` and `(q, s)` with `(p || q, s)`.
+    pub(crate) fn canonicalize(&mut self, manager: &SddManager) {
+        match self {
+            Sdd {
+                sdd_type: SddType::DecisionComplement(decision) | SddType::DecisionRegular(decision),
+                ..
+            } => {
+                if let Some(trimmed_sdd) = decision.trim(manager) {
+                    *self = trimmed_sdd;
+                } else {
+                    decision.compress(manager);
+                    if let Some(trimmed_sdd) = decision.trim(manager) {
+                        *self = trimmed_sdd;
+                    }
+                }
+            }
+            _ => {}
+        };
+    }
+
+    pub(crate) fn is_consistent(&self) -> bool {
         unimplemented!();
     }
 
     pub(crate) fn unique_d<'b>(gamma: BTreeSet<Element>) -> Sdd {
         // gamma == {(T, T)}?
-        if gamma.eq(&btreeset!(Element {
+        if gamma.eq(&btreeset![Element {
             prime: Sdd::new_true().id(),
-            sub: Sdd::new_true().id()
-        })) {
+            sub: Sdd::new_true().id(),
+        }]) {
             return Sdd::new_true();
         }
 
         // gamma == {(T, F)}?
-        if gamma.eq(&btreeset!(Element {
+        if gamma.eq(&btreeset![Element {
             prime: Sdd::new_true().id(),
-            sub: Sdd::new_false().id()
-        })) {
+            sub: Sdd::new_false().id(),
+        }]) {
             return Sdd::new_false();
         }
 
@@ -395,20 +420,57 @@ impl Decision {
         self.elements.iter().all(|el| el.is_compressed(manager))
     }
 
-    /// Recursivelly trims and compresses SDD.
-    ///
-    /// SDD is trimmed by traversing bottom up, replacing decompositions {(true, alpha)} and {(alpha, true), (!alpha, false)} with alpha.
-    /// SDD is decompressed by repeatedly replacing elements `(p, s)` and `(q, s)` with
-    /// `(p || q, s)`.
-    pub(crate) fn trim_and_compress(&mut self) {
-        unimplemented!()
+    /// Trim decision node by replacing decompositions {(true, alpha)}
+    /// and {(alpha, true), (!alpha, false)} with alpha. Returns a Boolean
+    /// denoting whether the decision node had to be trimmed.
+    fn trim(&mut self, manager: &SddManager) -> Option<Sdd> {
+        println!("trimming...");
+        let elements: Vec<&Element> = self.elements.iter().collect();
+        if self.elements.len() == 1 {
+            let el = elements.get(0).unwrap();
+            if el.prime == Sdd::new_true().id() {
+                match manager.get_node(el.sub) {
+                    Some(sdd) => return Some(sdd),
+                    None => panic!("el.sub must be present in unique_table"),
+                }
+            }
+        }
+
+        if self.elements.len() == 2 {
+            let el_1 = elements.get(0).unwrap();
+            let el_2 = elements.get(1).unwrap();
+
+            let el_1_prime;
+            let el_2_prime;
+            if el_1.sub == Sdd::new_true().id() && el_2.sub == Sdd::new_false().id() {
+                // Check for {(_, true), (_, false)}.
+                el_1_prime = manager.get_node(el_1.prime).unwrap();
+                el_2_prime = manager.get_node(el_2.prime).unwrap();
+            } else if el_2.sub == Sdd::new_true().id() && el_1.sub == Sdd::new_false().id() {
+                // Check for {(_, false), (_, true)}.
+                el_1_prime = manager.get_node(el_2.prime).unwrap();
+                el_2_prime = manager.get_node(el_1.prime).unwrap();
+            } else {
+                return None;
+            }
+
+            if el_1_prime.eq_negated(&el_2_prime) {
+                return Some(el_1_prime);
+            }
+        }
+
+        None
+    }
+
+    /// Compress decision node by repeatedly replacing elements
+    /// `(p, s)` and `(q, s)` with `(p || q, s)`.
+    pub(crate) fn compress(&mut self, manager: &SddManager) -> Option<Decision> {
+        None
     }
 }
 
 #[cfg(test)]
 mod test {
-    // TODO: Fix the tests.
-    // TODO: Test apply for normalized SDDs.
     use super::{Decision, Element, Sdd, SddType};
     use crate::btreeset;
     use crate::literal::{Literal, Polarity};
@@ -417,7 +479,6 @@ mod test {
 
     #[test]
     fn not_trimmed_simple() {
-        // TODO: Fix tests to use the hashes. This means properly loading the table with nodes.
         let element = Element {
             prime: Sdd::new_true().id(),
             sub: Sdd::new_false().id(),
@@ -436,10 +497,14 @@ mod test {
         let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
 
         // Decomposition {(True, False)} is not trimmed.
-        let node = manager
+        let mut node = manager
             .get_node(sdd.id())
             .expect("node is not present in the unique table");
         assert!(!node.is_trimmed(&manager));
+
+        node.canonicalize(&manager);
+        assert!(node.is_trimmed(&manager));
+        assert_eq!(node, Sdd::new_false());
     }
 
     fn create_literal(literal: Literal) -> Sdd {
@@ -475,10 +540,14 @@ mod test {
         let manager = SddManager::new_with_nodes(SddOptions::new(), &all_sdds);
 
         // Decomposition {(A, true)} is not trimmed.
-        let node = manager
+        let mut node = manager
             .get_node(sdd.id())
             .expect("node is not present in the unique table");
         assert!(!node.is_trimmed(&manager));
+
+        node.canonicalize(&manager);
+        assert!(node.is_trimmed(&manager));
+        assert_eq!(node, create_literal(Literal::new(Polarity::Positive, "A")));
     }
 
     #[test]
@@ -508,10 +577,14 @@ mod test {
         let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
 
         // Decomposition `{(A, true), (!A, false)}` is not trimmed.
-        let node = manager
+        let mut node = manager
             .get_node(sdd.id())
             .expect("node is not present in the unique table");
         assert!(!node.is_trimmed(&manager));
+
+        node.canonicalize(&manager);
+        assert!(node.is_trimmed(&manager));
+        assert_eq!(node, create_literal(Literal::new(Polarity::Positive, "A")));
     }
 
     #[test]
@@ -528,7 +601,7 @@ mod test {
             elements: btreeset!(element_1_1),
         };
 
-        let sdd_1 = Sdd {
+        let mut sdd_1 = Sdd {
             sdd_type: SddType::DecisionRegular(decision_1),
             vtree_idx: 0, // TODO: Fix vtree index
         };
@@ -554,12 +627,13 @@ mod test {
             vtree_idx: 0, // TODO: Fix vtree index
         };
 
-        let decisions = &vec![sdd_1, sdd_2.clone(), pos_a, neg_b];
+        let decisions = &vec![sdd_1.clone(), sdd_2.clone(), pos_a, neg_b];
         let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
         let node = manager
             .get_node(sdd_2.id())
             .expect("node is not present in the unique table");
         assert!(!node.is_trimmed(&manager));
+        assert!(!sdd_1.is_trimmed(&manager));
     }
 
     #[test]
