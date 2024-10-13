@@ -4,7 +4,7 @@ use crate::{
     literal::{self, Polarity},
     options::SddOptions,
     sdd::{Decision, Element, Sdd, SddType},
-    vtree::{VTree, VTreeManager},
+    vtree::{VTreeManager, VTreeOrder},
     Result,
 };
 
@@ -88,15 +88,21 @@ impl SddManager {
     }
 
     pub fn literal(&self, literal: &str, polarity: Polarity) -> Sdd {
-        self.vtree_manager
-            .borrow_mut()
-            .add_variable(literal::VarLabel::new(literal));
+        let var_label = literal::VarLabel::new(literal);
+        self.vtree_manager.borrow_mut().add_variable(&var_label);
+        let vtree_idx = self
+            .vtree_manager
+            .borrow()
+            .get_variable_vtree(&var_label)
+            .expect("var_label was just inserted, therefore it must be present and found")
+            .borrow()
+            .get_index();
 
         let literal = Sdd {
-            // TODO: Fix vtree index.
-            vtree_idx: 0,
             sdd_type: SddType::Literal(literal::Literal::new(polarity, literal)),
+            vtree_idx,
         };
+
         self.insert_node(&literal);
         literal
     }
@@ -210,13 +216,21 @@ impl SddManager {
     /// Apply operation on the two Sdds.
     #[must_use]
     fn apply(&self, fst: &Sdd, snd: &Sdd, op: Operation) -> Sdd {
-        // TODO: Check post-conditions, namely trimming & compression of the resulting Sdd.
         if fst.is_constant_or_literal() && snd.is_constant_or_literal() {
+            let (fst, snd) = if fst.vtree_idx < snd.vtree_idx {
+                (fst, snd)
+            } else {
+                (snd, fst)
+            };
+            let (vtree, _) = self
+                .vtree_manager
+                .borrow()
+                .least_common_ancestor(fst.vtree_idx, snd.vtree_idx);
+
             return Sdd {
-                // TODO: Fix vtree_idx
-                vtree_idx: 123,
+                // TODO: Double-check correctness of vtree index.
+                vtree_idx: vtree.borrow().get_index(),
                 sdd_type: match op {
-                    // TODO: Fix variable ordering.
                     Operation::Conjoin => SddType::DecisionRegular(Decision {
                         elements: btreeset!(Element {
                             prime: fst.id(),
@@ -224,7 +238,6 @@ impl SddManager {
                         }),
                     }),
 
-                    // TODO: Fix variable ordering.
                     Operation::Disjoin => SddType::DecisionRegular(Decision {
                         elements: btreeset!(
                             Element {
@@ -252,11 +265,32 @@ impl SddManager {
                 .clone();
         }
 
-        self._apply(fst, snd, op)
+        let (lca, order) = self
+            .vtree_manager
+            .borrow()
+            .least_common_ancestor(fst.vtree_idx, snd.vtree_idx);
+
+        let elements = match order {
+            VTreeOrder::Equal => self._apply_eq(fst, snd, op),
+            VTreeOrder::Inequal => self._apply_ineq(fst, snd, op),
+            VTreeOrder::LeftSubOfRight => self._apply_left_sub_of_right(fst, snd, op),
+            VTreeOrder::RightSubOfLeft => self._apply_right_sub_of_left(fst, snd, op),
+        };
+
+        let mut sdd = Sdd::unique_d(elements, lca.borrow().get_index());
+        sdd.canonicalize(self);
+
+        self.insert_node(&sdd);
+        self.cache_operation(fst.id(), snd.id(), op, sdd.id());
+
+        debug_assert!(sdd.is_trimmed(self));
+        debug_assert!(sdd.is_compressed(self));
+
+        sdd
     }
 
-    fn _apply(&self, fst: &Sdd, snd: &Sdd, op: Operation) -> Sdd {
-        let mut gamma = BTreeSet::new();
+    fn _apply_eq(&self, fst: &Sdd, snd: &Sdd, op: Operation) -> BTreeSet<Element> {
+        let mut elements = BTreeSet::new();
         for fst_elem in fst.expand().elements.iter() {
             for snd_elem in snd.expand().elements.iter() {
                 let res_prime = self.conjoin(
@@ -268,7 +302,8 @@ impl SddManager {
                         .expect("snd_prime not present"),
                 );
 
-                if res_prime.is_consistent() {
+                // TODO: Is checking against `false` sufficient? Do we have to get bit more involved here?
+                if res_prime.is_false() {
                     let fst_sub = &self.get_node(fst_elem.sub).expect("fst_sub not present");
                     let snd_sub = &self.get_node(snd_elem.sub).expect("snd_sub not present");
                     let res_sub = match op {
@@ -276,10 +311,15 @@ impl SddManager {
                         Operation::Disjoin => self.conjoin(fst_sub, snd_sub),
                     };
 
-                    // TODO: Should we cache primes and subs computed here? The paper caches only the resulting SDD.
+                    if res_sub.is_true() && res_prime.is_true() {
+                        println!(
+                            "_apply_eq: we can optimize since res_sub and res_prime are both true"
+                        )
+                    }
+
                     self.insert_node(&res_prime);
                     self.insert_node(&res_sub);
-                    gamma.insert(Element {
+                    elements.insert(Element {
                         prime: res_prime.id(),
                         sub: res_sub.id(),
                     });
@@ -288,12 +328,19 @@ impl SddManager {
             }
         }
 
-        let result = Sdd::unique_d(gamma);
-        self.insert_node(&result);
-        self.cache_operation(fst.id(), snd.id(), op, result.id());
-        println!("{:?} {:?} {:?} = {:?}", fst, op, snd, result);
+        elements
+    }
 
-        result
+    fn _apply_ineq(&self, fst: &Sdd, snd: &Sdd, op: Operation) -> BTreeSet<Element> {
+        unimplemented!("_apply_ineq not yet implemented")
+    }
+
+    fn _apply_left_sub_of_right(&self, fst: &Sdd, snd: &Sdd, op: Operation) -> BTreeSet<Element> {
+        unimplemented!("_apply_left_sub_of_right not yet implemented")
+    }
+
+    fn _apply_right_sub_of_left(&self, fst: &Sdd, snd: &Sdd, op: Operation) -> BTreeSet<Element> {
+        unimplemented!("_apply_right_sub_of_left not yet implemented")
     }
 
     pub fn condition() {}
@@ -445,8 +492,7 @@ mod test {
         let a_and_b = manager.conjoin(&lit_a, &lit_b);
         assert_eq!(
             Sdd {
-                // TODO: Fix vtree_idx
-                vtree_idx: 123,
+                vtree_idx: 1,
                 sdd_type: SddType::DecisionRegular(Decision {
                     elements: btreeset!(Element {
                         prime: lit_a.id(),
@@ -460,8 +506,7 @@ mod test {
         let a_or_b = manager.disjoin(&lit_a, &lit_b);
         assert_eq!(
             Sdd {
-                // TODO: Fix vtree_idx
-                vtree_idx: 123,
+                vtree_idx: 1,
                 sdd_type: SddType::DecisionRegular(Decision {
                     elements: btreeset!(
                         Element {
@@ -477,7 +522,5 @@ mod test {
             },
             a_or_b
         );
-
-        // TODO: Implement is_consistent next to unlock more complicated apply scenarios.
     }
 }

@@ -263,7 +263,7 @@ impl Sdd {
         }
     }
 
-    fn is_trimmed(&self, manager: &SddManager) -> bool {
+    pub(crate) fn is_trimmed(&self, manager: &SddManager) -> bool {
         match self.sdd_type.clone() {
             SddType::True | SddType::False | SddType::Literal(_) => true,
             SddType::DecisionRegular(decision) | SddType::DecisionComplement(decision) => {
@@ -272,7 +272,7 @@ impl Sdd {
         }
     }
 
-    fn is_compressed(&self, manager: &SddManager) -> bool {
+    pub(crate) fn is_compressed(&self, manager: &SddManager) -> bool {
         match self.sdd_type.clone() {
             SddType::True | SddType::False | SddType::Literal(_) => true,
             SddType::DecisionRegular(decision) | SddType::DecisionComplement(decision) => {
@@ -306,11 +306,7 @@ impl Sdd {
         };
     }
 
-    pub(crate) fn is_consistent(&self) -> bool {
-        unimplemented!();
-    }
-
-    pub(crate) fn unique_d<'b>(gamma: BTreeSet<Element>) -> Sdd {
+    pub(crate) fn unique_d<'b>(gamma: BTreeSet<Element>, vtree_idx: u16) -> Sdd {
         // gamma == {(T, T)}?
         if gamma.eq(&btreeset![Element {
             prime: Sdd::new_true().id(),
@@ -329,8 +325,7 @@ impl Sdd {
 
         Sdd {
             sdd_type: SddType::DecisionRegular(Decision { elements: gamma }),
-            // TODO: What's the proper vtree index?
-            vtree_idx: 0,
+            vtree_idx,
         }
     }
 
@@ -424,7 +419,6 @@ impl Decision {
     /// and {(alpha, true), (!alpha, false)} with alpha. Returns a Boolean
     /// denoting whether the decision node had to be trimmed.
     fn trim(&mut self, manager: &SddManager) -> Option<Sdd> {
-        println!("trimming...");
         let elements: Vec<&Element> = self.elements.iter().collect();
         if self.elements.len() == 1 {
             let el = elements.get(0).unwrap();
@@ -633,7 +627,7 @@ mod test {
             elements: btreeset!(element_1_1),
         };
 
-        let mut sdd_1 = Sdd {
+        let sdd_1 = Sdd {
             sdd_type: SddType::DecisionRegular(decision_1),
             vtree_idx: 0, // TODO: Fix vtree index
         };

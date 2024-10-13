@@ -73,6 +73,10 @@ impl VTree {
         Rc::new(RefCell::new(VTree::new(parent, idx, node)))
     }
 
+    pub(crate) fn get_index(&self) -> u16 {
+        self.idx
+    }
+
     /// Sets the left child of this [`VTree`].
     ///
     /// # Panics
@@ -155,8 +159,8 @@ impl VTreeManager {
 
     /// Add variable to the variable tree. The variable is inserted to the very end of the total
     /// variable order.
-    pub(crate) fn add_variable(&mut self, label: VarLabel) {
-        let new_leaf = VTree::new_as_ref(None, self.next_idx, Node::Leaf(label));
+    pub(crate) fn add_variable(&mut self, label: &VarLabel) {
+        let new_leaf = VTree::new_as_ref(None, self.next_idx, Node::Leaf(label.clone()));
         new_leaf.borrow_mut().inorder_last = Some(new_leaf.clone());
 
         if self.root.is_none() {
@@ -530,10 +534,10 @@ mod test {
         //     0  2     4  6
         //     A  B     C  D
         let mut manager = VTreeManager::new();
-        manager.add_variable(VarLabel::new("A"));
-        manager.add_variable(VarLabel::new("B"));
-        manager.add_variable(VarLabel::new("C"));
-        manager.add_variable(VarLabel::new("D"));
+        manager.add_variable(&VarLabel::new("A"));
+        manager.add_variable(&VarLabel::new("B"));
+        manager.add_variable(&VarLabel::new("C"));
+        manager.add_variable(&VarLabel::new("D"));
 
         // Rotate the right child of root to the left to make the tree balanced as in the diagram.
         let Node::Internal(_, rc) = manager
@@ -594,20 +598,20 @@ mod test {
         let mut manager = VTreeManager::new();
         assert!(manager.root.is_none());
 
-        manager.add_variable(VarLabel::new("A"));
+        manager.add_variable(&VarLabel::new("A"));
         assert!(manager.root.is_some());
         assert!(manager
             .root
             .clone()
             .is_some_and(|root| root.as_ref().borrow().node.is_leaf()));
 
-        manager.add_variable(VarLabel::new("B"));
+        manager.add_variable(&VarLabel::new("B"));
         assert!(manager
             .root
             .clone()
             .is_some_and(|root| root.as_ref().borrow().node.is_internal()));
 
-        manager.add_variable(VarLabel::new("C"));
+        manager.add_variable(&VarLabel::new("C"));
 
         // Test that the vtree has the following structure:
         //    *
@@ -636,9 +640,9 @@ mod test {
     #[test]
     fn variables_total_order_simple() {
         let mut manager = VTreeManager::new();
-        manager.add_variable(VarLabel::new("A"));
-        manager.add_variable(VarLabel::new("B"));
-        manager.add_variable(VarLabel::new("C"));
+        manager.add_variable(&VarLabel::new("A"));
+        manager.add_variable(&VarLabel::new("B"));
+        manager.add_variable(&VarLabel::new("C"));
 
         let want_order = vec![VarLabel::new("A"), VarLabel::new("B"), VarLabel::new("C")];
         orders_eq(manager.variables_total_order(), want_order);
@@ -647,8 +651,8 @@ mod test {
     #[test]
     fn variables_total_order_swap() {
         let mut manager = VTreeManager::new();
-        manager.add_variable(VarLabel::new("A"));
-        manager.add_variable(VarLabel::new("B"));
+        manager.add_variable(&VarLabel::new("A"));
+        manager.add_variable(&VarLabel::new("B"));
 
         let root = manager.root.clone().unwrap();
 
@@ -670,9 +674,9 @@ mod test {
     #[test]
     fn variables_total_order() {
         let mut manager = VTreeManager::new();
-        manager.add_variable(VarLabel::new("A"));
-        manager.add_variable(VarLabel::new("B"));
-        manager.add_variable(VarLabel::new("C"));
+        manager.add_variable(&VarLabel::new("A"));
+        manager.add_variable(&VarLabel::new("B"));
+        manager.add_variable(&VarLabel::new("C"));
         let want_order = vec![VarLabel::new("A"), VarLabel::new("B"), VarLabel::new("C")];
 
         // The tree intially looks like this:
@@ -763,10 +767,10 @@ mod test {
     #[test]
     fn least_common_ancestor() {
         let mut manager = VTreeManager::new();
-        manager.add_variable(VarLabel::new("A"));
-        manager.add_variable(VarLabel::new("B"));
-        manager.add_variable(VarLabel::new("C"));
-        manager.add_variable(VarLabel::new("D"));
+        manager.add_variable(&VarLabel::new("A"));
+        manager.add_variable(&VarLabel::new("B"));
+        manager.add_variable(&VarLabel::new("C"));
+        manager.add_variable(&VarLabel::new("D"));
         //           3
         //         /   \
         //        1     5
@@ -807,10 +811,10 @@ mod test {
         let var_label_index = |vtree: Option<VTreeRef>| -> u16 { vtree.unwrap().borrow().idx };
 
         let mut manager = VTreeManager::new();
-        manager.add_variable(VarLabel::new("A"));
-        manager.add_variable(VarLabel::new("B"));
-        manager.add_variable(VarLabel::new("C"));
-        manager.add_variable(VarLabel::new("D"));
+        manager.add_variable(&VarLabel::new("A"));
+        manager.add_variable(&VarLabel::new("B"));
+        manager.add_variable(&VarLabel::new("C"));
+        manager.add_variable(&VarLabel::new("D"));
         //     1
         //   /   \
         //  0     3
