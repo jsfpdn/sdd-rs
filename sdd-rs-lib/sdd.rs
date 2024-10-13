@@ -361,7 +361,7 @@ impl Decision {
     /// * elements are not stored in the SDD manager,
     /// * the decision node contains something else than boxed elements.
     #[must_use]
-    pub(crate) fn is_trimmed(&self, manager: &SddManager) -> bool {
+    fn is_trimmed(&self, manager: &SddManager) -> bool {
         let mut primes: HashSet<Sdd> = HashSet::new();
 
         if self.elements.len() >= 3 {
@@ -405,7 +405,7 @@ impl Decision {
     /// * elements are not stored in the SDD manager,
     /// * the decision node contains something else than boxed elements.
     #[must_use]
-    pub(crate) fn is_compressed(&self, manager: &SddManager) -> bool {
+    fn is_compressed(&self, manager: &SddManager) -> bool {
         let mut subs: HashSet<Sdd> = HashSet::new();
         for element in &self.elements {
             let (_, sub) = element.get_prime_sub(manager);
@@ -464,8 +464,40 @@ impl Decision {
 
     /// Compress decision node by repeatedly replacing elements
     /// `(p, s)` and `(q, s)` with `(p || q, s)`.
-    pub(crate) fn compress(&mut self, manager: &SddManager) -> Option<Decision> {
-        None
+    fn compress(&mut self, manager: &SddManager) {
+        let mut new_elements: Vec<Element> = self.elements.iter().map(Element::clone).collect();
+        let mut i = 0;
+        let mut end = self.elements.len();
+
+        while i < end {
+            let mut j = i + 1;
+
+            while j < end {
+                // TODO: Make sure the indexing actually works.
+                let prime_index = new_elements[i].prime;
+                let sub_index = new_elements[j].prime;
+                if prime_index == sub_index {
+                    let new_prime = manager.conjoin(
+                        &manager.get_node(prime_index).unwrap(),
+                        &manager.get_node(sub_index).unwrap(),
+                    );
+                    new_elements[i] = Element {
+                        prime: new_prime.id(),
+                        sub: new_elements[i].sub,
+                    };
+
+                    // Get rid of the redundant element at index `j` and continue iterating.
+                    new_elements.swap_remove(j);
+
+                    // TODO: Make sure the indexing actually works.
+                    end -= 1;
+                } else {
+                    j += 1;
+                }
+            }
+
+            i += 1;
+        }
     }
 }
 
@@ -715,6 +747,7 @@ mod test {
 
     #[test]
     fn not_compressed() {
+        // TODO: Test compression once disjunction actually works.
         let pos_a = create_literal(Literal::new(Polarity::Positive, "A"));
         let neg_b = create_literal(Literal::new(Polarity::Negative, "B"));
         let element_1 = Element {
