@@ -2,7 +2,7 @@ use std::{cell::RefCell, fmt::Debug, rc::Rc};
 
 use crate::{
     dot_writer::{Dot, DotWriter, Edge, NodeType},
-    literal::VarLabel,
+    literal::{Literal, VarLabel},
     manager::SddManager,
 };
 
@@ -364,6 +364,25 @@ impl VTreeManager {
         }
 
         VTreeManager::set_inorder_indices(self.root.clone().unwrap(), 0);
+    }
+
+    pub(crate) fn get_variable_vtree(&self, variable: &VarLabel) -> Option<VTreeRef> {
+        fn find_vtree(vtree: &VTreeRef, variable: &VarLabel) -> Option<VTreeRef> {
+            match vtree.borrow().node.clone() {
+                Node::Internal(lc, rc) => find_vtree(&lc, variable)
+                    .or(find_vtree(&rc, variable))
+                    .or(None),
+                Node::Leaf(candidate_variable) => {
+                    if *variable == candidate_variable {
+                        Some(vtree.clone())
+                    } else {
+                        None
+                    }
+                }
+            }
+        }
+
+        find_vtree(&self.root.clone().unwrap(), variable)
     }
 
     fn get_vtree(&self, index: u16) -> Option<VTreeRef> {
@@ -781,5 +800,42 @@ mod test {
         let (lca, ord) = manager.least_common_ancestor(0, 6);
         assert_eq!(ord, VTreeOrder::Inequal);
         assert_eq!(lca.borrow().idx, root_idx);
+    }
+
+    #[test]
+    fn literal_indices() {
+        let var_label_index = |vtree: Option<VTreeRef>| -> u16 { vtree.unwrap().borrow().idx };
+
+        let mut manager = VTreeManager::new();
+        manager.add_variable(VarLabel::new("A"));
+        manager.add_variable(VarLabel::new("B"));
+        manager.add_variable(VarLabel::new("C"));
+        manager.add_variable(VarLabel::new("D"));
+        //     1
+        //   /   \
+        //  0     3
+        //  A   /   \
+        //     2     5
+        //     B   /   \
+        //        4     6
+        //        C     D
+
+        assert_eq!(
+            var_label_index(manager.get_variable_vtree(&VarLabel::new("A"))),
+            0
+        );
+        assert_eq!(
+            var_label_index(manager.get_variable_vtree(&VarLabel::new("B"))),
+            2
+        );
+        assert_eq!(
+            var_label_index(manager.get_variable_vtree(&VarLabel::new("C"))),
+            4
+        );
+        assert_eq!(
+            var_label_index(manager.get_variable_vtree(&VarLabel::new("D"))),
+            6
+        );
+        assert_eq!(manager.get_variable_vtree(&VarLabel::new("E")), None);
     }
 }
