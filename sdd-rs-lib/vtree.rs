@@ -38,6 +38,7 @@ pub struct VTree {
     // Pointer to first vtree node in the subtree given by the current node
     // according to the inorder.
     inorder_last: Option<VTreeRef>,
+    // TODO: Add pointer to the next vtree node according to inorder traversal.
 }
 
 impl Debug for VTree {
@@ -104,36 +105,6 @@ impl VTree {
         self.inorder_last.clone().unwrap().borrow().idx
     }
 
-    pub(crate) fn least_common_ancestor(fst: &VTreeRef, snd: &VTreeRef) -> (VTreeRef, VTreeOrder) {
-        let (fst_idx, snd_idx) = (fst.borrow().idx, snd.borrow().idx);
-        assert!(
-            fst_idx <= snd_idx,
-            "`fst` must have index smaller than or greater to `snd`"
-        );
-
-        if fst_idx == snd_idx {
-            return (fst.clone(), VTreeOrder::Equal);
-        }
-
-        if fst_idx >= snd.borrow().inorder_first_idx() {
-            return (snd.clone(), VTreeOrder::LeftSubOfRight);
-        }
-
-        if snd_idx <= fst.borrow().inorder_last_idx() {
-            return (fst.clone(), VTreeOrder::RightSubOfLeft);
-        }
-
-        let mut lca = fst.borrow().parent.clone().unwrap();
-        while snd_idx > lca.borrow().inorder_last_idx() {
-            lca = {
-                let parent = lca.borrow().parent.clone().unwrap();
-                parent
-            }
-        }
-
-        (lca, VTreeOrder::Inequal)
-    }
-
     fn set_pointers(
         &mut self,
         inorder_first: Option<VTreeRef>,
@@ -167,6 +138,10 @@ pub struct VTreeManager {
     // TODO: Fix the meaningless bookkeeping and computation of
     // next_idx in `VTreeManager::add_variable`.
     next_idx: u16,
+    // TODO: Change the Rc<RefCell<...>> approach to indexing into
+    // global hashmap owning all the nodes.
+    //
+    // TODO: Hold index of the root and the first node in the inorder traversal.
 }
 
 impl VTreeManager {
@@ -390,6 +365,68 @@ impl VTreeManager {
 
         VTreeManager::set_inorder_indices(self.root.clone().unwrap(), 0);
     }
+
+    fn get_vtree(&self, index: u16) -> Option<VTreeRef> {
+        // TODO: This will get obsolete once VTrees are stored in a single hashmap.
+        let Some(mut current) = self.root.clone() else {
+            return None;
+        };
+
+        loop {
+            let current_index = current.borrow().idx;
+            if current_index == index {
+                return Some(current);
+            }
+
+            if let Node::Internal(lc, rc) = current.clone().borrow().node.clone() {
+                if index < current_index {
+                    current = lc.clone();
+                } else {
+                    current = rc.clone();
+                }
+            }
+        }
+    }
+
+    pub(crate) fn least_common_ancestor(
+        &self,
+        fst_idx: u16,
+        snd_idx: u16,
+    ) -> (VTreeRef, VTreeOrder) {
+        assert!(
+            fst_idx <= snd_idx,
+            "`fst` must have index smaller than or greater to `snd`"
+        );
+
+        let fst = self
+            .get_vtree(fst_idx)
+            .expect(format!("vtree with index {} does not exist", fst_idx).as_str());
+        let snd = self
+            .get_vtree(snd_idx)
+            .expect(format!("vtree with index {} does not exist", snd_idx).as_str());
+
+        if fst_idx == snd_idx {
+            return (fst.clone(), VTreeOrder::Equal);
+        }
+
+        if fst_idx >= snd.borrow().inorder_first_idx() {
+            return (snd.clone(), VTreeOrder::LeftSubOfRight);
+        }
+
+        if snd_idx <= fst.borrow().inorder_last_idx() {
+            return (fst.clone(), VTreeOrder::RightSubOfLeft);
+        }
+
+        let mut lca = fst.borrow().parent.clone().unwrap();
+        while snd_idx > lca.borrow().inorder_last_idx() {
+            lca = {
+                let parent = lca.borrow().parent.clone().unwrap();
+                parent
+            }
+        }
+
+        (lca, VTreeOrder::Inequal)
+    }
 }
 
 impl Dot for VTreeManager {
@@ -434,7 +471,7 @@ mod test {
         vtree::{Node, VTreeOrder, VTreeRef},
     };
 
-    use super::{VTree, VTreeManager};
+    use super::VTreeManager;
 
     fn orders_eq(got_order: Vec<(VarLabel, u16)>, want_order: Vec<VarLabel>) {
         assert_eq!(got_order.len(), want_order.len());
@@ -443,6 +480,7 @@ mod test {
         }
     }
 
+    #[allow(unused)]
     fn left_child(vtree: &VTreeRef) -> VTreeRef {
         match vtree.borrow().node.clone() {
             Node::Leaf(_) => panic!("vtree node is a leaf instead of internal node"),
@@ -718,32 +756,30 @@ mod test {
         //     A  B     C  D
 
         // Rotate the right child of root to the left to make the tree balanced as in the diagram above.
-        manager.rotate_left(&right_child(&manager.root.clone().unwrap()));
+        let root = manager.root.clone().unwrap();
+        manager.rotate_left(&right_child(&root));
+
+        let root = manager.root.clone().unwrap();
+        let root_idx = root.borrow().idx;
 
         // root has index of 3
-        let root = manager.root.unwrap().clone();
-        let (lca, ord) = VTree::least_common_ancestor(&root, &root);
+        let (lca, ord) = manager.least_common_ancestor(root_idx, root_idx);
         assert_eq!(ord, VTreeOrder::Equal);
-        assert_eq!(lca.borrow().idx, root.borrow().idx);
+        assert_eq!(lca.borrow().idx, root_idx);
 
         // lc has index of 1
-        let lc = left_child(&root);
-        let (lca, ord) = VTree::least_common_ancestor(&lc, &root);
+        let (lca, ord) = manager.least_common_ancestor(1, root_idx);
         assert_eq!(ord, VTreeOrder::LeftSubOfRight);
-        assert_eq!(lca.borrow().idx, root.borrow().idx);
+        assert_eq!(lca.borrow().idx, root_idx);
 
         // rc has index of 5
-        let rc = right_child(&root);
-        let (lca, ord) = VTree::least_common_ancestor(&root, &rc);
+        let (lca, ord) = manager.least_common_ancestor(root_idx, 5);
         assert_eq!(ord, VTreeOrder::RightSubOfLeft);
-        assert_eq!(lca.borrow().idx, root.borrow().idx);
+        assert_eq!(lca.borrow().idx, root_idx);
 
-        // llc has index of 0
-        let llc = left_child(&lc);
-        // rrc has index of 6
-        let rrc = right_child(&rc);
-        let (lca, ord) = VTree::least_common_ancestor(&llc, &rrc);
+        // llc has index of 0, rrc has index of 6
+        let (lca, ord) = manager.least_common_ancestor(0, 6);
         assert_eq!(ord, VTreeOrder::Inequal);
-        assert_eq!(lca.borrow().idx, root.borrow().idx);
+        assert_eq!(lca.borrow().idx, root_idx);
     }
 }
