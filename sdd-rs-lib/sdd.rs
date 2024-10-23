@@ -112,6 +112,22 @@ impl SddType {
     pub fn id(&self) -> usize {
         fxhash::hash(self)
     }
+
+    pub(crate) fn name(&self) -> &str {
+        match self {
+            SddType::False => "false",
+            SddType::True => "true",
+            SddType::Literal(..) => "literal",
+            SddType::Decision(..) => "decision",
+        }
+    }
+
+    pub(crate) fn elements(&self) -> Option<BTreeSet<Element>> {
+        match self {
+            SddType::Decision(Decision { elements }) => Some(elements.clone()),
+            _ => None,
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord)]
@@ -504,42 +520,52 @@ impl Decision {
     /// Compress decision node by repeatedly replacing elements
     /// `(p, s)` and `(q, s)` with `(p || q, s)`.
     fn compress(&self, manager: &SddManager) -> Decision {
-        let mut new_elements: Vec<Element> = self.elements.iter().map(Element::clone).collect();
+        let mut elements: Vec<_> = self.elements.iter().cloned().collect();
+        let mut last_el_idx = self.elements.len() - 1;
         let mut i = 0;
-        let mut end = self.elements.len();
 
-        while i < end {
+        println!(
+            "before: {:?}",
+            self.elements.iter().cloned().collect::<Vec<_>>()
+        );
+
+        while i < last_el_idx {
             let mut j = i + 1;
 
-            while j < end {
-                // TODO: Make sure the indexing actually works.
-                let prime_index = new_elements[i].prime;
-                let sub_index = new_elements[j].prime;
-                if prime_index == sub_index {
-                    let new_prime = manager.conjoin(
-                        &manager.get_node(prime_index).unwrap(),
-                        &manager.get_node(sub_index).unwrap(),
-                    );
-                    new_elements[i] = Element {
-                        prime: (new_prime.id()),
-                        sub: (new_elements[i].sub),
-                    };
-
-                    // Get rid of the redundant element at index `j` and continue iterating.
-                    new_elements.swap_remove(j);
-
-                    // TODO: Make sure the indexing actually works.
-                    end -= 1;
-                } else {
+            let mut fst = *elements.get(i).unwrap();
+            while j <= last_el_idx {
+                let snd = elements.get(j).unwrap();
+                // TODO: Does this equality actually work? Can we just compare ids?
+                if fst.sub != snd.sub {
                     j += 1;
+                    continue;
                 }
+
+                // The subs are equal, we can compress the elements together.
+                let fst_prime = manager.get_node(fst.prime).unwrap();
+                let snd_prime = manager.get_node(snd.prime).unwrap();
+                let new_prime = manager.disjoin(&fst_prime, &snd_prime);
+
+                fst = Element {
+                    prime: new_prime.id(),
+                    sub: fst.sub,
+                };
+
+                // Remove element at the `j`-th position from the vector of elements.
+                // This means decreasing the `last_el_idx` and not moving the `j` index
+                // since there will be a new element from the back of the vector which
+                // we can process in the next iteration of this inner loop.
+                elements.swap_remove(j);
+                last_el_idx -= 1;
+                continue;
             }
 
             i += 1;
         }
 
+        println!("after : {:?}", elements);
         Decision {
-            elements: new_elements.iter().cloned().collect(),
+            elements: elements.iter().cloned().collect(),
         }
     }
 }

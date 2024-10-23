@@ -3,7 +3,7 @@ use crate::{
     dot_writer::{Dot, DotWriter},
     literal::{self, Polarity},
     options::SddOptions,
-    sdd::{Element, Sdd, SddType},
+    sdd::{Decision, Element, Sdd, SddType},
     vtree::{VTreeManager, VTreeOrder},
     Result,
 };
@@ -85,12 +85,6 @@ impl SddManager {
             vtree_manager: RefCell::new(VTreeManager::new()),
             unique_table: RefCell::new(table),
             op_cache: RefCell::new(HashMap::new()),
-        }
-    }
-
-    pub(crate) fn dump_nodes(&self) {
-        for (id, node) in self.unique_table.borrow().iter() {
-            println!("({id}) {node:?}");
         }
     }
 
@@ -268,6 +262,7 @@ impl SddManager {
         self.insert_node(&sdd);
         self.cache_operation(fst.id(), snd.id(), op, sdd.id());
 
+        // TODO: Show where the properties are violated.
         debug_assert!(sdd.is_trimmed(self));
         debug_assert!(sdd.is_compressed(self));
 
@@ -340,12 +335,75 @@ impl SddManager {
 
     fn _apply_left_sub_of_right(&self, fst: &Sdd, snd: &Sdd, op: Operation) -> BTreeSet<Element> {
         assert!(fst.vtree_idx < snd.vtree_idx);
-        unimplemented!("_apply_left_sub_of_right not yet implemented")
+
+        let new_node = if op == Operation::Conjoin {
+            fst
+        } else {
+            &fst.clone().negate(self)
+        };
+
+        let snd_elements = snd.sdd_type.elements().expect(
+            format!(
+                "snd of _apply_left_sub_of_right must be a decision node but was instead {} (id {})",
+                snd.sdd_type.name(),
+                snd.id(),
+            ).as_str()
+        );
+
+        let mut elements = btreeset!(Element {
+            prime: new_node.clone().negate(self).id(),
+            sub: op.zero().id(),
+        });
+
+        for Element {
+            prime: snd_prime,
+            sub: snd_sub,
+        } in snd_elements
+        {
+            let prime = self.conjoin(&self.get_node(snd_prime).unwrap(), new_node);
+            if !prime.is_false() {
+                elements.insert(Element {
+                    prime: prime.id(),
+                    sub: snd_sub,
+                });
+            }
+        }
+
+        elements
     }
 
     fn _apply_right_sub_of_left(&self, fst: &Sdd, snd: &Sdd, op: Operation) -> BTreeSet<Element> {
         assert!(fst.vtree_idx < snd.vtree_idx);
-        unimplemented!("_apply_right_sub_of_left not yet implemented")
+
+        let fst_elements = fst.sdd_type.elements().expect(
+            format!(
+                "snd of _apply_right_sub_of_left must be a decision node but was instead {} (id {})",
+                snd.sdd_type.name(),
+                snd.id(),
+            )
+            .as_str(),
+        );
+
+        let mut elements = BTreeSet::new();
+
+        for Element {
+            prime: fst_prime_idx,
+            sub: fst_sub_idx,
+        } in fst_elements
+        {
+            let fst_sub = self.get_node(fst_sub_idx).unwrap();
+            let sub = match op {
+                Operation::Conjoin => self.conjoin(&fst_sub, snd),
+                Operation::Disjoin => self.disjoin(&fst_sub, snd),
+            };
+
+            elements.insert(Element {
+                prime: fst_prime_idx,
+                sub: sub.id(),
+            });
+        }
+
+        elements
     }
 
     pub fn condition() {}
@@ -521,15 +579,13 @@ mod test {
         assert_eq!(a_and_d.vtree_idx, 3);
 
         // Resulting SDD must be normalized w.r.t. vtree with index 3.
-        // let a_and_d__and_b = manager.conjoin(&a_and_d, &lit_b);
-        // assert_eq!(a_and_d__and_b.vtree_idx, 2);
+        let a_and_d__and_b = manager.conjoin(&a_and_d, &lit_b);
+        assert_eq!(a_and_d__and_b.vtree_idx, 3);
 
-        // let f = std::fs::File::create("test-out-sdd.dot").unwrap();
-        // let mut b = std::io::BufWriter::new(f);
-        // manager
-        //     .draw_sdd_graph(&mut b as &mut dyn std::io::Write)
-        //     .unwrap();
-
-        // manager.dump_nodes();
+        let f = std::fs::File::create("test-out-sdd.dot").unwrap();
+        let mut b = std::io::BufWriter::new(f);
+        manager
+            .draw_sdd_graph(&mut b as &mut dyn std::io::Write)
+            .unwrap();
     }
 }
