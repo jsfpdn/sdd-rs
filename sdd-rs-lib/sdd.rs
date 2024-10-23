@@ -135,6 +135,7 @@ pub struct Sdd {
     pub(crate) sdd_type: SddType,
     pub(crate) vtree_idx: u16,
     pub(crate) negation: Option<usize>,
+    pub(crate) model_count: Option<u64>,
 }
 
 impl fmt::Debug for Sdd {
@@ -170,11 +171,28 @@ impl Dot for Sdd {
 
 impl Sdd {
     #[must_use]
+    pub(crate) fn new(sdd_type: SddType, vtree_idx: u16, negation: Option<usize>) -> Sdd {
+        let model_count = match sdd_type {
+            SddType::False => Some(0),
+            SddType::True | SddType::Literal(..) => Some(1),
+            _ => None,
+        };
+
+        Sdd {
+            sdd_type,
+            vtree_idx,
+            negation,
+            model_count,
+        }
+    }
+
+    #[must_use]
     pub fn new_true() -> Sdd {
         Sdd {
             sdd_type: SddType::True,
             vtree_idx: 0,
             negation: None,
+            model_count: Some(1),
         }
     }
 
@@ -184,6 +202,7 @@ impl Sdd {
             sdd_type: SddType::False,
             vtree_idx: 0,
             negation: None,
+            model_count: Some(0),
         }
     }
 
@@ -267,7 +286,7 @@ impl Sdd {
         }
 
         if let SddType::Decision(dec) = self.sdd_type.clone() {
-            let mut elements = btreeset!();
+            let mut elements = BTreeSet::new();
             for Element { prime, sub } in dec.elements {
                 let sub = manager.get_node(sub).unwrap().negate(manager);
 
@@ -277,11 +296,11 @@ impl Sdd {
                 });
             }
 
-            let negated_sdd = Sdd {
-                sdd_type: SddType::Decision(Decision { elements }),
-                vtree_idx: self.vtree_idx,
-                negation: Some(self.id()),
-            };
+            let negated_sdd = Sdd::new(
+                SddType::Decision(Decision { elements }),
+                self.vtree_idx,
+                Some(self.id()),
+            );
 
             // Add the negation to the unique table and update the original SDD
             // in the unique table to point to this new negation.
@@ -292,18 +311,16 @@ impl Sdd {
             return negated_sdd;
         }
 
-        let negated_sdd = Sdd {
-            sdd_type: match self.sdd_type.clone() {
-                SddType::True => SddType::False,
-                SddType::False => SddType::True,
-                SddType::Literal(literal) => SddType::Literal(literal.negate()),
-                SddType::Decision(..) => {
-                    panic!("cannot happen - bug in the if expression's condition")
-                }
-            },
-            vtree_idx: self.vtree_idx,
-            negation: None,
+        let sdd_type = match self.sdd_type.clone() {
+            SddType::True => SddType::False,
+            SddType::False => SddType::True,
+            SddType::Literal(literal) => SddType::Literal(literal.negate()),
+            SddType::Decision(..) => {
+                panic!("cannot happen - bug in the if expression's condition")
+            }
         };
+
+        let negated_sdd = Sdd::new(sdd_type, self.vtree_idx, None);
 
         // Cache the negation.
         manager.insert_node(&negated_sdd);
@@ -315,9 +332,9 @@ impl Sdd {
         match (self.sdd_type.clone(), other.sdd_type.clone()) {
             (SddType::True, SddType::False) | (SddType::False, SddType::True) => true,
             (SddType::Literal(fst), SddType::Literal(snd)) => fst.eq_negated(&snd),
-            // TODO: Is this correct? This smells fishy.
             (SddType::Decision(fst), SddType::Decision(snd)) => {
-                unimplemented!("implement comparison with potentially negated sdd")
+                // TODO: Fix this after adding model_count scratch field.
+                unimplemented!()
             }
             (_, _) => false,
         }
@@ -354,11 +371,11 @@ impl Sdd {
                     if let Some(trimmed_sdd) = decision.trim(manager) {
                         trimmed_sdd
                     } else {
-                        Sdd {
-                            sdd_type: SddType::Decision(decision.clone()),
-                            vtree_idx: self.vtree_idx,
-                            negation: self.negation, // TODO: Double check this.
-                        }
+                        Sdd::new(
+                            SddType::Decision(decision.clone()),
+                            self.vtree_idx,
+                            self.negation, // TODO: Double check this.
+                        )
                     }
                 }
             }
@@ -383,11 +400,11 @@ impl Sdd {
             return Sdd::new_false();
         }
 
-        Sdd {
-            sdd_type: SddType::Decision(Decision { elements: gamma }),
-            negation: None,
+        Sdd::new(
+            SddType::Decision(Decision { elements: gamma }),
             vtree_idx,
-        }
+            None,
+        )
     }
 
     fn dot_repr(&self) -> String {
@@ -524,11 +541,6 @@ impl Decision {
         let mut last_el_idx = self.elements.len() - 1;
         let mut i = 0;
 
-        println!(
-            "before: {:?}",
-            self.elements.iter().cloned().collect::<Vec<_>>()
-        );
-
         while i < last_el_idx {
             let mut j = i + 1;
 
@@ -563,7 +575,6 @@ impl Decision {
             i += 1;
         }
 
-        println!("after : {:?}", elements);
         Decision {
             elements: elements.iter().cloned().collect(),
         }
@@ -589,12 +600,7 @@ mod test {
         let decision = Decision {
             elements: btreeset!(element),
         };
-        let sdd = Sdd {
-            sdd_type: SddType::Decision(decision),
-            vtree_idx: 0, // TODO: Fix vtree index.
-            negation: None,
-        };
-
+        let sdd = Sdd::new(SddType::Decision(decision), 0, None);
         let decisions = &vec![sdd.clone()];
         let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
 
@@ -610,12 +616,7 @@ mod test {
     }
 
     fn create_literal(literal: Literal) -> Sdd {
-        Sdd {
-            sdd_type: SddType::Literal(literal),
-            // TODO: Fix vtree index
-            vtree_idx: 0,
-            negation: None,
-        }
+        Sdd::new(SddType::Literal(literal), 0, None)
     }
 
     #[test]
@@ -634,11 +635,7 @@ mod test {
         let decision = Decision {
             elements: btreeset!(element),
         };
-        let sdd = Sdd {
-            sdd_type: SddType::Decision(decision),
-            vtree_idx: 0, // TODO: Fix vtree index.
-            negation: None,
-        };
+        let sdd = Sdd::new(SddType::Decision(decision), 0, None);
         all_sdds.push(sdd.clone());
 
         let manager = SddManager::new_with_nodes(SddOptions::new(), &all_sdds);
@@ -676,6 +673,7 @@ mod test {
             sdd_type: SddType::Decision(decision),
             vtree_idx: 0, // TODO: Fix vtree index
             negation: None,
+            model_count: None,
         };
 
         let decisions = &vec![sdd.clone(), neg_a, pos_a];
@@ -710,6 +708,7 @@ mod test {
             sdd_type: SddType::Decision(decision_1),
             vtree_idx: 0, // TODO: Fix vtree index
             negation: None,
+            model_count: None,
         };
 
         let pos_a = create_literal(Literal::new(Polarity::Positive, "A"));
@@ -732,6 +731,7 @@ mod test {
             sdd_type: SddType::Decision(decision_2),
             vtree_idx: 0, // TODO: Fix vtree index
             negation: None,
+            model_count: None,
         };
 
         let decisions = &vec![sdd_1.clone(), sdd_2.clone(), pos_a, neg_b];
@@ -764,6 +764,7 @@ mod test {
             sdd_type: SddType::Decision(decision),
             vtree_idx: 0, // TODO: Fix vtree index.
             negation: None,
+            model_count: None,
         };
 
         let decisions = &vec![sdd.clone(), pos_a];
@@ -788,11 +789,7 @@ mod test {
         let decision_1 = Decision {
             elements: btreeset!(element_1_1),
         };
-        let sdd_1 = Sdd {
-            sdd_type: SddType::Decision(decision_1),
-            vtree_idx: 0, // TODO: Fix vtree index
-            negation: None,
-        };
+        let sdd_1 = Sdd::new(SddType::Decision(decision_1), 0, None);
 
         let pos_a = create_literal(Literal::new(Polarity::Positive, "A"));
         let element_2_1 = Element {
@@ -808,12 +805,7 @@ mod test {
         let decision_2 = Decision {
             elements: btreeset!(element_2_1, element_2_2),
         };
-        let sdd_2 = Sdd {
-            sdd_type: SddType::Decision(decision_2),
-            vtree_idx: 0, // TODO: Fix vtree index
-            negation: None,
-        };
-
+        let sdd_2 = Sdd::new(SddType::Decision(decision_2), 0, None);
         let decisions = &vec![sdd_1, sdd_2.clone(), pos_a, neg_b];
         let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
 
@@ -842,13 +834,7 @@ mod test {
         let decision_1 = Decision {
             elements: btreeset!(element_1, element_2),
         };
-
-        let sdd = Sdd {
-            sdd_type: SddType::Decision(decision_1),
-            vtree_idx: 0, // TODO: Fix vtree index
-            negation: None,
-        };
-
+        let sdd = Sdd::new(SddType::Decision(decision_1), 0, None);
         let decisions = &vec![sdd.clone(), pos_a, neg_b];
         let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
 
@@ -874,12 +860,7 @@ mod test {
             elements: btreeset!(element_1, element_2),
         };
 
-        let sdd = Sdd {
-            sdd_type: SddType::Decision(decision_1),
-            vtree_idx: 0, // TODO: Fix vtree index
-            negation: None,
-        };
-
+        let sdd = Sdd::new(SddType::Decision(decision_1), 0, None);
         let decisions = &vec![sdd.clone(), pos_a, neg_b];
         let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
 

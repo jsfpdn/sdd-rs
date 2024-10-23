@@ -1,9 +1,11 @@
+use tracing::warn;
+
 use crate::{
     btreeset,
     dot_writer::{Dot, DotWriter},
-    literal::{self, Polarity},
+    literal::{self, Literal, Polarity},
     options::SddOptions,
-    sdd::{Decision, Element, Sdd, SddType},
+    sdd::{Element, Sdd, SddType},
     vtree::{VTreeManager, VTreeOrder},
     Result,
 };
@@ -98,6 +100,11 @@ impl SddManager {
     pub fn literal(&self, literal: &str, polarity: Polarity) -> Sdd {
         let var_label = literal::VarLabel::new(literal);
         self.vtree_manager.borrow_mut().add_variable(&var_label);
+
+        // TODO: Adding new variable should either invalidate cached model counts
+        // in existing SDDs or recompute them.
+        warn!("should invalidate cached model counts");
+
         let vtree_idx = self
             .vtree_manager
             .borrow()
@@ -106,11 +113,11 @@ impl SddManager {
             .borrow()
             .get_index();
 
-        let literal = Sdd {
-            sdd_type: SddType::Literal(literal::Literal::new(polarity, literal)),
-            negation: None,
+        let literal = Sdd::new(
+            SddType::Literal(literal::Literal::new(polarity, literal)),
             vtree_idx,
-        };
+            None,
+        );
 
         self.insert_node(&literal);
         literal
@@ -223,6 +230,42 @@ impl SddManager {
         let fst_con = &self.conjoin(&fst.clone().negate(self), &snd.clone().negate(self));
         let snd_con = &self.conjoin(fst, snd);
         self.disjoin(fst_con, snd_con)
+    }
+
+    /// Condition an SDD on a literal.
+    pub fn condition(&self, literal: &Literal, sdd: &Sdd) -> Sdd {
+        // TODO: Improve construction of literals to be passed here since from user's POV
+        // they are just SDDs, since we want to levarage type system.
+        unimplemented!()
+    }
+
+    pub fn exist() {}
+    pub fn forall() {}
+
+    pub fn model_enumeration(&self, sdd: &Sdd) {
+        unimplemented!()
+    }
+
+    pub fn model_count(&self, sdd: &Sdd) -> u32 {
+        unimplemented!()
+    }
+
+    /// # Errors
+    /// Returns an error if TBD.
+    pub fn draw_sdd_graph<'b>(&self, writer: &mut dyn std::io::Write) -> Result<()> {
+        let mut dot_writer = DotWriter::new(String::from("sdd"));
+        for node in self.unique_table.borrow().values() {
+            node.draw(&mut dot_writer, self);
+        }
+        dot_writer.write(writer)
+    }
+
+    /// # Errors
+    /// Returns an error if TBD.
+    pub fn draw_vtree_graph<'b>(&self, writer: &mut dyn std::io::Write) -> Result<()> {
+        let mut dot_writer = DotWriter::new(String::from("vtree"));
+        self.vtree_manager.borrow().draw(&mut dot_writer, self);
+        dot_writer.write(writer)
     }
 
     /// Apply operation on the two Sdds.
@@ -405,28 +448,6 @@ impl SddManager {
 
         elements
     }
-
-    pub fn condition() {}
-    pub fn exist() {}
-    pub fn forall() {}
-
-    /// # Errors
-    /// Returns an error if TBD.
-    pub fn draw_sdd_graph<'b>(&self, writer: &mut dyn std::io::Write) -> Result<()> {
-        let mut dot_writer = DotWriter::new(String::from("sdd"));
-        for node in self.unique_table.borrow().values() {
-            node.draw(&mut dot_writer, self);
-        }
-        dot_writer.write(writer)
-    }
-
-    /// # Errors
-    /// Returns an error if TBD.
-    pub fn draw_vtree_graph<'b>(&self, writer: &mut dyn std::io::Write) -> Result<()> {
-        let mut dot_writer = DotWriter::new(String::from("vtree"));
-        self.vtree_manager.borrow().draw(&mut dot_writer, self);
-        dot_writer.write(writer)
-    }
     // TODO: expose operations manipulating the vtree.
 
     pub(crate) fn insert_node(&self, sdd: &Sdd) {
@@ -587,5 +608,36 @@ mod test {
         manager
             .draw_sdd_graph(&mut b as &mut dyn std::io::Write)
             .unwrap();
+    }
+
+    #[test]
+    fn model_counting() {
+        let manager = SddManager::new(SddOptions::default());
+
+        let lit_a = manager.literal("a", Polarity::Positive);
+        let lit_b = manager.literal("b", Polarity::Positive);
+        let lit_c = manager.literal("c", Polarity::Positive);
+        let lit_d = manager.literal("d", Polarity::Positive);
+        //           3
+        //         /   \
+        //        1     5
+        //      / |     | \
+        //     0  2     4  6
+        //     A  B     C  D
+
+        // Rotate the right child of root to the left to make the tree balanced as in the diagram above.
+        let root = manager.vtree_manager.borrow().root.clone().unwrap();
+        manager
+            .vtree_manager
+            .borrow_mut()
+            .rotate_left(&right_child(&root));
+
+        // Resulting SDD must be normalized w.r.t. vtree with index 3.
+        let a_and_d = manager.conjoin(&lit_a, &lit_d);
+        assert_eq!(manager.model_count(&a_and_d), 4);
+
+        // Resulting SDD must be normalized w.r.t. vtree with index 3.
+        // let a_and_d__and_b = manager.conjoin(&a_and_d, &lit_b);
+        // assert_eq!(a_and_d__and_b.vtree_idx, 3);
     }
 }
