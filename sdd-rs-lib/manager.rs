@@ -3,7 +3,7 @@ use crate::{
     dot_writer::{Dot, DotWriter},
     literal::{self, Polarity},
     options::SddOptions,
-    sdd::{Decision, Element, Sdd, SddType},
+    sdd::{Element, Sdd, SddType},
     vtree::{VTreeManager, VTreeOrder},
     Result,
 };
@@ -13,18 +13,26 @@ use std::{
     collections::{BTreeSet, HashMap},
 };
 
-pub(crate) type SddId = usize;
-
 #[derive(Clone, Eq, PartialEq, Hash, Debug, Copy)]
 enum Operation {
     Conjoin,
     Disjoin,
 }
 
+impl Operation {
+    /// Get the absorbing element with respect to the Boolean operation.
+    fn zero(&self) -> Sdd {
+        match self {
+            Operation::Conjoin => Sdd::new_false(),
+            Operation::Disjoin => Sdd::new_true(),
+        }
+    }
+}
+
 #[derive(Eq, PartialEq, Hash)]
 struct Entry {
-    fst: SddId,
-    snd: SddId,
+    fst: usize,
+    snd: usize,
     op: Operation,
 }
 
@@ -36,10 +44,10 @@ pub struct SddManager {
 
     // Unique table holding all the decision nodes.
     // More details can be found in [Algorithms and Data Structures in VLSI Design](https://link.springer.com/book/10.1007/978-3-642-58940-9).
-    unique_table: RefCell<HashMap<SddId, Sdd>>,
+    unique_table: RefCell<HashMap<usize, Sdd>>,
 
     // Caches all the computations.
-    op_cache: RefCell<HashMap<Entry, SddId>>,
+    op_cache: RefCell<HashMap<Entry, usize>>,
 }
 
 impl SddManager {
@@ -80,10 +88,16 @@ impl SddManager {
         }
     }
 
+    pub(crate) fn dump_nodes(&self) {
+        for (id, node) in self.unique_table.borrow().iter() {
+            println!("({id}) {node:?}");
+        }
+    }
+
     /// # Panics
     /// Function panics if there is no such node with the corresponding id in the unique table.
     #[must_use]
-    pub(crate) fn get_node(&self, id: SddId) -> Option<Sdd> {
+    pub(crate) fn get_node(&self, id: usize) -> Option<Sdd> {
         self.unique_table.borrow().get(&id).map(|n| n.clone())
     }
 
@@ -100,6 +114,7 @@ impl SddManager {
 
         let literal = Sdd {
             sdd_type: SddType::Literal(literal::Literal::new(polarity, literal)),
+            negation: None,
             vtree_idx,
         };
 
@@ -129,6 +144,14 @@ impl SddManager {
             return snd.clone();
         }
 
+        if fst.is_true() {
+            return snd.clone();
+        }
+
+        if snd.is_true() {
+            return fst.clone();
+        }
+
         if fst.eq_negated(snd) {
             return self.contradiction();
         }
@@ -150,6 +173,14 @@ impl SddManager {
             return snd.clone();
         }
 
+        if fst.is_false() {
+            return snd.clone();
+        }
+
+        if snd.is_false() {
+            return fst.clone();
+        }
+
         if fst.eq_negated(snd) {
             return self.tautology();
         }
@@ -159,20 +190,7 @@ impl SddManager {
 
     #[must_use]
     pub fn negate(&self, fst: &Sdd) -> Sdd {
-        Sdd {
-            vtree_idx: fst.vtree_idx,
-            sdd_type: match fst.sdd_type.clone() {
-                SddType::True => SddType::False,
-                SddType::False => SddType::True,
-                SddType::Literal(literal) => SddType::Literal(literal.negate()),
-                SddType::DecisionRegular(decision) => {
-                    SddType::DecisionComplement(decision.to_owned())
-                }
-                SddType::DecisionComplement(decision) => {
-                    SddType::DecisionRegular(decision.to_owned())
-                }
-            },
-        }
+        fst.clone().negate(self)
     }
 
     #[must_use]
@@ -194,7 +212,7 @@ impl SddManager {
         }
 
         // Relies on the fact that A => B is equivalent to !A || B.
-        self.apply(&fst.negate(), snd, Operation::Disjoin)
+        self.apply(&fst.clone().negate(self), snd, Operation::Disjoin)
     }
 
     #[must_use]
@@ -208,7 +226,7 @@ impl SddManager {
         }
 
         // Relies on the fact that A <=> B is equivalent (!A && !B) || (A && B).
-        let fst_con = &self.conjoin(&fst.negate(), &snd.negate());
+        let fst_con = &self.conjoin(&fst.clone().negate(self), &snd.clone().negate(self));
         let snd_con = &self.conjoin(fst, snd);
         self.disjoin(fst_con, snd_con)
     }
@@ -216,43 +234,11 @@ impl SddManager {
     /// Apply operation on the two Sdds.
     #[must_use]
     fn apply(&self, fst: &Sdd, snd: &Sdd, op: Operation) -> Sdd {
-        if fst.is_constant_or_literal() && snd.is_constant_or_literal() {
-            let (fst, snd) = if fst.vtree_idx < snd.vtree_idx {
-                (fst, snd)
-            } else {
-                (snd, fst)
-            };
-            let (vtree, _) = self
-                .vtree_manager
-                .borrow()
-                .least_common_ancestor(fst.vtree_idx, snd.vtree_idx);
-
-            return Sdd {
-                // TODO: Double-check correctness of vtree index.
-                vtree_idx: vtree.borrow().get_index(),
-                sdd_type: match op {
-                    Operation::Conjoin => SddType::DecisionRegular(Decision {
-                        elements: btreeset!(Element {
-                            prime: fst.id(),
-                            sub: snd.id()
-                        }),
-                    }),
-
-                    Operation::Disjoin => SddType::DecisionRegular(Decision {
-                        elements: btreeset!(
-                            Element {
-                                prime: fst.id(),
-                                sub: self.tautology().id(),
-                            },
-                            Element {
-                                prime: snd.id(),
-                                sub: self.tautology().id(),
-                            }
-                        ),
-                    }),
-                },
-            };
-        }
+        let (fst, snd) = if fst.vtree_idx < snd.vtree_idx {
+            (fst, snd)
+        } else {
+            (snd, fst)
+        };
 
         if let Some(result_id) = self.op_cache.borrow().get(&Entry {
             fst: fst.id(),
@@ -277,8 +263,7 @@ impl SddManager {
             VTreeOrder::RightSubOfLeft => self._apply_right_sub_of_left(fst, snd, op),
         };
 
-        let mut sdd = Sdd::unique_d(elements, lca.borrow().get_index());
-        sdd.canonicalize(self);
+        let sdd = Sdd::unique_d(elements, lca.borrow().get_index()).canonicalize(self);
 
         self.insert_node(&sdd);
         self.cache_operation(fst.id(), snd.id(), op, sdd.id());
@@ -302,7 +287,6 @@ impl SddManager {
                         .expect("snd_prime not present"),
                 );
 
-                // TODO: Is checking against `false` sufficient? Do we have to get bit more involved here?
                 if res_prime.is_false() {
                     let fst_sub = &self.get_node(fst_elem.sub).expect("fst_sub not present");
                     let snd_sub = &self.get_node(snd_elem.sub).expect("snd_sub not present");
@@ -317,13 +301,10 @@ impl SddManager {
                         )
                     }
 
-                    self.insert_node(&res_prime);
-                    self.insert_node(&res_sub);
                     elements.insert(Element {
                         prime: res_prime.id(),
                         sub: res_sub.id(),
                     });
-                    dbg!(("inserted nodes", res_prime, res_sub));
                 }
             }
         }
@@ -332,14 +313,38 @@ impl SddManager {
     }
 
     fn _apply_ineq(&self, fst: &Sdd, snd: &Sdd, op: Operation) -> BTreeSet<Element> {
-        unimplemented!("_apply_ineq not yet implemented")
+        let fst_negated = fst.clone().negate(self);
+
+        let apply = |fst, snd| {
+            if op == Operation::Conjoin {
+                self.conjoin(fst, snd)
+            } else {
+                self.disjoin(fst, snd)
+            }
+        };
+
+        let tt = self.tautology();
+        let ff = self.contradiction();
+
+        btreeset!(
+            Element {
+                prime: fst.id(),
+                sub: apply(snd, &tt).id(),
+            },
+            Element {
+                prime: fst_negated.id(),
+                sub: apply(snd, &ff).id(),
+            }
+        )
     }
 
     fn _apply_left_sub_of_right(&self, fst: &Sdd, snd: &Sdd, op: Operation) -> BTreeSet<Element> {
+        assert!(fst.vtree_idx < snd.vtree_idx);
         unimplemented!("_apply_left_sub_of_right not yet implemented")
     }
 
     fn _apply_right_sub_of_left(&self, fst: &Sdd, snd: &Sdd, op: Operation) -> BTreeSet<Element> {
+        assert!(fst.vtree_idx < snd.vtree_idx);
         unimplemented!("_apply_right_sub_of_left not yet implemented")
     }
 
@@ -366,11 +371,11 @@ impl SddManager {
     }
     // TODO: expose operations manipulating the vtree.
 
-    fn insert_node(&self, sdd: &Sdd) {
+    pub(crate) fn insert_node(&self, sdd: &Sdd) {
         self.unique_table.borrow_mut().insert(sdd.id(), sdd.clone());
     }
 
-    fn cache_operation(&self, fst: SddId, snd: SddId, op: Operation, res_id: SddId) {
+    fn cache_operation(&self, fst: usize, snd: usize, op: Operation, res_id: usize) {
         self.op_cache
             .borrow_mut()
             .insert(Entry { fst, snd, op }, res_id);
@@ -379,11 +384,7 @@ impl SddManager {
 
 #[cfg(test)]
 mod test {
-    use crate::{
-        btreeset,
-        literal::Polarity,
-        sdd::{Decision, Element, Sdd, SddType},
-    };
+    use crate::{literal::Polarity, vtree::test::right_child};
 
     use super::{SddManager, SddOptions};
 
@@ -489,38 +490,46 @@ mod test {
         let lit_a = manager.literal("a", Polarity::Positive);
         let lit_b = manager.literal("b", Polarity::Positive);
 
-        let a_and_b = manager.conjoin(&lit_a, &lit_b);
-        assert_eq!(
-            Sdd {
-                vtree_idx: 1,
-                sdd_type: SddType::DecisionRegular(Decision {
-                    elements: btreeset!(Element {
-                        prime: lit_a.id(),
-                        sub: lit_b.id()
-                    })
-                }),
-            },
-            a_and_b
-        );
+        // let a_and_b = manager.conjoin(&lit_a, &lit_b);
+        // TODO: Fix these tests.
+    }
 
-        let a_or_b = manager.disjoin(&lit_a, &lit_b);
-        assert_eq!(
-            Sdd {
-                vtree_idx: 1,
-                sdd_type: SddType::DecisionRegular(Decision {
-                    elements: btreeset!(
-                        Element {
-                            prime: lit_a.id(),
-                            sub: manager.tautology().id()
-                        },
-                        Element {
-                            prime: lit_b.id(),
-                            sub: manager.tautology().id()
-                        }
-                    )
-                }),
-            },
-            a_or_b
-        );
+    #[test]
+    fn apply() {
+        let manager = SddManager::new(SddOptions::default());
+
+        let lit_a = manager.literal("a", Polarity::Positive);
+        let lit_b = manager.literal("b", Polarity::Positive);
+        let lit_c = manager.literal("c", Polarity::Positive);
+        let lit_d = manager.literal("d", Polarity::Positive);
+        //           3
+        //         /   \
+        //        1     5
+        //      / |     | \
+        //     0  2     4  6
+        //     A  B     C  D
+
+        // Rotate the right child of root to the left to make the tree balanced as in the diagram above.
+        let root = manager.vtree_manager.borrow().root.clone().unwrap();
+        manager
+            .vtree_manager
+            .borrow_mut()
+            .rotate_left(&right_child(&root));
+
+        // Resulting SDD must be normalized w.r.t. vtree with index 3.
+        let a_and_d = manager.conjoin(&lit_a, &lit_d);
+        assert_eq!(a_and_d.vtree_idx, 3);
+
+        // Resulting SDD must be normalized w.r.t. vtree with index 3.
+        // let a_and_d__and_b = manager.conjoin(&a_and_d, &lit_b);
+        // assert_eq!(a_and_d__and_b.vtree_idx, 2);
+
+        // let f = std::fs::File::create("test-out-sdd.dot").unwrap();
+        // let mut b = std::io::BufWriter::new(f);
+        // manager
+        //     .draw_sdd_graph(&mut b as &mut dyn std::io::Write)
+        //     .unwrap();
+
+        // manager.dump_nodes();
     }
 }

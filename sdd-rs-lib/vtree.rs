@@ -2,7 +2,7 @@ use std::{cell::RefCell, fmt::Debug, rc::Rc};
 
 use crate::{
     dot_writer::{Dot, DotWriter, Edge, NodeType},
-    literal::{Literal, VarLabel},
+    literal::VarLabel,
     manager::SddManager,
 };
 
@@ -137,7 +137,7 @@ pub(crate) enum VTreeOrder {
 pub(crate) type VTreeRef = Rc<RefCell<VTree>>;
 
 pub struct VTreeManager {
-    root: Option<VTreeRef>,
+    pub(crate) root: Option<VTreeRef>,
 
     // TODO: Fix the meaningless bookkeeping and computation of
     // next_idx in `VTreeManager::add_variable`.
@@ -472,10 +472,7 @@ impl Dot for VTreeManager {
                 nodes.push(lc.clone());
                 nodes.push(rc.clone());
 
-                writer.add_node(
-                    usize::from(vtree.idx),
-                    NodeType::Circle(u32::from(vtree.idx)),
-                );
+                writer.add_node(usize::from(vtree.idx), NodeType::Circle(vtree.idx));
             };
         }
     }
@@ -488,7 +485,7 @@ impl Default for VTreeManager {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use crate::{
         literal::VarLabel,
         vtree::{Node, VTreeOrder, VTreeRef},
@@ -511,7 +508,7 @@ mod test {
         }
     }
 
-    fn right_child(vtree: &VTreeRef) -> VTreeRef {
+    pub(crate) fn right_child(vtree: &VTreeRef) -> VTreeRef {
         match vtree.borrow().node.clone() {
             Node::Leaf(_) => panic!("vtree node is a leaf instead of internal node"),
             Node::Internal(_, rc) => rc,

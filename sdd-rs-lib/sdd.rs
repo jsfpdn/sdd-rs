@@ -1,3 +1,4 @@
+use core::fmt;
 use std::collections::{BTreeSet, HashSet};
 use std::hash::Hash;
 
@@ -5,7 +6,7 @@ use crate::btreeset;
 use crate::{
     dot_writer::{Dot, DotWriter, Edge, NodeType},
     literal::Literal,
-    manager::{SddId, SddManager},
+    manager::SddManager,
 };
 
 #[derive(PartialEq, Eq, Clone, Hash)]
@@ -34,8 +35,8 @@ impl Node {
 // Element node (a paired box) is a conjunction of prime and sub.
 #[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord, Debug, Copy)]
 pub(crate) struct Element {
-    pub(crate) prime: SddId,
-    pub(crate) sub: SddId,
+    pub(crate) prime: usize,
+    pub(crate) sub: usize,
 }
 
 impl Element {
@@ -78,7 +79,7 @@ impl Dot for Element {
         writer.add_node(idx, NodeType::Record(prime.dot_repr(), sub.dot_repr()));
 
         if let Sdd {
-            sdd_type: SddType::DecisionRegular(node) | SddType::DecisionComplement(node),
+            sdd_type: SddType::Decision(node),
             ..
         } = manager
             .get_node(self.prime)
@@ -87,7 +88,7 @@ impl Dot for Element {
             writer.add_edge(Edge::Prime(idx, fxhash::hash(&node)));
         }
         if let Sdd {
-            sdd_type: SddType::DecisionRegular(node) | SddType::DecisionComplement(node),
+            sdd_type: SddType::Decision(node),
             ..
         } = manager
             .get_node(self.sub)
@@ -103,14 +104,31 @@ pub(crate) enum SddType {
     True,
     False,
     Literal(Literal),
-    DecisionRegular(Decision),
-    DecisionComplement(Decision),
+    Decision(Decision),
 }
 
-#[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord, Debug)]
+impl SddType {
+    #[must_use]
+    pub fn id(&self) -> usize {
+        fxhash::hash(self)
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord)]
 pub struct Sdd {
     pub(crate) sdd_type: SddType,
     pub(crate) vtree_idx: u16,
+    pub(crate) negation: Option<usize>,
+}
+
+impl fmt::Debug for Sdd {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Sdd")
+            .field("sdd_type", &self.sdd_type)
+            .field("vtree_idx", &self.vtree_idx)
+            .field("id", &self.id())
+            .finish()
+    }
 }
 
 impl Dot for Sdd {
@@ -120,14 +138,13 @@ impl Dot for Sdd {
             SddType::True => NodeType::Box("True".to_string()),
             SddType::False => NodeType::Box("False".to_string()),
             SddType::Literal(literal) => NodeType::Box(format!("{literal}")),
-            SddType::DecisionComplement(node) | SddType::DecisionRegular(node) => {
+            SddType::Decision(node) => {
                 idx = fxhash::hash(&node);
                 for elem in node.elements.iter() {
                     elem.draw(writer, manager);
                     writer.add_edge(Edge::Simple(idx, fxhash::hash(&elem)));
                 }
-                // TODO: Add proper vtree index to the NodeType::Circle once implemented.
-                NodeType::Circle(42)
+                NodeType::Circle(self.vtree_idx)
             }
         };
 
@@ -141,6 +158,7 @@ impl Sdd {
         Sdd {
             sdd_type: SddType::True,
             vtree_idx: 0,
+            negation: None,
         }
     }
 
@@ -149,17 +167,14 @@ impl Sdd {
         Sdd {
             sdd_type: SddType::False,
             vtree_idx: 0,
+            negation: None,
         }
     }
 
     #[must_use]
     pub fn id(&self) -> usize {
-        match self.sdd_type.clone() {
-            SddType::DecisionComplement(decision) | SddType::DecisionRegular(decision) => {
-                fxhash::hash(&decision)
-            }
-            _ => fxhash::hash(self),
-        }
+        // Do not take vtree index and id of negated sdd into account.
+        self.sdd_type.id()
     }
 
     pub fn is_true(&self) -> bool {
@@ -200,14 +215,6 @@ impl Sdd {
         self.is_constant() || self.is_literal()
     }
 
-    pub fn is_decision_regular(&self) -> bool {
-        match self.sdd_type {
-            SddType::DecisionRegular(_) => true,
-            SddType::DecisionComplement(_) => false,
-            _ => panic!("only decision nodes can be regular or complemented!"),
-        }
-    }
-
     pub(crate) fn expand(&self) -> Decision {
         match self.sdd_type {
             SddType::True => Decision {
@@ -230,26 +237,62 @@ impl Sdd {
                 }),
             },
             // TODO: What about complented decision nodes?
-            SddType::DecisionRegular(ref dec) | SddType::DecisionComplement(ref dec) => dec.clone(),
+            SddType::Decision(ref dec) => dec.clone(),
         }
     }
 
-    pub(crate) fn negate(&self) -> Sdd {
-        // TODO: Negation preserves vtree_index?
-        Sdd {
+    /// Negate the SDD and cache it.
+    ///
+    /// The computation works lazily - if the negation has been already computed,
+    /// the value is just returned.
+    pub(crate) fn negate(&mut self, manager: &SddManager) -> Sdd {
+        if let Some(negated_sdd_id) = self.negation {
+            return manager.get_node(negated_sdd_id).unwrap();
+        }
+
+        if let SddType::Decision(dec) = self.sdd_type.clone() {
+            let mut elements = btreeset!();
+            for Element { prime, sub } in dec.elements {
+                let sub = manager.get_node(sub).unwrap().negate(manager);
+
+                elements.insert(Element {
+                    prime,
+                    sub: sub.id(),
+                });
+            }
+
+            let negated_sdd = Sdd {
+                sdd_type: SddType::Decision(Decision { elements }),
+                vtree_idx: self.vtree_idx,
+                negation: Some(self.id()),
+            };
+
+            // Add the negation to the unique table and update the original SDD
+            // in the unique table to point to this new negation.
+            self.negation = Some(negated_sdd.id());
+            manager.insert_node(self);
+            manager.insert_node(&negated_sdd);
+
+            return negated_sdd;
+        }
+
+        let negated_sdd = Sdd {
             sdd_type: match self.sdd_type.clone() {
                 SddType::True => SddType::False,
                 SddType::False => SddType::True,
                 SddType::Literal(literal) => SddType::Literal(literal.negate()),
-                SddType::DecisionRegular(decision) => {
-                    SddType::DecisionComplement(decision.to_owned())
-                }
-                SddType::DecisionComplement(decision) => {
-                    SddType::DecisionRegular(decision.to_owned())
+                SddType::Decision(..) => {
+                    panic!("cannot happen - bug in the if expression's condition")
                 }
             },
             vtree_idx: self.vtree_idx,
-        }
+            negation: None,
+        };
+
+        // Cache the negation.
+        manager.insert_node(&negated_sdd);
+
+        negated_sdd
     }
 
     pub fn eq_negated(&self, other: &Sdd) -> bool {
@@ -257,8 +300,9 @@ impl Sdd {
             (SddType::True, SddType::False) | (SddType::False, SddType::True) => true,
             (SddType::Literal(fst), SddType::Literal(snd)) => fst.eq_negated(&snd),
             // TODO: Is this correct? This smells fishy.
-            (SddType::DecisionRegular(fst), SddType::DecisionComplement(snd))
-            | (SddType::DecisionComplement(fst), SddType::DecisionRegular(snd)) => fst == snd,
+            (SddType::Decision(fst), SddType::Decision(snd)) => {
+                unimplemented!("implement comparison with potentially negated sdd")
+            }
             (_, _) => false,
         }
     }
@@ -266,18 +310,14 @@ impl Sdd {
     pub(crate) fn is_trimmed(&self, manager: &SddManager) -> bool {
         match self.sdd_type.clone() {
             SddType::True | SddType::False | SddType::Literal(_) => true,
-            SddType::DecisionRegular(decision) | SddType::DecisionComplement(decision) => {
-                decision.is_trimmed(manager)
-            }
+            SddType::Decision(decision) => decision.is_trimmed(manager),
         }
     }
 
     pub(crate) fn is_compressed(&self, manager: &SddManager) -> bool {
         match self.sdd_type.clone() {
             SddType::True | SddType::False | SddType::Literal(_) => true,
-            SddType::DecisionRegular(decision) | SddType::DecisionComplement(decision) => {
-                decision.is_compressed(manager)
-            }
+            SddType::Decision(decision) => decision.is_compressed(manager),
         }
     }
 
@@ -287,23 +327,27 @@ impl Sdd {
     /// Decision node is trimmed by replacing decompositions {(true, alpha)}
     /// and {(alpha, true), (!alpha, false)} with alpha. SDD is compressed by repeatedly
     /// replacing elements `(p, s)` and `(q, s)` with `(p || q, s)`.
-    pub(crate) fn canonicalize(&mut self, manager: &SddManager) {
-        match self {
-            Sdd {
-                sdd_type: SddType::DecisionComplement(decision) | SddType::DecisionRegular(decision),
-                ..
-            } => {
+    #[must_use]
+    pub(crate) fn canonicalize(&self, manager: &SddManager) -> Sdd {
+        match &self.sdd_type {
+            SddType::Decision(decision) => {
                 if let Some(trimmed_sdd) = decision.trim(manager) {
-                    *self = trimmed_sdd;
+                    trimmed_sdd
                 } else {
-                    decision.compress(manager);
+                    let decision = decision.compress(manager);
                     if let Some(trimmed_sdd) = decision.trim(manager) {
-                        *self = trimmed_sdd;
+                        trimmed_sdd
+                    } else {
+                        Sdd {
+                            sdd_type: SddType::Decision(decision.clone()),
+                            vtree_idx: self.vtree_idx,
+                            negation: self.negation, // TODO: Double check this.
+                        }
                     }
                 }
             }
-            _ => {}
-        };
+            _ => self.clone(),
+        }
     }
 
     pub(crate) fn unique_d<'b>(gamma: BTreeSet<Element>, vtree_idx: u16) -> Sdd {
@@ -324,7 +368,8 @@ impl Sdd {
         }
 
         Sdd {
-            sdd_type: SddType::DecisionRegular(Decision { elements: gamma }),
+            sdd_type: SddType::Decision(Decision { elements: gamma }),
+            negation: None,
             vtree_idx,
         }
     }
@@ -382,7 +427,7 @@ impl Decision {
                 return false;
             }
 
-            primes.insert(prime.negate());
+            primes.insert(prime.clone().negate(manager));
         }
 
         // Check that elements are also trimmed.
@@ -418,7 +463,7 @@ impl Decision {
     /// Trim decision node by replacing decompositions {(true, alpha)}
     /// and {(alpha, true), (!alpha, false)} with alpha. Returns a Boolean
     /// denoting whether the decision node had to be trimmed.
-    fn trim(&mut self, manager: &SddManager) -> Option<Sdd> {
+    fn trim(&self, manager: &SddManager) -> Option<Sdd> {
         let elements: Vec<&Element> = self.elements.iter().collect();
         if self.elements.len() == 1 {
             let el = elements.get(0).unwrap();
@@ -458,7 +503,7 @@ impl Decision {
 
     /// Compress decision node by repeatedly replacing elements
     /// `(p, s)` and `(q, s)` with `(p || q, s)`.
-    fn compress(&mut self, manager: &SddManager) {
+    fn compress(&self, manager: &SddManager) -> Decision {
         let mut new_elements: Vec<Element> = self.elements.iter().map(Element::clone).collect();
         let mut i = 0;
         let mut end = self.elements.len();
@@ -476,8 +521,8 @@ impl Decision {
                         &manager.get_node(sub_index).unwrap(),
                     );
                     new_elements[i] = Element {
-                        prime: new_prime.id(),
-                        sub: new_elements[i].sub,
+                        prime: (new_prime.id()),
+                        sub: (new_elements[i].sub),
                     };
 
                     // Get rid of the redundant element at index `j` and continue iterating.
@@ -491,6 +536,10 @@ impl Decision {
             }
 
             i += 1;
+        }
+
+        Decision {
+            elements: new_elements.iter().cloned().collect(),
         }
     }
 }
@@ -506,8 +555,8 @@ mod test {
     #[test]
     fn not_trimmed_simple() {
         let element = Element {
-            prime: Sdd::new_true().id(),
-            sub: Sdd::new_false().id(),
+            prime: (Sdd::new_true().id()),
+            sub: (Sdd::new_false().id()),
         };
 
         // Decomposition `{(true, false)}`.
@@ -515,20 +564,21 @@ mod test {
             elements: btreeset!(element),
         };
         let sdd = Sdd {
-            sdd_type: SddType::DecisionRegular(decision),
+            sdd_type: SddType::Decision(decision),
             vtree_idx: 0, // TODO: Fix vtree index.
+            negation: None,
         };
 
         let decisions = &vec![sdd.clone()];
         let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
 
         // Decomposition {(True, False)} is not trimmed.
-        let mut node = manager
+        let node = manager
             .get_node(sdd.id())
             .expect("node is not present in the unique table");
         assert!(!node.is_trimmed(&manager));
 
-        node.canonicalize(&manager);
+        let node = node.canonicalize(&manager);
         assert!(node.is_trimmed(&manager));
         assert_eq!(node, Sdd::new_false());
     }
@@ -538,6 +588,7 @@ mod test {
             sdd_type: SddType::Literal(literal),
             // TODO: Fix vtree index
             vtree_idx: 0,
+            negation: None,
         }
     }
 
@@ -547,8 +598,8 @@ mod test {
 
         let a = create_literal(Literal::new(Polarity::Positive, "A"));
         let element = Element {
-            prime: Sdd::new_true().id(),
-            sub: a.id(),
+            prime: (Sdd::new_true().id()),
+            sub: (a.id()),
         };
 
         all_sdds.push(a);
@@ -558,20 +609,21 @@ mod test {
             elements: btreeset!(element),
         };
         let sdd = Sdd {
-            sdd_type: SddType::DecisionRegular(decision),
+            sdd_type: SddType::Decision(decision),
             vtree_idx: 0, // TODO: Fix vtree index.
+            negation: None,
         };
         all_sdds.push(sdd.clone());
 
         let manager = SddManager::new_with_nodes(SddOptions::new(), &all_sdds);
 
         // Decomposition {(A, true)} is not trimmed.
-        let mut node = manager
+        let node = manager
             .get_node(sdd.id())
             .expect("node is not present in the unique table");
         assert!(!node.is_trimmed(&manager));
 
-        node.canonicalize(&manager);
+        let node = node.canonicalize(&manager);
         assert!(node.is_trimmed(&manager));
         assert_eq!(node, create_literal(Literal::new(Polarity::Positive, "A")));
     }
@@ -580,14 +632,14 @@ mod test {
     fn not_trimmed_complex() {
         let pos_a = create_literal(Literal::new(Polarity::Positive, "A"));
         let element_1 = Element {
-            prime: pos_a.id(),
-            sub: Sdd::new_true().id(),
+            prime: (pos_a.id()),
+            sub: (Sdd::new_true().id()),
         };
 
         let neg_a = create_literal(Literal::new(Polarity::Negative, "A"));
         let element_2 = Element {
-            prime: neg_a.id(),
-            sub: Sdd::new_false().id(),
+            prime: (neg_a.id()),
+            sub: (Sdd::new_false().id()),
         };
 
         // // Decomposition `{(A, true), (!A, false)}`.
@@ -595,20 +647,21 @@ mod test {
             elements: btreeset!(element_1, element_2),
         };
         let sdd = Sdd {
-            sdd_type: SddType::DecisionRegular(decision),
+            sdd_type: SddType::Decision(decision),
             vtree_idx: 0, // TODO: Fix vtree index
+            negation: None,
         };
 
         let decisions = &vec![sdd.clone(), neg_a, pos_a];
         let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
 
         // Decomposition `{(A, true), (!A, false)}` is not trimmed.
-        let mut node = manager
+        let node = manager
             .get_node(sdd.id())
             .expect("node is not present in the unique table");
         assert!(!node.is_trimmed(&manager));
 
-        node.canonicalize(&manager);
+        let node = node.canonicalize(&manager);
         assert!(node.is_trimmed(&manager));
         assert_eq!(node, create_literal(Literal::new(Polarity::Positive, "A")));
     }
@@ -628,8 +681,9 @@ mod test {
         };
 
         let sdd_1 = Sdd {
-            sdd_type: SddType::DecisionRegular(decision_1),
+            sdd_type: SddType::Decision(decision_1),
             vtree_idx: 0, // TODO: Fix vtree index
+            negation: None,
         };
 
         let pos_a = create_literal(Literal::new(Polarity::Positive, "A"));
@@ -649,8 +703,9 @@ mod test {
         };
 
         let sdd_2 = Sdd {
-            sdd_type: SddType::DecisionRegular(decision_2),
+            sdd_type: SddType::Decision(decision_2),
             vtree_idx: 0, // TODO: Fix vtree index
+            negation: None,
         };
 
         let decisions = &vec![sdd_1.clone(), sdd_2.clone(), pos_a, neg_b];
@@ -680,8 +735,9 @@ mod test {
             elements: btreeset!(element_1, element_2),
         };
         let sdd = Sdd {
-            sdd_type: SddType::DecisionRegular(decision),
+            sdd_type: SddType::Decision(decision),
             vtree_idx: 0, // TODO: Fix vtree index.
+            negation: None,
         };
 
         let decisions = &vec![sdd.clone(), pos_a];
@@ -698,8 +754,8 @@ mod test {
     fn trimmed_recursive() {
         let neg_b = create_literal(Literal::new(Polarity::Negative, "B"));
         let element_1_1 = Element {
-            prime: neg_b.id(),
-            sub: Sdd::new_true().id(),
+            prime: (neg_b.id()),
+            sub: (Sdd::new_true().id()),
         };
 
         // Decomposition `{(!B, true)}`.
@@ -707,8 +763,9 @@ mod test {
             elements: btreeset!(element_1_1),
         };
         let sdd_1 = Sdd {
-            sdd_type: SddType::DecisionRegular(decision_1),
+            sdd_type: SddType::Decision(decision_1),
             vtree_idx: 0, // TODO: Fix vtree index
+            negation: None,
         };
 
         let pos_a = create_literal(Literal::new(Polarity::Positive, "A"));
@@ -726,8 +783,9 @@ mod test {
             elements: btreeset!(element_2_1, element_2_2),
         };
         let sdd_2 = Sdd {
-            sdd_type: SddType::DecisionRegular(decision_2),
+            sdd_type: SddType::Decision(decision_2),
             vtree_idx: 0, // TODO: Fix vtree index
+            negation: None,
         };
 
         let decisions = &vec![sdd_1, sdd_2.clone(), pos_a, neg_b];
@@ -760,8 +818,9 @@ mod test {
         };
 
         let sdd = Sdd {
-            sdd_type: SddType::DecisionRegular(decision_1),
+            sdd_type: SddType::Decision(decision_1),
             vtree_idx: 0, // TODO: Fix vtree index
+            negation: None,
         };
 
         let decisions = &vec![sdd.clone(), pos_a, neg_b];
@@ -790,8 +849,9 @@ mod test {
         };
 
         let sdd = Sdd {
-            sdd_type: SddType::DecisionRegular(decision_1),
+            sdd_type: SddType::Decision(decision_1),
             vtree_idx: 0, // TODO: Fix vtree index
+            negation: None,
         };
 
         let decisions = &vec![sdd.clone(), pos_a, neg_b];
