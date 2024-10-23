@@ -1,4 +1,4 @@
-use std::{cell::RefCell, fmt::Debug, rc::Rc};
+use std::{cell::RefCell, collections::BTreeSet, fmt::Debug, rc::Rc};
 
 use crate::{
     dot_writer::{Dot, DotWriter, Edge, NodeType},
@@ -124,6 +124,19 @@ impl VTree {
     pub(crate) fn is_subtree_of(&self, other: &VTreeRef) -> bool {
         self.idx >= other.borrow().inorder_first_idx()
             && self.idx <= other.borrow().inorder_last_idx()
+    }
+
+    /// Collect all the variables reachable from this vtree node.
+    pub(crate) fn get_variables(&self) -> BTreeSet<VarLabel> {
+        match self.node.clone() {
+            Node::Leaf(var_label) => btreeset!(var_label),
+            Node::Internal(left, right) => left
+                .borrow()
+                .get_variables()
+                .union(&right.borrow().get_variables())
+                .cloned()
+                .collect::<BTreeSet<_>>(),
+        }
     }
 }
 
@@ -395,7 +408,7 @@ impl VTreeManager {
         find_vtree(&self.root.clone().unwrap(), variable)
     }
 
-    fn get_vtree(&self, index: u16) -> Option<VTreeRef> {
+    pub(crate) fn get_vtree(&self, index: u16) -> Option<VTreeRef> {
         // TODO: This will get obsolete once VTrees are stored in a single hashmap.
         let Some(mut current) = self.root.clone() else {
             return None;
@@ -844,5 +857,25 @@ pub(crate) mod test {
             6
         );
         assert_eq!(manager.get_variable_vtree(&VarLabel::new("E")), None);
+    }
+
+    #[test]
+    fn get_variables() {
+        let mut manager = VTreeManager::new();
+        manager.add_variable(&VarLabel::new("A"));
+        manager.add_variable(&VarLabel::new("B"));
+        manager.add_variable(&VarLabel::new("C"));
+        manager.add_variable(&VarLabel::new("D"));
+
+        let variables = manager.root.unwrap().as_ref().borrow().get_variables();
+        assert_eq!(
+            variables,
+            btreeset!(
+                VarLabel::new("A"),
+                VarLabel::new("B"),
+                VarLabel::new("C"),
+                VarLabel::new("D")
+            )
+        );
     }
 }

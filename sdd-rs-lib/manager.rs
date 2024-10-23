@@ -3,7 +3,7 @@ use tracing::warn;
 use crate::{
     btreeset,
     dot_writer::{Dot, DotWriter},
-    literal::{self, Literal, Polarity},
+    literal::{self, Literal, Polarity, VarLabel},
     options::SddOptions,
     sdd::{Element, Sdd, SddType},
     vtree::{VTreeManager, VTreeOrder},
@@ -43,6 +43,7 @@ pub struct SddManager {
     options: SddOptions,
 
     vtree_manager: RefCell<VTreeManager>,
+    label_manager: RefCell<BTreeSet<VarLabel>>,
 
     // Unique table holding all the decision nodes.
     // More details can be found in [Algorithms and Data Structures in VLSI Design](https://link.springer.com/book/10.1007/978-3-642-58940-9).
@@ -66,6 +67,7 @@ impl SddManager {
         SddManager {
             options,
             vtree_manager: RefCell::new(VTreeManager::new()),
+            label_manager: RefCell::new(BTreeSet::new()),
             op_cache: RefCell::new(HashMap::new()),
             unique_table,
         }
@@ -76,8 +78,16 @@ impl SddManager {
     #[must_use]
     pub(crate) fn new_with_nodes(options: SddOptions, sdds: &[Sdd]) -> SddManager {
         let mut table = HashMap::new();
+        let mut vars = BTreeSet::new();
         for sdd in sdds {
             table.insert(sdd.id(), sdd.clone());
+
+            match &sdd.sdd_type {
+                SddType::Literal(literal) => {
+                    _ = vars.insert(literal.clone().var_label());
+                }
+                _ => {}
+            };
         }
         table.insert(Sdd::new_true().id(), Sdd::new_true());
         table.insert(Sdd::new_false().id(), Sdd::new_false());
@@ -85,6 +95,7 @@ impl SddManager {
         SddManager {
             options,
             vtree_manager: RefCell::new(VTreeManager::new()),
+            label_manager: RefCell::new(vars),
             unique_table: RefCell::new(table),
             op_cache: RefCell::new(HashMap::new()),
         }
@@ -100,7 +111,7 @@ impl SddManager {
     pub fn literal(&self, literal: &str, polarity: Polarity) -> Sdd {
         let var_label = literal::VarLabel::new(literal);
         self.vtree_manager.borrow_mut().add_variable(&var_label);
-
+        self.label_manager.borrow_mut().insert(var_label.clone());
         // TODO: Adding new variable should either invalidate cached model counts
         // in existing SDDs or recompute them.
         warn!("should invalidate cached model counts");
@@ -246,8 +257,63 @@ impl SddManager {
         unimplemented!()
     }
 
-    pub fn model_count(&self, sdd: &Sdd) -> u32 {
-        unimplemented!()
+    /// Count number of models for this SDD.
+    pub fn model_count(&self, sdd: &Sdd) -> u64 {
+        // TODO: test me properly.
+
+        // Return the cached value if it already exists.
+        if let Some(model_count) = sdd.model_count {
+            return model_count;
+        }
+
+        // TODO: This is hack due to the very design of this lib. We may have computed
+        // the model count already but it's not visible in the Sdd reference. It should
+        // be in the unique table though, if it was in fact computed.
+        if let Some(model_count) = self.get_node(sdd.id()).unwrap().model_count {
+            return model_count;
+        }
+
+        let SddType::Decision(decision) = sdd.sdd_type.clone() else {
+            panic!("every other sddType should've been handled");
+        };
+
+        let get_variables = |vtree_idx: u16| {
+            self.vtree_manager
+                .borrow()
+                .get_vtree(vtree_idx)
+                .unwrap()
+                .borrow()
+                .get_variables()
+        };
+
+        let mut total_models = 0;
+
+        for Element { prime, sub } in decision.elements {
+            let prime = self.get_node(prime).unwrap();
+            let sub = self.get_node(sub).unwrap();
+            let model_count = self.model_count(&prime) * self.model_count(&sub);
+
+            // Account for variables that do not appear in neither prime or sub.
+            let all_reachable = get_variables(prime.vtree_idx)
+                .union(&get_variables(sub.vtree_idx))
+                .cloned()
+                .collect::<BTreeSet<_>>();
+
+            let not_contained = self
+                .label_manager
+                .borrow()
+                .difference(&all_reachable)
+                .count();
+
+            total_models += model_count + (not_contained.pow(2) as u64);
+        }
+
+        // Update the "global" sdd in the unique table so we can find it later.
+        let mut sdd_clone = sdd.clone();
+        sdd_clone.model_count = Some(total_models);
+        self.insert_node(&sdd_clone);
+
+        total_models
     }
 
     /// # Errors
