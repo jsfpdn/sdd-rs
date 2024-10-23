@@ -187,31 +187,22 @@ impl Sdd {
     }
 
     #[must_use]
-    pub fn new_true() -> Sdd {
-        Sdd {
-            sdd_type: SddType::True,
-            vtree_idx: 0,
-            negation: None,
-            model_count: Some(1),
-        }
+    pub(crate) fn new_true() -> Sdd {
+        Self::new(SddType::True, 0, None)
     }
 
     #[must_use]
-    pub fn new_false() -> Sdd {
-        Sdd {
-            sdd_type: SddType::False,
-            vtree_idx: 0,
-            negation: None,
-            model_count: Some(0),
-        }
+    pub(crate) fn new_false() -> Sdd {
+        Self::new(SddType::False, 0, None)
     }
 
     #[must_use]
     pub fn id(&self) -> usize {
-        // Do not take vtree index and id of negated sdd into account.
+        // Do not take vtree index, id of negated sdd and number of models into account.
         self.sdd_type.id()
     }
 
+    /// Check whether the SDD represent a true constant.
     pub fn is_true(&self) -> bool {
         matches!(
             self,
@@ -222,6 +213,7 @@ impl Sdd {
         )
     }
 
+    /// Check whether the SDD represent a false constant.
     pub fn is_false(&self) -> bool {
         matches!(
             self,
@@ -232,10 +224,12 @@ impl Sdd {
         )
     }
 
+    /// Check whether the SDD represents either the true or false constants.
     pub fn is_constant(&self) -> bool {
         self.is_true() || self.is_false()
     }
 
+    /// Check whether the SDD represents a literal.
     pub fn is_literal(&self) -> bool {
         matches!(
             self,
@@ -246,10 +240,13 @@ impl Sdd {
         )
     }
 
+    /// Check whether the SDD represents either a constant or literal.
     pub fn is_constant_or_literal(&self) -> bool {
         self.is_constant() || self.is_literal()
     }
 
+    /// Expand the SDD into a decision node as described in Algorithm 1 in
+    /// [SDD: A New Canonical Representation of Propositional Knowledge Bases](https://ai.dmi.unibas.ch/research/reading_group/darwiche-ijcai2011.pdf).
     pub(crate) fn expand(&self) -> Decision {
         match self.sdd_type {
             SddType::True => Decision {
@@ -264,14 +261,12 @@ impl Sdd {
                     sub: Sdd::new_false().id()
                 }),
             },
-            // TODO: Is this conceptually correct?
             SddType::Literal(_) => Decision {
                 elements: btreeset!(Element {
                     prime: self.id(),
                     sub: Sdd::new_false().id()
                 }),
             },
-            // TODO: What about complented decision nodes?
             SddType::Decision(ref dec) => dec.clone(),
         }
     }
@@ -328,26 +323,31 @@ impl Sdd {
         negated_sdd
     }
 
-    pub fn eq_negated(&self, other: &Sdd) -> bool {
+    /// Check whether [`self`] equals to negated [`other`].
+    pub(crate) fn eq_negated(&self, other: &Sdd, manager: &SddManager) -> bool {
         match (self.sdd_type.clone(), other.sdd_type.clone()) {
             (SddType::True, SddType::False) | (SddType::False, SddType::True) => true,
             (SddType::Literal(fst), SddType::Literal(snd)) => fst.eq_negated(&snd),
-            (SddType::Decision(fst), SddType::Decision(snd)) => {
-                // TODO: Fix this after adding model_count scratch field.
-                unimplemented!()
+            (SddType::Decision(..), SddType::Decision(..)) => {
+                self.clone().negate(manager).id() == other.id()
             }
             (_, _) => false,
         }
     }
 
-    pub(crate) fn is_trimmed(&self, manager: &SddManager) -> bool {
+    /// Recursively check whether [`self`] and all its descendants are trimmed.
+    /// SDD is trimmed if it does not contain decompositions in the form of
+    /// `{(true, alpha)}` and `{(alpha, true), (!alpha, false)}`.
+    pub fn is_trimmed(&self, manager: &SddManager) -> bool {
         match self.sdd_type.clone() {
             SddType::True | SddType::False | SddType::Literal(_) => true,
             SddType::Decision(decision) => decision.is_trimmed(manager),
         }
     }
 
-    pub(crate) fn is_compressed(&self, manager: &SddManager) -> bool {
+    /// Recursively check whether [`self`] and all its descendants are compressed.
+    /// SDD is compressed if no elements share a sub.
+    pub fn is_compressed(&self, manager: &SddManager) -> bool {
         match self.sdd_type.clone() {
             SddType::True | SddType::False | SddType::Literal(_) => true,
             SddType::Decision(decision) => decision.is_compressed(manager),
@@ -383,6 +383,8 @@ impl Sdd {
         }
     }
 
+    /// Compute "uniqueD" SDD as described in Algorithm 1 in
+    /// [SDD: A New Canonical Representation of Propositional Knowledge Bases](https://ai.dmi.unibas.ch/research/reading_group/darwiche-ijcai2011.pdf).
     pub(crate) fn unique_d<'b>(gamma: BTreeSet<Element>, vtree_idx: u16) -> Sdd {
         // gamma == {(T, T)}?
         if gamma.eq(&btreeset![Element {
@@ -526,7 +528,7 @@ impl Decision {
                 return None;
             }
 
-            if el_1_prime.eq_negated(&el_2_prime) {
+            if el_1_prime.eq_negated(&el_2_prime, manager) {
                 return Some(el_1_prime);
             }
         }
@@ -727,13 +729,7 @@ mod test {
             elements: btreeset!(element_2_1, element_2_2),
         };
 
-        let sdd_2 = Sdd {
-            sdd_type: SddType::Decision(decision_2),
-            vtree_idx: 0, // TODO: Fix vtree index
-            negation: None,
-            model_count: None,
-        };
-
+        let sdd_2 = Sdd::new(SddType::Decision(decision_2), 0, None);
         let decisions = &vec![sdd_1.clone(), sdd_2.clone(), pos_a, neg_b];
         let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
         let node = manager
@@ -760,13 +756,7 @@ mod test {
         let decision = Decision {
             elements: btreeset!(element_1, element_2),
         };
-        let sdd = Sdd {
-            sdd_type: SddType::Decision(decision),
-            vtree_idx: 0, // TODO: Fix vtree index.
-            negation: None,
-            model_count: None,
-        };
-
+        let sdd = Sdd::new(SddType::Decision(decision), 0, None);
         let decisions = &vec![sdd.clone(), pos_a];
         let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
 

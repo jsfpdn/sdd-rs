@@ -164,7 +164,7 @@ impl SddManager {
             return fst.clone();
         }
 
-        if fst.eq_negated(snd) {
+        if fst.eq_negated(snd, self) {
             return self.contradiction();
         }
 
@@ -193,7 +193,7 @@ impl SddManager {
             return fst.clone();
         }
 
-        if fst.eq_negated(snd) {
+        if fst.eq_negated(snd, self) {
             return self.tautology();
         }
 
@@ -219,7 +219,7 @@ impl SddManager {
             return snd.clone();
         }
 
-        if fst.eq_negated(snd) {
+        if fst.eq_negated(snd, self) {
             return snd.clone();
         }
 
@@ -233,7 +233,7 @@ impl SddManager {
             return self.tautology();
         }
 
-        if fst.eq_negated(snd) {
+        if fst.eq_negated(snd, self) {
             return self.contradiction();
         }
 
@@ -305,7 +305,7 @@ impl SddManager {
                 .difference(&all_reachable)
                 .count();
 
-            total_models += model_count + (not_contained.pow(2) as u64);
+            total_models += model_count * (not_contained.pow(2) as u64);
         }
 
         // Update the "global" sdd in the unique table so we can find it later.
@@ -629,23 +629,12 @@ mod test {
     }
 
     #[test]
-    fn literal_apply() {
-        let manager = SddManager::new(SddOptions::default());
-
-        let lit_a = manager.literal("a", Polarity::Positive);
-        let lit_b = manager.literal("b", Polarity::Positive);
-
-        // let a_and_b = manager.conjoin(&lit_a, &lit_b);
-        // TODO: Fix these tests.
-    }
-
-    #[test]
     fn apply() {
         let manager = SddManager::new(SddOptions::default());
 
         let lit_a = manager.literal("a", Polarity::Positive);
         let lit_b = manager.literal("b", Polarity::Positive);
-        let lit_c = manager.literal("c", Polarity::Positive);
+        let _ = manager.literal("c", Polarity::Positive);
         let lit_d = manager.literal("d", Polarity::Positive);
         //           3
         //         /   \
@@ -681,29 +670,11 @@ mod test {
         let manager = SddManager::new(SddOptions::default());
 
         let lit_a = manager.literal("a", Polarity::Positive);
-        let lit_b = manager.literal("b", Polarity::Positive);
-        let lit_c = manager.literal("c", Polarity::Positive);
+        let _ = manager.literal("b", Polarity::Positive);
+        let _ = manager.literal("c", Polarity::Positive);
         let lit_d = manager.literal("d", Polarity::Positive);
-        //           3
-        //         /   \
-        //        1     5
-        //      / |     | \
-        //     0  2     4  6
-        //     A  B     C  D
 
-        // Rotate the right child of root to the left to make the tree balanced as in the diagram above.
-        let root = manager.vtree_manager.borrow().root.clone().unwrap();
-        manager
-            .vtree_manager
-            .borrow_mut()
-            .rotate_left(&right_child(&root));
-
-        // Resulting SDD must be normalized w.r.t. vtree with index 3.
         let a_and_d = manager.conjoin(&lit_a, &lit_d);
         assert_eq!(manager.model_count(&a_and_d), 4);
-
-        // Resulting SDD must be normalized w.r.t. vtree with index 3.
-        // let a_and_d__and_b = manager.conjoin(&a_and_d, &lit_b);
-        // assert_eq!(a_and_d__and_b.vtree_idx, 3);
     }
 }

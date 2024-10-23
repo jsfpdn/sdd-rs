@@ -120,12 +120,6 @@ impl VTree {
         self.inorder_last = inorder_last;
     }
 
-    /// Checks whether [`other`] is a subtree of [`self`].
-    pub(crate) fn is_subtree_of(&self, other: &VTreeRef) -> bool {
-        self.idx >= other.borrow().inorder_first_idx()
-            && self.idx <= other.borrow().inorder_last_idx()
-    }
-
     /// Collect all the variables reachable from this vtree node.
     pub(crate) fn get_variables(&self) -> BTreeSet<VarLabel> {
         match self.node.clone() {
