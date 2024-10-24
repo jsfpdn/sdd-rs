@@ -23,6 +23,7 @@ impl std::fmt::Display for Edge {
 #[derive(Default)]
 pub struct DotWriter {
     graph_name: String,
+    show_ids: bool,
 
     nodes: Vec<(usize, NodeType)>,
     edges: Vec<Edge>,
@@ -30,7 +31,7 @@ pub struct DotWriter {
 
 pub enum NodeType {
     Box(String),
-    Circle(u16),
+    Circle(u16, Option<usize>),
     CircleStr(String),
     Record(String, String),
 }
@@ -40,17 +41,20 @@ impl NodeType {
         let shape_type = match self {
             NodeType::Box(_) => "box",
             NodeType::Record(_, _) => "record",
-            NodeType::Circle(_) | NodeType::CircleStr(_) => "circle",
+            NodeType::Circle(_, _) | NodeType::CircleStr(_) => "circle",
         }
         .to_owned();
 
         format!("shape={shape_type}")
     }
 
-    fn label(&self) -> String {
+    fn label(&self, verbose: bool) -> String {
         match self {
             NodeType::Record(fst, snd) => format!("label=\"<f0> {fst} | <f1> {snd}\""),
-            NodeType::Circle(label) => format!("label=\"{label}\""),
+            NodeType::Circle(label, Some(idx)) if verbose => {
+                format!("label=<{label}>, xlabel=<<FONT POINT-SIZE=\"7\">{idx}</FONT>>")
+            }
+            NodeType::Circle(label, _) => format!("label=<{label}>"),
             NodeType::CircleStr(label) => format!("label=\"{label}\""),
             NodeType::Box(_) => String::new(),
         }
@@ -63,9 +67,10 @@ impl NodeType {
 
 impl DotWriter {
     #[must_use]
-    pub fn new(graph_name: String) -> DotWriter {
+    pub fn new(graph_name: String, show_ids: bool) -> DotWriter {
         DotWriter {
             graph_name,
+            show_ids,
             ..Default::default()
         }
     }
@@ -88,7 +93,7 @@ impl DotWriter {
                 writer,
                 "\n  {node} [{} {} {}]",
                 node_type.shape(),
-                node_type.label(),
+                node_type.label(self.show_ids),
                 NodeType::metadata(),
             )?;
         }

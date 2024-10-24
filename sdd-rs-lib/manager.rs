@@ -319,7 +319,7 @@ impl SddManager {
     /// # Errors
     /// Returns an error if TBD.
     pub fn draw_sdd_graph<'b>(&self, writer: &mut dyn std::io::Write) -> Result<()> {
-        let mut dot_writer = DotWriter::new(String::from("sdd"));
+        let mut dot_writer = DotWriter::new(String::from("sdd"), true);
         for node in self.unique_table.borrow().values() {
             node.draw(&mut dot_writer, self);
         }
@@ -329,7 +329,7 @@ impl SddManager {
     /// # Errors
     /// Returns an error if TBD.
     pub fn draw_vtree_graph<'b>(&self, writer: &mut dyn std::io::Write) -> Result<()> {
-        let mut dot_writer = DotWriter::new(String::from("vtree"));
+        let mut dot_writer = DotWriter::new(String::from("vtree"), false);
         self.vtree_manager.borrow().draw(&mut dot_writer, self);
         dot_writer.write(writer)
     }

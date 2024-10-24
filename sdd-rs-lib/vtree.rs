@@ -485,7 +485,7 @@ impl Dot for VTreeManager {
                 nodes.push(lc.clone());
                 nodes.push(rc.clone());
 
-                writer.add_node(usize::from(vtree.idx), NodeType::Circle(vtree.idx));
+                writer.add_node(usize::from(vtree.idx), NodeType::Circle(vtree.idx, None));
             };
         }
     }

@@ -150,22 +150,20 @@ impl fmt::Debug for Sdd {
 
 impl Dot for Sdd {
     fn draw<'a>(&self, writer: &mut DotWriter, manager: &SddManager) {
-        let mut idx = fxhash::hash(self);
-        let node_type = match self.sdd_type.clone() {
-            SddType::True => NodeType::Box("True".to_string()),
-            SddType::False => NodeType::Box("False".to_string()),
-            SddType::Literal(literal) => NodeType::Box(format!("{literal}")),
+        match self.sdd_type.clone() {
+            // Do not render literals and constants as they do not provide any
+            // value and only take up space.
+            SddType::True | SddType::False | SddType::Literal(..) => return,
             SddType::Decision(node) => {
-                idx = fxhash::hash(&node);
+                let idx = fxhash::hash(&node);
                 for elem in node.elements.iter() {
                     elem.draw(writer, manager);
                     writer.add_edge(Edge::Simple(idx, fxhash::hash(&elem)));
                 }
-                NodeType::Circle(self.vtree_idx)
+                let node_type = NodeType::Circle(self.vtree_idx, Some(self.id()));
+                writer.add_node(idx, node_type);
             }
         };
-
-        writer.add_node(idx, node_type);
     }
 }
 
