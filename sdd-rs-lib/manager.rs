@@ -266,7 +266,7 @@ impl SddManager {
             return model_count;
         }
 
-        // TODO: This is hack due to the very design of this lib. We may have computed
+        // This is "hack" due to the very design of this lib. We may have computed
         // the model count already but it's not visible in the Sdd reference. It should
         // be in the unique table though, if it was in fact computed.
         if let Some(model_count) = self.get_node(sdd.id()).unwrap().model_count {
@@ -286,12 +286,21 @@ impl SddManager {
                 .get_variables()
         };
 
+        let get_models_count = |sdd: &Sdd| {
+            if sdd.is_literal() {
+                1
+            } else {
+                self.model_count(sdd)
+            }
+        };
+
         let mut total_models = 0;
 
         for Element { prime, sub } in decision.elements {
             let prime = self.get_node(prime).unwrap();
             let sub = self.get_node(sub).unwrap();
-            let model_count = self.model_count(&prime) * self.model_count(&sub);
+
+            let model_count = get_models_count(&prime) * get_models_count(&sub);
 
             // Account for variables that do not appear in neither prime or sub.
             let all_reachable = get_variables(prime.vtree_idx)
@@ -318,11 +327,17 @@ impl SddManager {
 
     /// # Errors
     /// Returns an error if TBD.
-    pub fn draw_sdd_graph<'b>(&self, writer: &mut dyn std::io::Write) -> Result<()> {
+    pub fn draw_all_sdds<'b>(&self, writer: &mut dyn std::io::Write) -> Result<()> {
         let mut dot_writer = DotWriter::new(String::from("sdd"), true);
         for node in self.unique_table.borrow().values() {
             node.draw(&mut dot_writer, self);
         }
+        dot_writer.write(writer)
+    }
+
+    pub fn draw_sdd(&self, writer: &mut dyn std::io::Write, sdd: &Sdd) -> Result<()> {
+        let mut dot_writer = DotWriter::new(String::from("sdd"), true);
+        sdd.draw(&mut dot_writer, self);
         dot_writer.write(writer)
     }
 
@@ -379,21 +394,28 @@ impl SddManager {
     }
 
     fn _apply_eq(&self, fst: &Sdd, snd: &Sdd, op: Operation) -> BTreeSet<Element> {
-        let mut elements = BTreeSet::new();
-        for fst_elem in fst.expand().elements.iter() {
-            for snd_elem in snd.expand().elements.iter() {
-                let res_prime = self.conjoin(
-                    &self
-                        .get_node(fst_elem.prime)
-                        .expect("fst_prime not present"),
-                    &self
-                        .get_node(snd_elem.prime)
-                        .expect("snd_prime not present"),
-                );
+        assert_eq!(fst.vtree_idx, snd.vtree_idx);
+        assert!(!fst.is_constant());
+        assert!(!snd.is_constant());
 
-                if res_prime.is_false() {
-                    let fst_sub = &self.get_node(fst_elem.sub).expect("fst_sub not present");
-                    let snd_sub = &self.get_node(snd_elem.sub).expect("snd_sub not present");
+        let mut elements = BTreeSet::new();
+        for Element {
+            prime: fst_prime,
+            sub: fst_sub,
+        } in fst.expand().elements.iter()
+        {
+            for Element {
+                prime: snd_prime,
+                sub: snd_sub,
+            } in snd.expand().elements.iter()
+            {
+                let fst_prime = self.get_node(*fst_prime).unwrap();
+                let snd_prime = self.get_node(*snd_prime).unwrap();
+                let res_prime = self.conjoin(&fst_prime, &snd_prime);
+
+                if !res_prime.is_false() {
+                    let fst_sub = &self.get_node(*fst_sub).unwrap();
+                    let snd_sub = &self.get_node(*snd_sub).unwrap();
                     let res_sub = match op {
                         Operation::Conjoin => self.disjoin(fst_sub, snd_sub),
                         Operation::Disjoin => self.conjoin(fst_sub, snd_sub),
@@ -417,6 +439,10 @@ impl SddManager {
     }
 
     fn _apply_ineq(&self, fst: &Sdd, snd: &Sdd, op: Operation) -> BTreeSet<Element> {
+        assert!(fst.vtree_idx < snd.vtree_idx);
+        assert!(!fst.is_constant());
+        assert!(!snd.is_constant());
+
         let fst_negated = fst.clone().negate(self);
 
         let apply = |fst, snd| {
@@ -444,6 +470,8 @@ impl SddManager {
 
     fn _apply_left_sub_of_right(&self, fst: &Sdd, snd: &Sdd, op: Operation) -> BTreeSet<Element> {
         assert!(fst.vtree_idx < snd.vtree_idx);
+        assert!(!fst.is_constant());
+        assert!(!snd.is_constant());
 
         let new_node = if op == Operation::Conjoin {
             fst
@@ -469,10 +497,11 @@ impl SddManager {
             sub: snd_sub,
         } in snd_elements
         {
-            let prime = self.conjoin(&self.get_node(snd_prime).unwrap(), new_node);
-            if !prime.is_false() {
+            let snd_prime = &self.get_node(snd_prime).unwrap();
+            let new_prime = self.conjoin(&snd_prime, new_node);
+            if !new_prime.is_false() {
                 elements.insert(Element {
-                    prime: prime.id(),
+                    prime: new_prime.id(),
                     sub: snd_sub,
                 });
             }
@@ -483,6 +512,8 @@ impl SddManager {
 
     fn _apply_right_sub_of_left(&self, fst: &Sdd, snd: &Sdd, op: Operation) -> BTreeSet<Element> {
         assert!(fst.vtree_idx < snd.vtree_idx);
+        assert!(!fst.is_constant());
+        assert!(!snd.is_constant());
 
         let fst_elements = fst.sdd_type.elements().expect(
             format!(
@@ -501,14 +532,14 @@ impl SddManager {
         } in fst_elements
         {
             let fst_sub = self.get_node(fst_sub_idx).unwrap();
-            let sub = match op {
+            let new_sub = match op {
                 Operation::Conjoin => self.conjoin(&fst_sub, snd),
                 Operation::Disjoin => self.disjoin(&fst_sub, snd),
             };
 
             elements.insert(Element {
                 prime: fst_prime_idx,
-                sub: sub.id(),
+                sub: new_sub.id(),
             });
         }
 
@@ -657,12 +688,6 @@ mod test {
         // Resulting SDD must be normalized w.r.t. vtree with index 3.
         let a_and_d__and_b = manager.conjoin(&a_and_d, &lit_b);
         assert_eq!(a_and_d__and_b.vtree_idx, 3);
-
-        let f = std::fs::File::create("test-out-sdd.dot").unwrap();
-        let mut b = std::io::BufWriter::new(f);
-        manager
-            .draw_sdd_graph(&mut b as &mut dyn std::io::Write)
-            .unwrap();
     }
 
     #[test]
@@ -676,5 +701,8 @@ mod test {
 
         let a_and_d = manager.conjoin(&lit_a, &lit_d);
         assert_eq!(manager.model_count(&a_and_d), 4);
+
+        let a_or_d = manager.disjoin(&a_and_d, &lit_a);
+        assert_eq!(manager.model_count(&a_or_d), manager.model_count(&lit_a));
     }
 }
