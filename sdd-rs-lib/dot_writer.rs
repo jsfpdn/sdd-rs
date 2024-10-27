@@ -29,10 +29,11 @@ pub struct DotWriter {
     edges: Vec<Edge>,
 }
 
+#[derive(Debug)]
 pub enum NodeType {
     Box(String),
     Circle(u16, Option<usize>),
-    CircleStr(String),
+    CircleStr(String, u16),
     Record(String, String),
 }
 
@@ -41,7 +42,7 @@ impl NodeType {
         let shape_type = match self {
             NodeType::Box(_) => "box",
             NodeType::Record(_, _) => "record",
-            NodeType::Circle(_, _) | NodeType::CircleStr(_) => "circle",
+            NodeType::Circle(_, _) | NodeType::CircleStr(_, _) => "circle",
         }
         .to_owned();
 
@@ -52,10 +53,10 @@ impl NodeType {
         match self {
             NodeType::Record(fst, snd) => format!("label=\"<f0> {fst} | <f1> {snd}\""),
             NodeType::Circle(label, Some(idx)) if verbose => {
-                format!("label=<{label}>, xlabel=<<FONT POINT-SIZE=\"7\">{idx}</FONT>>")
+                format!("label=<{label}>, xlabel=<<FONT POINT-SIZE=\"7\">{idx}</FONT>>, fillcolor=lightgray, style=filled")
             }
             NodeType::Circle(label, _) => format!("label=<{label}>"),
-            NodeType::CircleStr(label) => format!("label=\"{label}\""),
+            NodeType::CircleStr(label, idx) => format!("label=\"{label} ({idx})\""),
             NodeType::Box(_) => String::new(),
         }
     }

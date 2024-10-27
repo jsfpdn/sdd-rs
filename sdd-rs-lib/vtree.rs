@@ -122,6 +122,7 @@ impl VTree {
 
     /// Collect all the variables reachable from this vtree node.
     pub(crate) fn get_variables(&self) -> BTreeSet<VarLabel> {
+        // TODO: This can be optimized by caching.
         match self.node.clone() {
             Node::Leaf(var_label) => btreeset!(var_label),
             Node::Internal(left, right) => left
@@ -216,6 +217,10 @@ impl VTreeManager {
 
         // TODO: This can be optimized further.
         VTreeManager::set_inorder_indices(self.root.clone().unwrap(), 0);
+    }
+
+    pub(crate) fn root_idx(&self) -> Option<u16> {
+        self.root.clone().map(|root| root.borrow().idx)
     }
 
     fn set_inorder_indices(node: VTreeRef, idx: u16) -> (u16, Option<VTreeRef>, Option<VTreeRef>) {
@@ -473,7 +478,7 @@ impl Dot for VTreeManager {
 
         // Get the total order first to neatly order the leaf nodes in the graph.
         for (label, idx) in self.variables_total_order() {
-            writer.add_node(usize::from(idx), NodeType::CircleStr(label.str()));
+            writer.add_node(usize::from(idx), NodeType::CircleStr(label.str(), idx));
         }
 
         let mut nodes = vec![self.root.as_ref().unwrap().clone()];

@@ -5,7 +5,7 @@ use crate::{
     dot_writer::{Dot, DotWriter},
     literal::{self, Literal, Polarity, VarLabel},
     options::SddOptions,
-    sdd::{Element, Sdd, SddType},
+    sdd::{Decision, Element, Sdd, SddType},
     vtree::{VTreeManager, VTreeOrder},
     Result,
 };
@@ -257,10 +257,28 @@ impl SddManager {
         unimplemented!()
     }
 
-    /// Count number of models for this SDD.
     pub fn model_count(&self, sdd: &Sdd) -> u64 {
-        // TODO: test me properly.
+        let models = self._model_count(sdd);
 
+        if self.vtree_manager.borrow().root_idx().unwrap() == sdd.vtree_idx {
+            return models;
+        }
+
+        let sdd_variables = self
+            .vtree_manager
+            .borrow()
+            .get_vtree(sdd.vtree_idx)
+            .unwrap()
+            .borrow()
+            .get_variables()
+            .len();
+        let unbound = self.label_manager.borrow().len() - sdd_variables;
+
+        models * 2_u64.pow(unbound as u32)
+    }
+
+    /// Count number of models for this SDD.
+    fn _model_count(&self, sdd: &Sdd) -> u64 {
         // Return the cached value if it already exists.
         if let Some(model_count) = sdd.model_count {
             return model_count;
@@ -277,10 +295,14 @@ impl SddManager {
             panic!("every other sddType should've been handled");
         };
 
-        let get_variables = |vtree_idx: u16| {
+        let get_variables = |sdd: &Sdd| {
+            if sdd.is_constant() {
+                return BTreeSet::new();
+            }
+
             self.vtree_manager
                 .borrow()
-                .get_vtree(vtree_idx)
+                .get_vtree(sdd.vtree_idx)
                 .unwrap()
                 .borrow()
                 .get_variables()
@@ -290,11 +312,12 @@ impl SddManager {
             if sdd.is_literal() {
                 1
             } else {
-                self.model_count(sdd)
+                self._model_count(sdd)
             }
         };
 
         let mut total_models = 0;
+        let all_variables = get_variables(&sdd).len();
 
         for Element { prime, sub } in decision.elements {
             let prime = self.get_node(prime).unwrap();
@@ -303,18 +326,10 @@ impl SddManager {
             let model_count = get_models_count(&prime) * get_models_count(&sub);
 
             // Account for variables that do not appear in neither prime or sub.
-            let all_reachable = get_variables(prime.vtree_idx)
-                .union(&get_variables(sub.vtree_idx))
-                .cloned()
-                .collect::<BTreeSet<_>>();
+            let all_reachable = get_variables(&prime).union(&get_variables(&sub)).count();
+            let unbound_variables = all_variables - all_reachable;
 
-            let not_contained = self
-                .label_manager
-                .borrow()
-                .difference(&all_reachable)
-                .count();
-
-            total_models += model_count * (not_contained.pow(2) as u64);
+            total_models += model_count * 2_u64.pow(unbound_variables as u32);
         }
 
         // Update the "global" sdd in the unique table so we can find it later.
@@ -337,7 +352,23 @@ impl SddManager {
 
     pub fn draw_sdd(&self, writer: &mut dyn std::io::Write, sdd: &Sdd) -> Result<()> {
         let mut dot_writer = DotWriter::new(String::from("sdd"), true);
-        sdd.draw(&mut dot_writer, self);
+
+        let mut sdds = vec![sdd.clone()];
+        while !sdds.is_empty() {
+            let sdd = sdds.pop().unwrap();
+            sdd.draw(&mut dot_writer, self);
+
+            if let SddType::Decision(Decision { elements }) = sdd.sdd_type.clone() {
+                elements
+                    .iter()
+                    .map(|element| element.get_prime_sub(self))
+                    .for_each(|(prime, sub)| {
+                        sdds.push(prime);
+                        sdds.push(sub)
+                    });
+            }
+        }
+
         dot_writer.write(writer)
     }
 
@@ -561,8 +592,32 @@ impl SddManager {
 #[cfg(test)]
 mod test {
     use crate::{literal::Polarity, vtree::test::right_child};
+    use std::fs::File;
+    use std::io::BufWriter;
 
-    use super::{SddManager, SddOptions};
+    use super::{Sdd, SddManager, SddOptions};
+
+    fn quick_draw(manager: &SddManager, sdd: &Sdd, path: &str) {
+        let f = File::create(format!("{path}.dot")).unwrap();
+        let mut b = BufWriter::new(f);
+        manager
+            .draw_sdd(&mut b as &mut dyn std::io::Write, sdd)
+            .unwrap();
+
+        let f = File::create(format!("{path}_vtree.dot")).unwrap();
+        let mut b = BufWriter::new(f);
+        manager
+            .draw_vtree_graph(&mut b as &mut dyn std::io::Write)
+            .unwrap();
+    }
+
+    fn quick_draw_all(manager: &SddManager, path: &str) {
+        let f = File::create(path).unwrap();
+        let mut b = BufWriter::new(f);
+        manager
+            .draw_all_sdds(&mut b as &mut dyn std::io::Write)
+            .unwrap();
+    }
 
     #[test]
     fn simple_conjoin() {
@@ -695,14 +750,36 @@ mod test {
         let manager = SddManager::new(SddOptions::default());
 
         let lit_a = manager.literal("a", Polarity::Positive);
-        let _ = manager.literal("b", Polarity::Positive);
-        let _ = manager.literal("c", Polarity::Positive);
+        let lit_b = manager.literal("b", Polarity::Positive);
+        let lit_c = manager.literal("c", Polarity::Positive);
         let lit_d = manager.literal("d", Polarity::Positive);
+
+        let root = manager.vtree_manager.borrow().root.clone().unwrap();
+        manager
+            .vtree_manager
+            .borrow_mut()
+            .rotate_left(&right_child(&root));
 
         let a_and_d = manager.conjoin(&lit_a, &lit_d);
         assert_eq!(manager.model_count(&a_and_d), 4);
 
         let a_or_d = manager.disjoin(&a_and_d, &lit_a);
         assert_eq!(manager.model_count(&a_or_d), manager.model_count(&lit_a));
+
+        let a_and_b = manager.conjoin(&lit_a, &lit_b);
+        assert_eq!(manager.model_count(&a_and_b), 4);
+
+        // A && B && B == A && B
+        let a_and_b_and_b = manager.conjoin(&a_and_b, &lit_b);
+        assert_eq!(
+            manager.model_count(&a_and_b_and_b),
+            manager.model_count(&a_and_b)
+        );
+
+        let a_and_b_and_c = manager.conjoin(&a_and_b, &lit_c);
+        assert_eq!(manager.model_count(&a_and_b_and_c), 2);
+
+        let a_and_b_and_c_or_d = manager.disjoin(&a_and_b_and_c, &lit_d);
+        assert_eq!(manager.model_count(&a_and_b_and_c_or_d), 9);
     }
 }

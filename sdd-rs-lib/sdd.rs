@@ -50,7 +50,7 @@ impl Element {
         prime.is_compressed(manager) && sub.is_compressed(manager)
     }
 
-    fn get_prime_sub<'a>(&self, manager: &'a SddManager) -> (Sdd, Sdd) {
+    pub(crate) fn get_prime_sub<'a>(&self, manager: &'a SddManager) -> (Sdd, Sdd) {
         (
             manager.get_node(self.prime).expect(
                 format!(
