@@ -1,103 +1,14 @@
 use core::fmt;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 use std::hash::Hash;
 
-use crate::btreeset;
 use crate::{
+    btreeset,
     dot_writer::{Dot, DotWriter, Edge, NodeType},
     literal::Literal,
     manager::SddManager,
+    sdd::{Decision, Element},
 };
-
-#[derive(PartialEq, Eq, Clone, Hash)]
-pub(crate) struct Node {
-    decision: Decision,
-
-    parents: u64,
-    refs: u64,
-    // TODO: Do we want field `parents: BTreeSet<u64>`? What would this point to? Since only the
-    // decision nodes will be stored in the unique_table, then it would have to point to decision
-    // node, not to the particular element pointing to it (since it is not hashed and stored
-    // directly in the unique_table).
-}
-
-impl Node {
-    #[must_use]
-    pub fn new(decision: Decision) -> Node {
-        Node {
-            decision,
-            parents: 0,
-            refs: 0,
-        }
-    }
-}
-
-// Element node (a paired box) is a conjunction of prime and sub.
-#[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord, Debug, Copy)]
-pub(crate) struct Element {
-    pub(crate) prime: usize,
-    pub(crate) sub: usize,
-}
-
-impl Element {
-    fn is_trimmed(&self, manager: &SddManager) -> bool {
-        let (prime, sub) = self.get_prime_sub(manager);
-        prime.is_trimmed(manager) && sub.is_trimmed(manager)
-    }
-
-    fn is_compressed(&self, manager: &SddManager) -> bool {
-        let (prime, sub) = self.get_prime_sub(manager);
-        prime.is_compressed(manager) && sub.is_compressed(manager)
-    }
-
-    pub(crate) fn get_prime_sub<'a>(&self, manager: &'a SddManager) -> (Sdd, Sdd) {
-        (
-            manager.get_node(self.prime).expect(
-                format!(
-                    "element_prime with id {} not present in unique_table",
-                    self.prime
-                )
-                .as_str(),
-            ),
-            manager.get_node(self.sub).expect(
-                format!(
-                    "element_sub with id {} not present in unique_table",
-                    self.sub
-                )
-                .as_str(),
-            ),
-        )
-    }
-}
-
-impl Dot for Element {
-    fn draw<'a>(&self, writer: &mut DotWriter, manager: &SddManager) {
-        let idx = fxhash::hash(self);
-
-        let (prime, sub) = self.get_prime_sub(manager);
-
-        writer.add_node(idx, NodeType::Record(prime.dot_repr(), sub.dot_repr()));
-
-        if let Sdd {
-            sdd_type: SddType::Decision(node),
-            ..
-        } = manager
-            .get_node(self.prime)
-            .expect("element_prime not present in unique_table")
-        {
-            writer.add_edge(Edge::Prime(idx, fxhash::hash(&node)));
-        }
-        if let Sdd {
-            sdd_type: SddType::Decision(node),
-            ..
-        } = manager
-            .get_node(self.sub)
-            .expect("element_sub not present in unique_table")
-        {
-            writer.add_edge(Edge::Sub(idx, fxhash::hash(&node)));
-        };
-    }
-}
 
 #[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord, Debug)]
 pub(crate) enum SddType {
@@ -407,7 +318,7 @@ impl Sdd {
         )
     }
 
-    fn dot_repr(&self) -> String {
+    pub(super) fn dot_repr(&self) -> String {
         match self.sdd_type.clone() {
             SddType::True => String::from("⊤"),
             SddType::False => String::from("⊥"),
@@ -417,177 +328,12 @@ impl Sdd {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord, Debug)]
-pub struct Decision {
-    pub(crate) elements: BTreeSet<Element>,
-}
-
-impl Decision {
-    /// Recursivelly checks whether the decision node is trimmed.
-    /// Decision node is `trimmed` if it does not contain decompositions of the form `{(True, A)}` or
-    /// `{(A, True), (!A, False)}`.
-    ///
-    /// See definition 8 in [SDD: A New Canonical Representation of Propositional Knowledge Bases](https://ai.dmi.unibas.ch/research/reading_group/darwiche-ijcai2011.pdf).
-    ///
-    /// # Panics
-    /// Function panics if
-    /// * elements are not stored in the SDD manager,
-    /// * the decision node contains something else than boxed elements.
-    #[must_use]
-    fn is_trimmed(&self, manager: &SddManager) -> bool {
-        let mut primes: HashSet<Sdd> = HashSet::new();
-
-        if self.elements.len() >= 3 {
-            return true;
-        }
-
-        for element in &self.elements {
-            let (prime, sub) = element.get_prime_sub(manager);
-
-            // Check for `{(true, A)}`.
-            if prime.is_true() {
-                return false;
-            }
-
-            // Check for elements `(A, True)` and `(!A, False)`. We can continue with the next iteration
-            // if the sub is not True or False.
-            if !sub.is_constant() {
-                continue;
-            }
-
-            // Check whether we have already seen this literal but negated.
-            if primes.contains(&prime) {
-                return false;
-            }
-
-            primes.insert(prime.clone().negate(manager));
-        }
-
-        // Check that elements are also trimmed.
-        self.elements.iter().all(|el| el.is_trimmed(manager))
-    }
-
-    /// Recursivelly checks whether the decision node is compressed.
-    /// Decision node is compressed if all subs are distinct, i.e., for all indexes i,j such that i != j,
-    /// it holds that `s_i != s_j`.
-    ///
-    /// See definition 8 in [SDD: A New Canonical Representation of Propositional Knowledge Bases](https://ai.dmi.unibas.ch/research/reading_group/darwiche-ijcai2011.pdf).
-    ///
-    /// # Panics
-    /// Function panics if
-    /// * elements are not stored in the SDD manager,
-    /// * the decision node contains something else than boxed elements.
-    #[must_use]
-    fn is_compressed(&self, manager: &SddManager) -> bool {
-        let mut subs: HashSet<Sdd> = HashSet::new();
-        for element in &self.elements {
-            let (_, sub) = element.get_prime_sub(manager);
-            if subs.contains(&sub) {
-                return false;
-            }
-
-            subs.insert(sub);
-        }
-
-        // Check that all elements are also compressed.
-        self.elements.iter().all(|el| el.is_compressed(manager))
-    }
-
-    /// Trim decision node by replacing decompositions {(true, alpha)}
-    /// and {(alpha, true), (!alpha, false)} with alpha. Returns a Boolean
-    /// denoting whether the decision node had to be trimmed.
-    fn trim(&self, manager: &SddManager) -> Option<Sdd> {
-        let elements: Vec<&Element> = self.elements.iter().collect();
-        if self.elements.len() == 1 {
-            let el = elements.get(0).unwrap();
-            if el.prime == Sdd::new_true().id() {
-                match manager.get_node(el.sub) {
-                    Some(sdd) => return Some(sdd),
-                    None => panic!("el.sub must be present in unique_table"),
-                }
-            }
-        }
-
-        if self.elements.len() == 2 {
-            let el_1 = elements.get(0).unwrap();
-            let el_2 = elements.get(1).unwrap();
-
-            let el_1_prime;
-            let el_2_prime;
-            if el_1.sub == Sdd::new_true().id() && el_2.sub == Sdd::new_false().id() {
-                // Check for {(_, true), (_, false)}.
-                el_1_prime = manager.get_node(el_1.prime).unwrap();
-                el_2_prime = manager.get_node(el_2.prime).unwrap();
-            } else if el_2.sub == Sdd::new_true().id() && el_1.sub == Sdd::new_false().id() {
-                // Check for {(_, false), (_, true)}.
-                el_1_prime = manager.get_node(el_2.prime).unwrap();
-                el_2_prime = manager.get_node(el_1.prime).unwrap();
-            } else {
-                return None;
-            }
-
-            if el_1_prime.eq_negated(&el_2_prime, manager) {
-                return Some(el_1_prime);
-            }
-        }
-
-        None
-    }
-
-    /// Compress decision node by repeatedly replacing elements
-    /// `(p, s)` and `(q, s)` with `(p || q, s)`.
-    fn compress(&self, manager: &SddManager) -> Decision {
-        let mut elements: Vec<_> = self.elements.iter().cloned().collect();
-        let mut last_el_idx = self.elements.len() - 1;
-        let mut i = 0;
-
-        while i < last_el_idx {
-            let mut j = i + 1;
-
-            let mut fst = *elements.get(i).unwrap();
-            while j <= last_el_idx {
-                let snd = elements.get(j).unwrap();
-                // TODO: Does this equality actually work? Can we just compare ids?
-                if fst.sub != snd.sub {
-                    j += 1;
-                    continue;
-                }
-
-                // The subs are equal, we can compress the elements together.
-                let fst_prime = manager.get_node(fst.prime).unwrap();
-                let snd_prime = manager.get_node(snd.prime).unwrap();
-                let new_prime = manager.disjoin(&fst_prime, &snd_prime);
-
-                fst = Element {
-                    prime: new_prime.id(),
-                    sub: fst.sub,
-                };
-
-                // Remove element at the `j`-th position from the vector of elements.
-                // This means decreasing the `last_el_idx` and not moving the `j` index
-                // since there will be a new element from the back of the vector which
-                // we can process in the next iteration of this inner loop.
-                elements.swap_remove(j);
-                last_el_idx -= 1;
-                continue;
-            }
-
-            i += 1;
-        }
-
-        Decision {
-            elements: elements.iter().cloned().collect(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::{Decision, Element, Sdd, SddType};
     use crate::btreeset;
     use crate::literal::{Literal, Polarity};
-    use crate::manager::SddManager;
-    use crate::options::SddOptions;
+    use crate::manager::{options::SddOptions, SddManager};
 
     #[test]
     fn not_trimmed_simple() {

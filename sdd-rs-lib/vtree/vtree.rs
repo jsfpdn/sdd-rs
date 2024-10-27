@@ -7,22 +7,22 @@ use crate::{
 };
 
 #[derive(Clone, PartialEq)]
-pub(crate) enum Node {
+enum Node {
     Leaf(VarLabel),
     Internal(VTreeRef, VTreeRef),
 }
 
-impl Node {
-    #[must_use]
-    pub fn is_leaf(&self) -> bool {
-        matches!(self, Node::Leaf(_))
-    }
+// impl Node {
+//     #[must_use]
+//     fn is_leaf(&self) -> bool {
+//         matches!(self, Node::Leaf(_))
+//     }
 
-    #[must_use]
-    pub fn is_internal(&self) -> bool {
-        !self.is_leaf()
-    }
-}
+//     #[must_use]
+//     fn is_internal(&self) -> bool {
+//         !self.is_leaf()
+//     }
+// }
 
 #[derive(PartialEq)]
 pub struct VTree {
@@ -58,7 +58,7 @@ impl Debug for VTree {
 
 impl VTree {
     #[must_use]
-    pub(crate) fn new(parent: Option<VTreeRef>, idx: u16, node: Node) -> VTree {
+    fn new(parent: Option<VTreeRef>, idx: u16, node: Node) -> VTree {
         VTree {
             parent,
             idx,
@@ -69,7 +69,7 @@ impl VTree {
     }
 
     #[must_use]
-    pub(crate) fn new_as_ref(parent: Option<VTreeRef>, idx: u16, node: Node) -> VTreeRef {
+    fn new_as_ref(parent: Option<VTreeRef>, idx: u16, node: Node) -> VTreeRef {
         Rc::new(RefCell::new(VTree::new(parent, idx, node)))
     }
 
@@ -506,10 +506,10 @@ impl Default for VTreeManager {
 pub(crate) mod test {
     use crate::{
         literal::VarLabel,
-        vtree::{Node, VTreeOrder, VTreeRef},
+        vtree::{VTreeOrder, VTreeRef},
     };
 
-    use super::VTreeManager;
+    use super::{Node, VTreeManager};
 
     fn orders_eq(got_order: Vec<(VarLabel, u16)>, want_order: Vec<VarLabel>) {
         assert_eq!(got_order.len(), want_order.len());
@@ -618,13 +618,13 @@ pub(crate) mod test {
         assert!(manager
             .root
             .clone()
-            .is_some_and(|root| root.as_ref().borrow().node.is_leaf()));
+            .is_some_and(|root| matches!(root.as_ref().borrow().node, Node::Leaf(..))));
 
         manager.add_variable(&VarLabel::new("B"));
         assert!(manager
             .root
             .clone()
-            .is_some_and(|root| root.as_ref().borrow().node.is_internal()));
+            .is_some_and(|root| matches!(root.as_ref().borrow().node, Node::Internal(..))));
 
         manager.add_variable(&VarLabel::new("C"));
 

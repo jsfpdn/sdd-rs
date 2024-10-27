@@ -1,4 +1,5 @@
-use crate::{manager::SddManager, Result};
+use crate::manager::SddManager;
+use crate::Result;
 
 pub trait Dot {
     fn draw<'a>(&self, writer: &mut DotWriter, manager: &SddManager);

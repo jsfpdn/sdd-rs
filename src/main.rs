@@ -4,8 +4,10 @@ use std::io::BufWriter;
 use clap::Parser;
 
 use sddrs::{
-    manager::SddManager,
-    options::{GcSchedule, InitialVTree, SddOptions, VTreeStrategy},
+    manager::{
+        options::{GcSchedule, InitialVTree, SddOptions, VTreeStrategy},
+        SddManager,
+    },
     Result,
 };
 

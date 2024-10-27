@@ -11,4 +11,5 @@ name = "sddrs"
 path = "lib.rs"
 
 [dependencies]
+bitvec = "1.0.1"
 fxhash = "0.2.1"

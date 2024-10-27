@@ -1,10 +1,8 @@
-use tracing::warn;
-
 use crate::{
     btreeset,
     dot_writer::{Dot, DotWriter},
-    literal::{self, Literal, Polarity, VarLabel},
-    options::SddOptions,
+    literal::{Literal, Polarity, VarLabel},
+    manager::options::SddOptions,
     sdd::{Decision, Element, Sdd, SddType},
     vtree::{VTreeManager, VTreeOrder},
     Result,
@@ -14,6 +12,8 @@ use std::{
     cell::RefCell,
     collections::{BTreeSet, HashMap},
 };
+
+use bitvec::prelude::*;
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug, Copy)]
 enum Operation {
@@ -36,6 +36,21 @@ struct Entry {
     fst: usize,
     snd: usize,
     op: Operation,
+}
+
+pub struct Enumerations {
+    enumerations: BitVec,
+    var_labels: Vec<VarLabel>,
+}
+
+pub struct Enumeration {
+    literals: Vec<Literal>,
+}
+
+impl Enumeration {
+    fn new(enumeration: BitVec, labels: Vec<VarLabel>) -> Self {
+        unimplemented!()
+    }
 }
 
 #[allow(clippy::module_name_repetitions)]
@@ -109,12 +124,12 @@ impl SddManager {
     }
 
     pub fn literal(&self, literal: &str, polarity: Polarity) -> Sdd {
-        let var_label = literal::VarLabel::new(literal);
+        let var_label = VarLabel::new(literal);
         self.vtree_manager.borrow_mut().add_variable(&var_label);
         self.label_manager.borrow_mut().insert(var_label.clone());
         // TODO: Adding new variable should either invalidate cached model counts
         // in existing SDDs or recompute them.
-        warn!("should invalidate cached model counts");
+        // warn!("should invalidate cached model counts");
 
         let vtree_idx = self
             .vtree_manager
@@ -125,7 +140,7 @@ impl SddManager {
             .get_index();
 
         let literal = Sdd::new(
-            SddType::Literal(literal::Literal::new(polarity, literal)),
+            SddType::Literal(Literal::new(polarity, literal)),
             vtree_idx,
             None,
         );
@@ -253,7 +268,8 @@ impl SddManager {
     pub fn exist() {}
     pub fn forall() {}
 
-    pub fn model_enumeration(&self, sdd: &Sdd) {
+    // TODO: Think of good representation of the models.
+    pub fn model_enumeration(&self, sdd: &Sdd) -> Enumerations {
         unimplemented!()
     }
 
@@ -781,5 +797,23 @@ mod test {
 
         let a_and_b_and_c_or_d = manager.disjoin(&a_and_b_and_c, &lit_d);
         assert_eq!(manager.model_count(&a_and_b_and_c_or_d), 9);
+    }
+
+    fn model_enumeration() {
+        let manager = SddManager::new(SddOptions::default());
+
+        let lit_a = manager.literal("a", Polarity::Positive);
+        let lit_b = manager.literal("b", Polarity::Positive);
+        let lit_c = manager.literal("c", Polarity::Positive);
+        let lit_d = manager.literal("d", Polarity::Positive);
+
+        let root = manager.vtree_manager.borrow().root.clone().unwrap();
+        manager
+            .vtree_manager
+            .borrow_mut()
+            .rotate_left(&right_child(&root));
+
+        let a_and_b = manager.conjoin(&lit_a, &lit_b);
+        // assert_eq!(manager.model_enumeration(&a_and_d), 4);
     }
 }
