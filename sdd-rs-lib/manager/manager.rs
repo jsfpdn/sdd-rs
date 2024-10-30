@@ -1,9 +1,12 @@
+use bitvec::prelude::*;
+
 use crate::{
     btreeset,
     dot_writer::{Dot, DotWriter},
-    literal::{Literal, Polarity, VarLabel},
-    manager::options::SddOptions,
+    literal::{Literal, Polarity, Variable},
+    manager::{model::Models, options::SddOptions},
     sdd::{Decision, Element, Sdd, SddType},
+    util::set_bits_indices,
     vtree::{VTreeManager, VTreeOrder},
     Result,
 };
@@ -11,9 +14,8 @@ use crate::{
 use std::{
     cell::RefCell,
     collections::{BTreeSet, HashMap},
+    ops::BitOr,
 };
-
-use bitvec::prelude::*;
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug, Copy)]
 enum Operation {
@@ -38,27 +40,12 @@ struct Entry {
     op: Operation,
 }
 
-pub struct Enumerations {
-    enumerations: BitVec,
-    var_labels: Vec<VarLabel>,
-}
-
-pub struct Enumeration {
-    literals: Vec<Literal>,
-}
-
-impl Enumeration {
-    fn new(enumeration: BitVec, labels: Vec<VarLabel>) -> Self {
-        unimplemented!()
-    }
-}
-
 #[allow(clippy::module_name_repetitions)]
 pub struct SddManager {
     options: SddOptions,
 
     vtree_manager: RefCell<VTreeManager>,
-    label_manager: RefCell<BTreeSet<VarLabel>>,
+    label_manager: RefCell<BTreeSet<Variable>>,
 
     // Unique table holding all the decision nodes.
     // More details can be found in [Algorithms and Data Structures in VLSI Design](https://link.springer.com/book/10.1007/978-3-642-58940-9).
@@ -124,9 +111,19 @@ impl SddManager {
     }
 
     pub fn literal(&self, literal: &str, polarity: Polarity) -> Sdd {
-        let var_label = VarLabel::new(literal);
-        self.vtree_manager.borrow_mut().add_variable(&var_label);
-        self.label_manager.borrow_mut().insert(var_label.clone());
+        let variable = self
+            .label_manager
+            .borrow()
+            .iter()
+            .find(|variable| variable.label() == literal)
+            .cloned();
+        let variable = variable.unwrap_or_else(|| {
+            let variable = Variable::new(literal, self.label_manager.borrow().len() as u16);
+            self.vtree_manager.borrow_mut().add_variable(&variable);
+            self.label_manager.borrow_mut().insert(variable.clone());
+            variable
+        });
+
         // TODO: Adding new variable should either invalidate cached model counts
         // in existing SDDs or recompute them.
         // warn!("should invalidate cached model counts");
@@ -134,13 +131,13 @@ impl SddManager {
         let vtree_idx = self
             .vtree_manager
             .borrow()
-            .get_variable_vtree(&var_label)
+            .get_variable_vtree(&variable)
             .expect("var_label was just inserted, therefore it must be present and found")
             .borrow()
             .get_index();
 
         let literal = Sdd::new(
-            SddType::Literal(Literal::new(polarity, literal)),
+            SddType::Literal(Literal::new_with_label(polarity, variable.clone())),
             vtree_idx,
             None,
         );
@@ -268,9 +265,100 @@ impl SddManager {
     pub fn exist() {}
     pub fn forall() {}
 
-    // TODO: Think of good representation of the models.
-    pub fn model_enumeration(&self, sdd: &Sdd) -> Enumerations {
-        unimplemented!()
+    /// Enumerate all models of the SDD. This method eagerly computes all satisfying assignments.
+    pub fn model_enumeration(&self, sdd: &Sdd) -> Models {
+        let mut models: Vec<BitVec> = Vec::new();
+        self._model_enumeration(sdd, &mut models);
+
+        let all_variables: BTreeSet<_> = self.label_manager.borrow().iter().cloned().collect();
+        let unbound_variables: Vec<_> = all_variables
+            .difference(&self.get_variables(&sdd))
+            .cloned()
+            .collect();
+        self.expand_models(&mut models, &unbound_variables);
+        Models::new(models, all_variables.iter().cloned().collect())
+    }
+
+    fn _model_enumeration(&self, sdd: &Sdd, bitvecs: &mut Vec<BitVec>) {
+        // Return the cached value if it already exists.
+        if let Some(ref mut models) = sdd.models.clone() {
+            bitvecs.append(models);
+            return;
+        }
+
+        // This is "hack" due to the very design of this lib. We may have computed
+        // the model count already but it's not visible in the Sdd reference. It should
+        // be in the unique table though, if it was in fact computed.
+        if let Some(ref mut models) = self.get_node(sdd.id()).unwrap().models.clone() {
+            bitvecs.append(models);
+            return;
+        }
+
+        if let SddType::Literal(ref literal) = sdd.sdd_type {
+            let mut model = bitvec![usize, LocalBits; 0; self.label_manager.borrow().len()];
+            model.set(
+                literal.var_label().index() as usize,
+                literal.polarity() == Polarity::Positive,
+            );
+            bitvecs.push(model);
+            return;
+        }
+
+        let SddType::Decision(decision) = sdd.sdd_type.clone() else {
+            panic!("every other sddType should've been handled");
+        };
+
+        let mut all_models = Vec::new();
+        let all_variables = self.get_variables(&sdd);
+
+        for Element { prime, sub } in decision.elements {
+            let mut models = Vec::new();
+            let prime = self.get_node(prime).unwrap();
+            let sub = self.get_node(sub).unwrap();
+
+            if prime.is_false() || sub.is_false() {
+                continue;
+            }
+
+            if prime.is_true() || sub.is_true() {
+                if prime.is_true() {
+                    self._model_enumeration(&sub, &mut models);
+                } else {
+                    self._model_enumeration(&prime, &mut models);
+                }
+            } else {
+                let mut fst = Vec::new();
+                let mut snd = Vec::new();
+
+                self._model_enumeration(&prime, &mut fst);
+                self._model_enumeration(&sub, &mut snd);
+
+                for fst_bv in &fst {
+                    for snd_bv in &snd {
+                        models.push(fst_bv.clone().bitor(snd_bv));
+                    }
+                }
+            }
+
+            let all_reachable_variables = self
+                .get_variables(&prime)
+                .union(&self.get_variables(&sub))
+                .cloned()
+                .collect();
+            let unbound_variables: Vec<_> = all_variables
+                .difference(&all_reachable_variables)
+                .cloned()
+                .collect();
+
+            self.expand_models(&mut models, &unbound_variables);
+            all_models.append(&mut models);
+        }
+
+        bitvecs.append(&mut all_models);
+
+        let mut sdd_clone = sdd.clone();
+        sdd_clone.models = Some(bitvecs.clone());
+        self.insert_node(&sdd_clone);
     }
 
     pub fn model_count(&self, sdd: &Sdd) -> u64 {
@@ -311,19 +399,6 @@ impl SddManager {
             panic!("every other sddType should've been handled");
         };
 
-        let get_variables = |sdd: &Sdd| {
-            if sdd.is_constant() {
-                return BTreeSet::new();
-            }
-
-            self.vtree_manager
-                .borrow()
-                .get_vtree(sdd.vtree_idx)
-                .unwrap()
-                .borrow()
-                .get_variables()
-        };
-
         let get_models_count = |sdd: &Sdd| {
             if sdd.is_literal() {
                 1
@@ -333,7 +408,7 @@ impl SddManager {
         };
 
         let mut total_models = 0;
-        let all_variables = get_variables(&sdd).len();
+        let all_variables = self.get_variables(&sdd).len();
 
         for Element { prime, sub } in decision.elements {
             let prime = self.get_node(prime).unwrap();
@@ -342,7 +417,10 @@ impl SddManager {
             let model_count = get_models_count(&prime) * get_models_count(&sub);
 
             // Account for variables that do not appear in neither prime or sub.
-            let all_reachable = get_variables(&prime).union(&get_variables(&sub)).count();
+            let all_reachable = self
+                .get_variables(&prime)
+                .union(&self.get_variables(&sub))
+                .count();
             let unbound_variables = all_variables - all_reachable;
 
             total_models += model_count * 2_u64.pow(unbound_variables as u32);
@@ -603,16 +681,71 @@ impl SddManager {
             .borrow_mut()
             .insert(Entry { fst, snd, op }, res_id);
     }
+
+    fn get_variables(&self, sdd: &Sdd) -> BTreeSet<Variable> {
+        if sdd.is_constant() {
+            return BTreeSet::new();
+        }
+
+        self.vtree_manager
+            .borrow()
+            .get_vtree(sdd.vtree_idx)
+            .unwrap()
+            .borrow()
+            .get_variables()
+    }
+
+    /// Expand [`models`] with all the possible instantiations of [`unbound _variables`].
+    fn expand_models(&self, models: &mut Vec<BitVec>, unbound_variables: &[Variable]) {
+        if unbound_variables.len() == 0 {
+            return;
+        }
+
+        let num_models = models.len();
+        if unbound_variables.len() == 1 {
+            let unbound_variable = unbound_variables.get(0).unwrap();
+            for i in 0..num_models {
+                let mut new_model = models.get(i).unwrap().clone();
+                new_model.set(unbound_variable.index() as usize, true);
+                models.push(new_model);
+            }
+
+            return;
+        }
+
+        for mask in 1..=unbound_variables.len() + 1 {
+            let variables_to_set: Vec<_> = set_bits_indices(mask)
+                .iter()
+                .map(|&idx| unbound_variables.get(idx).unwrap())
+                .collect();
+
+            for i in 0..num_models {
+                let mut new_model = models.get(i).unwrap().clone();
+                for variable_to_set in &variables_to_set {
+                    new_model.set(variable_to_set.index() as usize, true);
+                }
+                models.push(new_model);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::{literal::Polarity, vtree::test::right_child};
+    #![allow(non_snake_case)]
+
+    use crate::{
+        literal::{Literal, Polarity},
+        manager::model::Model,
+        vtree::test::right_child,
+    };
+    use pretty_assertions::assert_eq;
     use std::fs::File;
     use std::io::BufWriter;
 
     use super::{Sdd, SddManager, SddOptions};
 
+    #[allow(unused)]
     fn quick_draw(manager: &SddManager, sdd: &Sdd, path: &str) {
         let f = File::create(format!("{path}.dot")).unwrap();
         let mut b = BufWriter::new(f);
@@ -627,6 +760,7 @@ mod test {
             .unwrap();
     }
 
+    #[allow(unused)]
     fn quick_draw_all(manager: &SddManager, path: &str) {
         let f = File::create(path).unwrap();
         let mut b = BufWriter::new(f);
@@ -799,10 +933,21 @@ mod test {
         assert_eq!(manager.model_count(&a_and_b_and_c_or_d), 9);
     }
 
+    #[test]
     fn model_enumeration() {
         let manager = SddManager::new(SddOptions::default());
 
         let lit_a = manager.literal("a", Polarity::Positive);
+
+        assert_eq!(
+            manager.model_enumeration(&lit_a).all_models(),
+            vec![Model::new_from_literals(vec![Literal::new(
+                Polarity::Positive,
+                "a",
+                0
+            )])]
+        );
+
         let lit_b = manager.literal("b", Polarity::Positive);
         let lit_c = manager.literal("c", Polarity::Positive);
         let lit_d = manager.literal("d", Polarity::Positive);
@@ -814,6 +959,70 @@ mod test {
             .rotate_left(&right_child(&root));
 
         let a_and_b = manager.conjoin(&lit_a, &lit_b);
-        // assert_eq!(manager.model_enumeration(&a_and_d), 4);
+        let models = vec![
+            Model::new_from_literals(vec![
+                Literal::new(Polarity::Positive, "a", 0),
+                Literal::new(Polarity::Positive, "b", 1),
+                Literal::new(Polarity::Negative, "c", 2),
+                Literal::new(Polarity::Negative, "d", 3),
+            ]),
+            Model::new_from_literals(vec![
+                Literal::new(Polarity::Positive, "a", 0),
+                Literal::new(Polarity::Positive, "b", 1),
+                Literal::new(Polarity::Positive, "c", 2),
+                Literal::new(Polarity::Negative, "d", 3),
+            ]),
+            Model::new_from_literals(vec![
+                Literal::new(Polarity::Positive, "a", 0),
+                Literal::new(Polarity::Positive, "b", 1),
+                Literal::new(Polarity::Negative, "c", 2),
+                Literal::new(Polarity::Positive, "d", 3),
+            ]),
+            Model::new_from_literals(vec![
+                Literal::new(Polarity::Positive, "a", 0),
+                Literal::new(Polarity::Positive, "b", 1),
+                Literal::new(Polarity::Positive, "c", 2),
+                Literal::new(Polarity::Positive, "d", 3),
+            ]),
+        ];
+
+        assert_eq!(manager.model_enumeration(&a_and_b).all_models(), models);
+
+        let a_and_b_and_c = manager.conjoin(&a_and_b, &lit_c);
+        let models = vec![
+            Model::new_from_literals(vec![
+                Literal::new(Polarity::Positive, "a", 0),
+                Literal::new(Polarity::Positive, "b", 1),
+                Literal::new(Polarity::Positive, "c", 2),
+                Literal::new(Polarity::Negative, "d", 3),
+            ]),
+            Model::new_from_literals(vec![
+                Literal::new(Polarity::Positive, "a", 0),
+                Literal::new(Polarity::Positive, "b", 1),
+                Literal::new(Polarity::Positive, "c", 2),
+                Literal::new(Polarity::Positive, "d", 3),
+            ]),
+        ];
+
+        assert_eq!(
+            manager.model_enumeration(&a_and_b_and_c).all_models(),
+            models
+        );
+
+        let a_and_b_and_c_and_d = manager.conjoin(&a_and_b_and_c, &lit_d);
+        let models = vec![Model::new_from_literals(vec![
+            Literal::new(Polarity::Positive, "a", 0),
+            Literal::new(Polarity::Positive, "b", 1),
+            Literal::new(Polarity::Positive, "c", 2),
+            Literal::new(Polarity::Positive, "d", 3),
+        ])];
+        assert_eq!(
+            manager.model_enumeration(&a_and_b_and_c_and_d).all_models(),
+            models,
+        );
+
+        let not_a = manager.literal("a", Polarity::Negative);
+        let ff = manager.conjoin(&not_a, &a_and_b_and_c_and_d);
+        assert_eq!(manager.model_enumeration(&ff).all_models(), vec![]);
     }
 }

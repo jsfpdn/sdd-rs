@@ -1,17 +1,33 @@
-use std::fmt::Display;
+use std::{convert::From, fmt::Display};
 
-#[derive(Hash, Eq, PartialEq, Debug, Clone, PartialOrd, Ord)]
-pub(crate) struct VarLabel(String);
+#[derive(Hash, Eq, PartialEq, Debug, Clone, Ord)]
+pub(crate) struct Variable {
+    label: String,
+    idx: u16,
+}
 
-impl VarLabel {
+impl Variable {
     #[must_use]
-    pub fn new(v: &str) -> VarLabel {
-        VarLabel(v.to_owned())
+    pub fn new(v: &str, idx: u16) -> Variable {
+        Variable {
+            label: v.to_owned(),
+            idx,
+        }
     }
 
     #[must_use]
-    pub fn str(&self) -> String {
-        self.0.clone()
+    pub fn label(&self) -> String {
+        self.label.clone()
+    }
+
+    pub(crate) fn index(&self) -> u16 {
+        self.idx
+    }
+}
+
+impl PartialOrd for Variable {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.idx.cmp(&other.idx))
     }
 }
 
@@ -20,6 +36,16 @@ impl VarLabel {
 pub enum Polarity {
     Positive,
     Negative,
+}
+
+impl From<bool> for Polarity {
+    fn from(item: bool) -> Self {
+        if item {
+            Polarity::Positive
+        } else {
+            Polarity::Negative
+        }
+    }
 }
 
 impl std::ops::Not for Polarity {
@@ -35,40 +61,45 @@ impl std::ops::Not for Polarity {
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, PartialOrd, Ord)]
 pub struct Literal {
-    var_label: VarLabel,
+    variable: Variable,
     polarity: Polarity,
 }
 
 impl Literal {
     #[must_use]
-    pub fn new(polarity: Polarity, variable: &str) -> Literal {
+    pub fn new(polarity: Polarity, variable: &str, idx: u16) -> Literal {
+        // TODO: Get rid of this public constructor
         Literal {
-            var_label: VarLabel::new(variable),
+            variable: Variable::new(variable, idx),
             polarity,
         }
+    }
+
+    pub(crate) fn new_with_label(polarity: Polarity, variable: Variable) -> Literal {
+        Literal { variable, polarity }
     }
 
     #[must_use]
     pub fn negate(&self) -> Literal {
         Literal {
-            var_label: VarLabel::new(&self.var_label.0),
+            variable: self.variable.clone(),
             polarity: !self.polarity,
         }
     }
 
     #[must_use]
     pub fn eq_negated(&self, other: &Literal) -> bool {
-        self.var_label == other.var_label && self.polarity != other.polarity
+        self.variable == other.variable && self.polarity != other.polarity
     }
 
     #[must_use]
-    pub fn polarity(self) -> Polarity {
+    pub fn polarity(&self) -> Polarity {
         self.polarity
     }
 
     #[must_use]
-    pub(crate) fn var_label(self) -> VarLabel {
-        self.var_label
+    pub(crate) fn var_label(&self) -> Variable {
+        self.variable.clone()
     }
 }
 
@@ -79,6 +110,6 @@ impl Display for Literal {
         } else {
             "!"
         };
-        write!(f, "{}{}", polarity, self.var_label.0)
+        write!(f, "{}{}", polarity, self.variable.label)
     }
 }

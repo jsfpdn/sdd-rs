@@ -1,6 +1,7 @@
 use core::fmt;
-use std::collections::BTreeSet;
-use std::hash::Hash;
+use std::{collections::BTreeSet, hash::Hash};
+
+use bitvec::vec::BitVec;
 
 use crate::{
     btreeset,
@@ -47,6 +48,7 @@ pub struct Sdd {
     pub(crate) vtree_idx: u16,
     pub(crate) negation: Option<usize>,
     pub(crate) model_count: Option<u64>,
+    pub(crate) models: Option<Vec<BitVec>>,
 }
 
 impl fmt::Debug for Sdd {
@@ -81,10 +83,11 @@ impl Dot for Sdd {
 impl Sdd {
     #[must_use]
     pub(crate) fn new(sdd_type: SddType, vtree_idx: u16, negation: Option<usize>) -> Sdd {
-        let model_count = match sdd_type {
-            SddType::False => Some(0),
-            SddType::True | SddType::Literal(..) => Some(1),
-            _ => None,
+        let (model_count, models) = match sdd_type.clone() {
+            SddType::False => (Some(0), None),
+            SddType::True => (Some(1), None),
+            SddType::Literal(literal) => (Some(1), None),
+            _ => (None, None),
         };
 
         Sdd {
@@ -92,6 +95,7 @@ impl Sdd {
             vtree_idx,
             negation,
             model_count,
+            models,
         }
     }
 
@@ -369,7 +373,7 @@ mod test {
     fn not_trimmed_simple_2() {
         let mut all_sdds: Vec<Sdd> = vec![];
 
-        let a = create_literal(Literal::new(Polarity::Positive, "A"));
+        let a = create_literal(Literal::new(Polarity::Positive, "A", 0));
         let element = Element {
             prime: (Sdd::new_true().id()),
             sub: (a.id()),
@@ -394,18 +398,21 @@ mod test {
 
         let node = node.canonicalize(&manager);
         assert!(node.is_trimmed(&manager));
-        assert_eq!(node, create_literal(Literal::new(Polarity::Positive, "A")));
+        assert_eq!(
+            node,
+            create_literal(Literal::new(Polarity::Positive, "A", 0))
+        );
     }
 
     #[test]
     fn not_trimmed_complex() {
-        let pos_a = create_literal(Literal::new(Polarity::Positive, "A"));
+        let pos_a = create_literal(Literal::new(Polarity::Positive, "A", 0));
         let element_1 = Element {
             prime: (pos_a.id()),
             sub: (Sdd::new_true().id()),
         };
 
-        let neg_a = create_literal(Literal::new(Polarity::Negative, "A"));
+        let neg_a = create_literal(Literal::new(Polarity::Negative, "A", 0));
         let element_2 = Element {
             prime: (neg_a.id()),
             sub: (Sdd::new_false().id()),
@@ -415,12 +422,7 @@ mod test {
         let decision = Decision {
             elements: btreeset!(element_1, element_2),
         };
-        let sdd = Sdd {
-            sdd_type: SddType::Decision(decision),
-            vtree_idx: 0, // TODO: Fix vtree index
-            negation: None,
-            model_count: None,
-        };
+        let sdd = Sdd::new(SddType::Decision(decision), 0, None);
 
         let decisions = &vec![sdd.clone(), neg_a, pos_a];
         let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
@@ -433,13 +435,16 @@ mod test {
 
         let node = node.canonicalize(&manager);
         assert!(node.is_trimmed(&manager));
-        assert_eq!(node, create_literal(Literal::new(Polarity::Positive, "A")));
+        assert_eq!(
+            node,
+            create_literal(Literal::new(Polarity::Positive, "A", 0))
+        );
     }
 
     #[test]
     fn not_trimmed_recursive() {
         // Check that decomposition is recursivelly checked.
-        let neg_b = create_literal(Literal::new(Polarity::Negative, "B"));
+        let neg_b = create_literal(Literal::new(Polarity::Negative, "B", 1));
         let element_1_1 = Element {
             prime: Sdd::new_true().id(),
             sub: neg_b.id(),
@@ -450,14 +455,9 @@ mod test {
             elements: btreeset!(element_1_1),
         };
 
-        let sdd_1 = Sdd {
-            sdd_type: SddType::Decision(decision_1),
-            vtree_idx: 0, // TODO: Fix vtree index
-            negation: None,
-            model_count: None,
-        };
+        let sdd_1 = Sdd::new(SddType::Decision(decision_1), 0, None);
 
-        let pos_a = create_literal(Literal::new(Polarity::Positive, "A"));
+        let pos_a = create_literal(Literal::new(Polarity::Positive, "A", 0));
         let element_2_1 = Element {
             prime: pos_a.id(),
             sub: Sdd::new_true().id(),
@@ -485,7 +485,7 @@ mod test {
 
     #[test]
     fn trimmed_complex() {
-        let pos_a = create_literal(Literal::new(Polarity::Positive, "A"));
+        let pos_a = create_literal(Literal::new(Polarity::Positive, "A", 0));
         let element_1 = Element {
             prime: pos_a.id(),
             sub: Sdd::new_true().id(),
@@ -513,7 +513,7 @@ mod test {
 
     #[test]
     fn trimmed_recursive() {
-        let neg_b = create_literal(Literal::new(Polarity::Negative, "B"));
+        let neg_b = create_literal(Literal::new(Polarity::Negative, "B", 1));
         let element_1_1 = Element {
             prime: (neg_b.id()),
             sub: (Sdd::new_true().id()),
@@ -525,7 +525,7 @@ mod test {
         };
         let sdd_1 = Sdd::new(SddType::Decision(decision_1), 0, None);
 
-        let pos_a = create_literal(Literal::new(Polarity::Positive, "A"));
+        let pos_a = create_literal(Literal::new(Polarity::Positive, "A", 0));
         let element_2_1 = Element {
             prime: pos_a.id(),
             sub: Sdd::new_true().id(),
@@ -552,8 +552,8 @@ mod test {
     #[test]
     fn not_compressed() {
         // TODO: Test compression once disjunction actually works.
-        let pos_a = create_literal(Literal::new(Polarity::Positive, "A"));
-        let neg_b = create_literal(Literal::new(Polarity::Negative, "B"));
+        let pos_a = create_literal(Literal::new(Polarity::Positive, "A", 0));
+        let neg_b = create_literal(Literal::new(Polarity::Negative, "B", 1));
         let element_1 = Element {
             prime: Sdd::new_true().id(),
             sub: neg_b.id(),
@@ -577,8 +577,8 @@ mod test {
 
     #[test]
     fn compressed() {
-        let pos_a = create_literal(Literal::new(Polarity::Positive, "A"));
-        let neg_b = create_literal(Literal::new(Polarity::Negative, "B"));
+        let pos_a = create_literal(Literal::new(Polarity::Positive, "A", 0));
+        let neg_b = create_literal(Literal::new(Polarity::Negative, "B", 1));
         let element_1 = Element {
             prime: Sdd::new_true().id(),
             sub: neg_b.id(),

@@ -2,13 +2,13 @@ use std::{cell::RefCell, collections::BTreeSet, fmt::Debug, rc::Rc};
 
 use crate::{
     dot_writer::{Dot, DotWriter, Edge, NodeType},
-    literal::VarLabel,
+    literal::Variable,
     manager::SddManager,
 };
 
 #[derive(Clone, PartialEq)]
 enum Node {
-    Leaf(VarLabel),
+    Leaf(Variable),
     Internal(VTreeRef, VTreeRef),
 }
 
@@ -44,7 +44,7 @@ pub struct VTree {
 impl Debug for VTree {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.node.clone() {
-            Node::Leaf(label) => write!(f, "leaf {} for {}", self.idx, label.str()),
+            Node::Leaf(variable) => write!(f, "leaf {} for {}", self.idx, variable.label()),
             Node::Internal(lc, rc) => write!(
                 f,
                 "internal {} ({}, {})",
@@ -121,7 +121,7 @@ impl VTree {
     }
 
     /// Collect all the variables reachable from this vtree node.
-    pub(crate) fn get_variables(&self) -> BTreeSet<VarLabel> {
+    pub(crate) fn get_variables(&self) -> BTreeSet<Variable> {
         // TODO: This can be optimized by caching.
         match self.node.clone() {
             Node::Leaf(var_label) => btreeset!(var_label),
@@ -173,7 +173,7 @@ impl VTreeManager {
 
     /// Add variable to the variable tree. The variable is inserted to the very end of the total
     /// variable order.
-    pub(crate) fn add_variable(&mut self, label: &VarLabel) {
+    pub(crate) fn add_variable(&mut self, label: &Variable) {
         let new_leaf = VTree::new_as_ref(None, self.next_idx, Node::Leaf(label.clone()));
         new_leaf.borrow_mut().inorder_last = Some(new_leaf.clone());
 
@@ -241,8 +241,8 @@ impl VTreeManager {
     }
 
     #[must_use]
-    pub(crate) fn variables_total_order(&self) -> Vec<(VarLabel, u16)> {
-        fn dfs(vtree: &VTreeRef, order: &mut Vec<(VarLabel, u16)>) {
+    pub(crate) fn variables_total_order(&self) -> Vec<(Variable, u16)> {
+        fn dfs(vtree: &VTreeRef, order: &mut Vec<(Variable, u16)>) {
             let idx = vtree.borrow().idx;
             match vtree.borrow().node.clone() {
                 Node::Leaf(label) => order.push((label, idx)),
@@ -388,8 +388,8 @@ impl VTreeManager {
         VTreeManager::set_inorder_indices(self.root.clone().unwrap(), 0);
     }
 
-    pub(crate) fn get_variable_vtree(&self, variable: &VarLabel) -> Option<VTreeRef> {
-        fn find_vtree(vtree: &VTreeRef, variable: &VarLabel) -> Option<VTreeRef> {
+    pub(crate) fn get_variable_vtree(&self, variable: &Variable) -> Option<VTreeRef> {
+        fn find_vtree(vtree: &VTreeRef, variable: &Variable) -> Option<VTreeRef> {
             match vtree.borrow().node.clone() {
                 Node::Internal(lc, rc) => find_vtree(&lc, variable)
                     .or(find_vtree(&rc, variable))
@@ -477,8 +477,8 @@ impl Dot for VTreeManager {
         }
 
         // Get the total order first to neatly order the leaf nodes in the graph.
-        for (label, idx) in self.variables_total_order() {
-            writer.add_node(usize::from(idx), NodeType::CircleStr(label.str(), idx));
+        for (variable, idx) in self.variables_total_order() {
+            writer.add_node(usize::from(idx), NodeType::CircleStr(variable.label(), idx));
         }
 
         let mut nodes = vec![self.root.as_ref().unwrap().clone()];
@@ -505,13 +505,13 @@ impl Default for VTreeManager {
 #[cfg(test)]
 pub(crate) mod test {
     use crate::{
-        literal::VarLabel,
+        literal::Variable,
         vtree::{VTreeOrder, VTreeRef},
     };
 
     use super::{Node, VTreeManager};
 
-    fn orders_eq(got_order: Vec<(VarLabel, u16)>, want_order: Vec<VarLabel>) {
+    fn orders_eq(got_order: Vec<(Variable, u16)>, want_order: Vec<Variable>) {
         assert_eq!(got_order.len(), want_order.len());
         for ((got, _), want) in got_order.iter().zip(want_order) {
             assert_eq!(got, &want);
@@ -549,10 +549,10 @@ pub(crate) mod test {
         //     0  2     4  6
         //     A  B     C  D
         let mut manager = VTreeManager::new();
-        manager.add_variable(&VarLabel::new("A"));
-        manager.add_variable(&VarLabel::new("B"));
-        manager.add_variable(&VarLabel::new("C"));
-        manager.add_variable(&VarLabel::new("D"));
+        manager.add_variable(&Variable::new("A", 0));
+        manager.add_variable(&Variable::new("B", 1));
+        manager.add_variable(&Variable::new("C", 2));
+        manager.add_variable(&Variable::new("D", 3));
 
         // Rotate the right child of root to the left to make the tree balanced as in the diagram.
         let Node::Internal(_, rc) = manager
@@ -613,20 +613,20 @@ pub(crate) mod test {
         let mut manager = VTreeManager::new();
         assert!(manager.root.is_none());
 
-        manager.add_variable(&VarLabel::new("A"));
+        manager.add_variable(&Variable::new("A", 1));
         assert!(manager.root.is_some());
         assert!(manager
             .root
             .clone()
             .is_some_and(|root| matches!(root.as_ref().borrow().node, Node::Leaf(..))));
 
-        manager.add_variable(&VarLabel::new("B"));
+        manager.add_variable(&Variable::new("B", 2));
         assert!(manager
             .root
             .clone()
             .is_some_and(|root| matches!(root.as_ref().borrow().node, Node::Internal(..))));
 
-        manager.add_variable(&VarLabel::new("C"));
+        manager.add_variable(&Variable::new("C", 3));
 
         // Test that the vtree has the following structure:
         //    *
@@ -636,7 +636,7 @@ pub(crate) mod test {
         //    B   C
         if let Node::Internal(lc, rc) = manager.root.unwrap().borrow().node.clone() {
             let a = lc.borrow().node.clone();
-            assert!(matches!(a, Node::Leaf(label) if label.eq(&VarLabel::new("A"))));
+            assert!(matches!(a, Node::Leaf(label) if label.eq(&Variable::new("A", 1))));
 
             let inner = rc.borrow().node.clone();
             match inner {
@@ -645,8 +645,8 @@ pub(crate) mod test {
                     let b = lc.borrow().node.clone();
                     let c = rc.borrow().node.clone();
 
-                    assert!(matches!(b, Node::Leaf(label) if label.eq(&VarLabel::new("B"))));
-                    assert!(matches!(c, Node::Leaf(label) if label.eq(&VarLabel::new("C"))));
+                    assert!(matches!(b, Node::Leaf(label) if label.eq(&Variable::new("B", 2))));
+                    assert!(matches!(c, Node::Leaf(label) if label.eq(&Variable::new("C", 3))));
                 }
             }
         }
@@ -655,19 +655,23 @@ pub(crate) mod test {
     #[test]
     fn variables_total_order_simple() {
         let mut manager = VTreeManager::new();
-        manager.add_variable(&VarLabel::new("A"));
-        manager.add_variable(&VarLabel::new("B"));
-        manager.add_variable(&VarLabel::new("C"));
+        manager.add_variable(&Variable::new("A", 0));
+        manager.add_variable(&Variable::new("B", 1));
+        manager.add_variable(&Variable::new("C", 2));
 
-        let want_order = vec![VarLabel::new("A"), VarLabel::new("B"), VarLabel::new("C")];
+        let want_order = vec![
+            Variable::new("A", 0),
+            Variable::new("B", 1),
+            Variable::new("C", 2),
+        ];
         orders_eq(manager.variables_total_order(), want_order);
     }
 
     #[test]
     fn variables_total_order_swap() {
         let mut manager = VTreeManager::new();
-        manager.add_variable(&VarLabel::new("A"));
-        manager.add_variable(&VarLabel::new("B"));
+        manager.add_variable(&Variable::new("A", 0));
+        manager.add_variable(&Variable::new("B", 1));
 
         let root = manager.root.clone().unwrap();
 
@@ -675,24 +679,28 @@ pub(crate) mod test {
         manager.swap(&root);
         orders_eq(
             manager.variables_total_order(),
-            vec![VarLabel::new("B"), VarLabel::new("A")],
+            vec![Variable::new("B", 1), Variable::new("A", 0)],
         );
 
         // <B, A> ~> <A, B>
         manager.swap(&root);
         orders_eq(
             manager.variables_total_order(),
-            vec![VarLabel::new("A"), VarLabel::new("B")],
+            vec![Variable::new("A", 0), Variable::new("B", 1)],
         );
     }
 
     #[test]
     fn variables_total_order() {
         let mut manager = VTreeManager::new();
-        manager.add_variable(&VarLabel::new("A"));
-        manager.add_variable(&VarLabel::new("B"));
-        manager.add_variable(&VarLabel::new("C"));
-        let want_order = vec![VarLabel::new("A"), VarLabel::new("B"), VarLabel::new("C")];
+        manager.add_variable(&Variable::new("A", 0));
+        manager.add_variable(&Variable::new("B", 1));
+        manager.add_variable(&Variable::new("C", 2));
+        let want_order = vec![
+            Variable::new("A", 0),
+            Variable::new("B", 1),
+            Variable::new("C", 2),
+        ];
 
         // The tree intially looks like this:
         //    x
@@ -726,7 +734,7 @@ pub(crate) mod test {
             Node::Internal(lc, rc) => {
                 let c = rc.borrow().node.clone();
 
-                assert!(matches!(c, Node::Leaf(label) if label.eq(&VarLabel::new("C"))));
+                assert!(matches!(c, Node::Leaf(label) if label.eq(&Variable::new("C", 2))));
 
                 lc.clone()
             }
@@ -738,8 +746,8 @@ pub(crate) mod test {
                 let a = lc.borrow().node.clone();
                 let b = rc.borrow().node.clone();
 
-                assert!(matches!(a, Node::Leaf(label) if label.eq(&VarLabel::new("A"))));
-                assert!(matches!(b, Node::Leaf(label) if label.eq(&VarLabel::new("B"))));
+                assert!(matches!(a, Node::Leaf(label) if label.eq(&Variable::new("A", 0))));
+                assert!(matches!(b, Node::Leaf(label) if label.eq(&Variable::new("B", 1))));
             }
         };
 
@@ -761,7 +769,7 @@ pub(crate) mod test {
             Node::Internal(lc, rc) => {
                 let a = lc.borrow().node.clone();
 
-                assert!(matches!(a, Node::Leaf(label) if label.eq(&VarLabel::new("A"))));
+                assert!(matches!(a, Node::Leaf(label) if label.eq(&Variable::new("A", 0))));
 
                 rc.clone()
             }
@@ -773,8 +781,8 @@ pub(crate) mod test {
                 let b = lc.borrow().node.clone();
                 let c = rc.borrow().node.clone();
 
-                assert!(matches!(b, Node::Leaf(label) if label.eq(&VarLabel::new("B"))));
-                assert!(matches!(c, Node::Leaf(label) if label.eq(&VarLabel::new("C"))));
+                assert!(matches!(b, Node::Leaf(label) if label.eq(&Variable::new("B", 1))));
+                assert!(matches!(c, Node::Leaf(label) if label.eq(&Variable::new("C", 2))));
             }
         };
     }
@@ -782,10 +790,10 @@ pub(crate) mod test {
     #[test]
     fn least_common_ancestor() {
         let mut manager = VTreeManager::new();
-        manager.add_variable(&VarLabel::new("A"));
-        manager.add_variable(&VarLabel::new("B"));
-        manager.add_variable(&VarLabel::new("C"));
-        manager.add_variable(&VarLabel::new("D"));
+        manager.add_variable(&Variable::new("A", 0));
+        manager.add_variable(&Variable::new("B", 1));
+        manager.add_variable(&Variable::new("C", 2));
+        manager.add_variable(&Variable::new("D", 3));
         //           3
         //         /   \
         //        1     5
@@ -826,10 +834,10 @@ pub(crate) mod test {
         let var_label_index = |vtree: Option<VTreeRef>| -> u16 { vtree.unwrap().borrow().idx };
 
         let mut manager = VTreeManager::new();
-        manager.add_variable(&VarLabel::new("A"));
-        manager.add_variable(&VarLabel::new("B"));
-        manager.add_variable(&VarLabel::new("C"));
-        manager.add_variable(&VarLabel::new("D"));
+        manager.add_variable(&Variable::new("A", 0));
+        manager.add_variable(&Variable::new("B", 1));
+        manager.add_variable(&Variable::new("C", 2));
+        manager.add_variable(&Variable::new("D", 3));
         //     1
         //   /   \
         //  0     3
@@ -840,40 +848,40 @@ pub(crate) mod test {
         //        C     D
 
         assert_eq!(
-            var_label_index(manager.get_variable_vtree(&VarLabel::new("A"))),
+            var_label_index(manager.get_variable_vtree(&Variable::new("A", 0))),
             0
         );
         assert_eq!(
-            var_label_index(manager.get_variable_vtree(&VarLabel::new("B"))),
+            var_label_index(manager.get_variable_vtree(&Variable::new("B", 1))),
             2
         );
         assert_eq!(
-            var_label_index(manager.get_variable_vtree(&VarLabel::new("C"))),
+            var_label_index(manager.get_variable_vtree(&Variable::new("C", 2))),
             4
         );
         assert_eq!(
-            var_label_index(manager.get_variable_vtree(&VarLabel::new("D"))),
+            var_label_index(manager.get_variable_vtree(&Variable::new("D", 3))),
             6
         );
-        assert_eq!(manager.get_variable_vtree(&VarLabel::new("E")), None);
+        assert_eq!(manager.get_variable_vtree(&Variable::new("E", 4)), None);
     }
 
     #[test]
     fn get_variables() {
         let mut manager = VTreeManager::new();
-        manager.add_variable(&VarLabel::new("A"));
-        manager.add_variable(&VarLabel::new("B"));
-        manager.add_variable(&VarLabel::new("C"));
-        manager.add_variable(&VarLabel::new("D"));
+        manager.add_variable(&Variable::new("A", 0));
+        manager.add_variable(&Variable::new("B", 1));
+        manager.add_variable(&Variable::new("C", 2));
+        manager.add_variable(&Variable::new("D", 3));
 
         let variables = manager.root.unwrap().as_ref().borrow().get_variables();
         assert_eq!(
             variables,
             btreeset!(
-                VarLabel::new("A"),
-                VarLabel::new("B"),
-                VarLabel::new("C"),
-                VarLabel::new("D")
+                Variable::new("A", 0),
+                Variable::new("B", 1),
+                Variable::new("C", 2),
+                Variable::new("D", 3)
             )
         );
     }
