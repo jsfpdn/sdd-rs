@@ -1,5 +1,5 @@
+use std::fs::File;
 use std::io::{BufWriter, Error};
-use std::{alloc::System, fs::File};
 
 use clap::Parser;
 
@@ -47,13 +47,9 @@ fn main() -> Result<(), std::io::Error> {
         .to_owned();
 
     let manager = SddManager::new(options);
-    manager.literal("A", sddrs::literal::Polarity::Negative);
-    manager.literal("B", sddrs::literal::Polarity::Negative);
-    manager.literal("C", sddrs::literal::Polarity::Negative);
-    manager.literal("D", sddrs::literal::Polarity::Negative);
 
     let mut f = File::open(cli.dimacs_path)?;
-    let sdd = match manager.from_dimacs(&mut f) {
+    let sdd = match manager.from_dimacs(&mut f, true) {
         Err(err) => {
             return Err(Error::new(
                 std::io::ErrorKind::Other,

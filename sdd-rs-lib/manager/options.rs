@@ -31,7 +31,6 @@ impl Default for SddOptions {
     fn default() -> Self {
         SddOptions {
             gc_schedule: GcSchedule::Automatic(1000),
-
             vtree_strategy: VTreeStrategy::Cycle,
             initial_vtree: InitialVTree::Balanced,
         }

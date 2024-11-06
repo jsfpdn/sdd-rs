@@ -14,6 +14,7 @@ use std::{
     cell::RefCell,
     collections::{BTreeSet, HashMap},
     ops::BitOr,
+    ptr::null,
 };
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug, Copy)]
@@ -74,24 +75,29 @@ impl SddManager {
         }
     }
 
-    // TODO: function to "dynamically" create alphabetical variables from a given range.
-
     /// Parse a CNF in [DIMACS] format and construct an SDD. Function expects there is a
     /// sufficient number of variables already defined in the manager and tries to map
     /// variable indices in DIMACS to their string representations.
     ///
     /// [DIMACS]: https://www21.in.tum.de/~lammich/2015_SS_Seminar_SAT/resources/dimacs-cnf.pdf
-    pub fn from_dimacs(&self, reader: &mut dyn std::io::Read) -> Result<Sdd, String> {
+    pub fn from_dimacs(
+        &self,
+        reader: &mut dyn std::io::Read,
+        create_variables: bool,
+    ) -> Result<Sdd, String> {
         // TODO: Timing
 
         let mut reader = std::io::BufReader::new(reader);
         let mut dimacs = dimacs::DimacsReader::new(&mut reader);
 
         let preamble = dimacs.parse_preamble().map_err(|err| err.to_string())?;
-        if preamble.variables > self.label_manager.borrow().len() {
+        let num_variables = self.label_manager.borrow().len();
+        if !create_variables && preamble.variables > num_variables {
             return Err(String::from(
                 "preamble specifies more variables than those present in the manager",
             ));
+        } else if create_variables && preamble.variables > num_variables {
+            self.add_remaining_variables(preamble.variables - num_variables);
         }
 
         let mut sdd = self.tautology();
@@ -776,6 +782,39 @@ impl SddManager {
                 }
                 models.push(new_model);
             }
+        }
+    }
+
+    /// Generate labels for remaining variables to be added to the label_manager
+    /// and adjust the vtree accordingly.
+    fn add_remaining_variables(&self, to_add: usize) {
+        fn variable_exists(manager: &SddManager, variable: &Variable) -> bool {
+            manager.label_manager.borrow().get(variable).is_some()
+        }
+
+        fn next_variable_idx(manager: &SddManager) -> usize {
+            manager.label_manager.borrow().len()
+        }
+
+        let alphabet = String::from_utf8((b'A'..=b'Z').collect()).unwrap();
+        let mut i = 0;
+        let mut to_add = to_add;
+        while i < to_add {
+            let generation = i / 26;
+            let idx = i % 26;
+
+            let next_idx = next_variable_idx(self);
+            let var_repr = format!("{}_{generation}", alphabet.get(idx..idx + 1).unwrap());
+            let variable = Variable::new(&var_repr, next_idx as u16);
+            if !variable_exists(self, &variable) {
+                // "Take advantage" of the `literal` method which correctly inserts the variable
+                // and adjusts the vtree.
+                self.literal(&var_repr, Polarity::Positive);
+            } else {
+                // Move to_add to try the next variable.
+                to_add += 1;
+            }
+            i += 1;
         }
     }
 }
