@@ -1,3 +1,8 @@
+use std::fs::File;
+use std::io::BufWriter;
+
+use crate::{manager::SddManager, sdd::Sdd};
+
 #[macro_export]
 macro_rules! btreeset {
     ( $( $x:expr ),* ) => {
@@ -22,6 +27,30 @@ pub(crate) fn set_bits_indices(number: usize) -> Vec<usize> {
     }
 
     indices
+}
+
+#[allow(unused)]
+pub(crate) fn quick_draw(manager: &SddManager, sdd: &Sdd, path: &str) {
+    let f = File::create(format!("{path}.dot")).unwrap();
+    let mut b = BufWriter::new(f);
+    manager
+        .draw_sdd(&mut b as &mut dyn std::io::Write, sdd)
+        .unwrap();
+
+    let f = File::create(format!("{path}_vtree.dot")).unwrap();
+    let mut b = BufWriter::new(f);
+    manager
+        .draw_vtree_graph(&mut b as &mut dyn std::io::Write)
+        .unwrap();
+}
+
+#[allow(unused)]
+pub(crate) fn quick_draw_all(manager: &SddManager, path: &str) {
+    let f = File::create(path).unwrap();
+    let mut b = BufWriter::new(f);
+    manager
+        .draw_all_sdds(&mut b as &mut dyn std::io::Write)
+        .unwrap();
 }
 
 #[cfg(test)]

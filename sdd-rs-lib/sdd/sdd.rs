@@ -9,7 +9,48 @@ use crate::{
     literal::Literal,
     manager::SddManager,
     sdd::{Decision, Element},
+    vtree::VTreeRef,
 };
+
+/// Given the following vtree rooted at `x`:
+/// ```ignore
+///        x
+///      /   \
+///     w     c
+///   /   \
+///  a     b
+/// ```
+/// an SDD normalized for `x` must depend on some variable in sub-vtree `c`
+/// and also on some variable in sub-vtree `a`, `b`, or both.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum LeftDependence {
+    /// SDD normalized for `x` depends only on some variable in sub-vtree `a`, not `b`.
+    A,
+    /// SDD normalized for `x` depends only on some variable in sub-vtree `b`, not `a`.
+    B,
+    /// SDD normalized for `x` depends on some variables in both sub-vtrees `a` and `b`.
+    AB,
+}
+
+/// Given the following vtree rooted at `w`:
+/// ```ignore
+///      w
+///    /   \
+///   a     x
+///       /   \
+///      b     c
+/// ```
+/// an SDD normalized for `w` must depend on some variable in sub-vtree `a`
+/// and also on some variable in sub-vtree `b`, `c`, or both.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum RightDependence {
+    /// SDD normalized for `x` depends only on some variable in sub-vtree `b`, not `c`.
+    B,
+    /// SDD normalized for `x` depends only on some variable in sub-vtree `c`, not `b`.
+    C,
+    /// SDD normalized for `x` depends on some variables in both sub-vtrees `b` and `c`.
+    BC,
+}
 
 #[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord, Debug)]
 pub(crate) enum SddType {
@@ -330,6 +371,95 @@ impl Sdd {
             _ => String::new(),
         }
     }
+
+    #[must_use]
+    pub(crate) fn dependence_on_left_vtree(
+        &self,
+        w: &VTreeRef,
+        manager: &SddManager,
+    ) -> LeftDependence {
+        assert_eq!(self.vtree_idx, w.borrow().get_index());
+
+        let SddType::Decision(ref decision) = self.sdd_type else {
+            panic!("cannot get dependence on anything other than decision node");
+        };
+
+        let primes: Vec<Sdd> = decision.primes(&manager).iter().cloned().collect();
+        // No need to filter out constants from collected primes since they cannot
+        // occur as primes of elements.
+
+        let mut depends_on_a = false;
+        let mut depends_on_b = false;
+        let w_idx = w.borrow().get_index();
+
+        for prime in &primes {
+            if prime.vtree_idx == w_idx {
+                return LeftDependence::AB;
+            }
+
+            if prime.vtree_idx < w_idx {
+                depends_on_a = true;
+            } else {
+                depends_on_b = true;
+            }
+
+            if depends_on_a && depends_on_b {
+                return LeftDependence::AB;
+            }
+        }
+
+        if depends_on_a {
+            return LeftDependence::A;
+        }
+
+        LeftDependence::B
+    }
+
+    #[must_use]
+    pub(crate) fn dependence_on_right_vtree(
+        &self,
+        x: &VTreeRef,
+        manager: &SddManager,
+    ) -> RightDependence {
+        assert_eq!(self.vtree_idx, x.borrow().get_index());
+
+        let SddType::Decision(ref decision) = self.sdd_type else {
+            panic!("cannot get dependence on anything other than decision node");
+        };
+
+        let subs: Vec<Sdd> = decision
+            .subs(&manager)
+            .iter()
+            .filter(|sub| !sub.is_constant())
+            .cloned()
+            .collect();
+
+        let mut depends_on_b = false;
+        let mut depends_on_c = false;
+        let x_idx = x.borrow().get_index();
+
+        for sub in &subs {
+            if sub.vtree_idx == x_idx {
+                return RightDependence::BC;
+            }
+
+            if sub.vtree_idx < x_idx {
+                depends_on_b = true;
+            } else {
+                depends_on_c = true;
+            }
+
+            if depends_on_b && depends_on_c {
+                return RightDependence::BC;
+            }
+        }
+
+        if depends_on_b {
+            return RightDependence::B;
+        }
+
+        RightDependence::C
+    }
 }
 
 #[cfg(test)]
@@ -338,6 +468,8 @@ mod test {
     use crate::btreeset;
     use crate::literal::{Literal, Polarity};
     use crate::manager::{options::SddOptions, SddManager};
+    use crate::sdd::{LeftDependence, RightDependence};
+    use crate::util::{quick_draw, quick_draw_all};
 
     #[test]
     fn not_trimmed_simple() {
@@ -599,5 +731,38 @@ mod test {
         let manager = SddManager::new_with_nodes(SddOptions::new(), decisions);
 
         assert!(sdd.is_compressed(&manager));
+    }
+
+    #[test]
+    fn vtree_dependence() {
+        let manager = SddManager::new(SddOptions::default());
+        let a = manager.literal("A", Polarity::Positive);
+        manager.literal("B", Polarity::Positive);
+        let c = manager.literal("C", Polarity::Positive);
+        let d = manager.literal("D", Polarity::Positive);
+        // The vtree looks like this:
+        //   (1)
+        //   / \
+        //  A  (3)
+        //     / \
+        //    B  (5)
+        //       / \
+        //      C   D
+
+        let c_and_d = manager.conjoin(&c, &d);
+        assert_eq!(manager.model_count(&c_and_d), 4); // Sanity check
+
+        let c_and_d_and_a = manager.conjoin(&c_and_d, &a);
+        assert_eq!(manager.model_count(&c_and_d_and_a), 2); // Sanity check
+
+        let root = manager.root().unwrap();
+
+        // `c && d && a` must be normalized for root.
+        assert_eq!(c_and_d_and_a.vtree_idx, root.borrow().get_index());
+
+        let dep = c_and_d_and_a.dependence_on_left_vtree(&root, &manager);
+        assert_eq!(dep, LeftDependence::A);
+
+        // TODO: Test dependencies more - try to capture all possible cases.
     }
 }

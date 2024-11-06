@@ -5,6 +5,8 @@ use crate::{
 
 use std::collections::{BTreeSet, HashSet};
 
+use super::SddType;
+
 #[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord, Debug)]
 pub(crate) struct Decision {
     pub(crate) elements: BTreeSet<Element>,
@@ -166,5 +168,47 @@ impl Decision {
         Decision {
             elements: elements.iter().cloned().collect(),
         }
+    }
+
+    pub(crate) fn canonicalize(&self, manager: &SddManager) -> Decision {
+        let unwrap_decision = |sdd: SddType| -> Decision {
+            let SddType::Decision(sdd) = sdd else {
+                panic!("expected the SDD to be a decision node");
+            };
+            sdd
+        };
+
+        if let Some(trimmed_sdd) = self.trim(manager) {
+            unwrap_decision(trimmed_sdd.sdd_type)
+        } else {
+            let decision = self.compress(manager);
+            if let Some(trimmed_sdd) = decision.trim(manager) {
+                unwrap_decision(trimmed_sdd.sdd_type)
+            } else {
+                decision.clone()
+            }
+        }
+    }
+
+    pub(super) fn subs(&self, manager: &SddManager) -> Vec<Sdd> {
+        self.elements
+            .iter()
+            .map(|Element { sub, .. }| {
+                manager
+                    .get_node(*sub)
+                    .expect(&format!("sub {sub} not present in the unique table"))
+            })
+            .collect()
+    }
+
+    pub(super) fn primes(&self, manager: &SddManager) -> Vec<Sdd> {
+        self.elements
+            .iter()
+            .map(|Element { prime, .. }| {
+                manager
+                    .get_node(*prime)
+                    .expect(&format!("prime {prime} not present in the unique table"))
+            })
+            .collect()
     }
 }

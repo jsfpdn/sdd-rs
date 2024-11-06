@@ -7,7 +7,7 @@ use crate::{
     manager::{model::Models, options::SddOptions},
     sdd::{Decision, Element, Sdd, SddType},
     util::set_bits_indices,
-    vtree::{VTreeManager, VTreeOrder},
+    vtree::{VTreeManager, VTreeOrder, VTreeRef},
     Result,
 };
 
@@ -32,6 +32,12 @@ impl Operation {
         }
     }
 }
+
+// TODO: Builder pattern with bon?
+pub enum TargetVTreeHeuristic {}
+
+// TODO: Builder pattern with bon?
+pub struct CutOff {}
 
 #[derive(Eq, PartialEq, Hash)]
 struct Entry {
@@ -108,6 +114,22 @@ impl SddManager {
     #[must_use]
     pub(crate) fn get_node(&self, id: usize) -> Option<Sdd> {
         self.unique_table.borrow().get(&id).map(|n| n.clone())
+    }
+
+    pub(crate) fn get_nodes_normalized_for(&self, vtree_idx: u16) -> Vec<(usize, Sdd)> {
+        self.unique_table
+            .borrow()
+            .iter()
+            .filter(|(_, sdd)| sdd.vtree_idx == vtree_idx)
+            .map(|(id, sdd)| (*id, sdd.clone()))
+            .collect()
+    }
+
+    pub(crate) fn remove_node(&self, id: usize) -> std::result::Result<(), ()> {
+        match self.unique_table.borrow_mut().remove(&id) {
+            Some(..) => Ok(()),
+            None => Err(()),
+        }
     }
 
     pub fn literal(&self, literal: &str, polarity: Polarity) -> Sdd {
@@ -279,6 +301,67 @@ impl SddManager {
         Models::new(models, all_variables.iter().cloned().collect())
     }
 
+    pub fn model_count(&self, sdd: &Sdd) -> u64 {
+        let models = self._model_count(sdd);
+
+        if self.vtree_manager.borrow().root_idx().unwrap() == sdd.vtree_idx {
+            return models;
+        }
+
+        let sdd_variables = self
+            .vtree_manager
+            .borrow()
+            .get_vtree(sdd.vtree_idx)
+            .unwrap()
+            .borrow()
+            .get_variables()
+            .len();
+        let unbound = self.label_manager.borrow().len() - sdd_variables;
+
+        models * 2_u64.pow(unbound as u32)
+    }
+
+    // Questions:
+    // 1) do we want to trigger minimization only manually?
+    //    1a) this seems the easiest to implement if yes
+    //    1b) if not, where exactly do we want to trigger it?
+    //        1ba) initialize manager with Minimize::AfterApply and after each apply operation,
+    //             this would get automatically called.
+    //        1bb) initialize manager with Minimize::Automatically and we would minimize during
+    //             apply, when computing partitions (this seems the hardest)
+    pub fn minimize(&self, cut_off: CutOff, vtree_heuristic: TargetVTreeHeuristic) {
+        // TODO: Inputs:
+        // - strategy to identify next vtree to minimize (and do local search on): TargetVTreeHeuristic
+        // - strategy to limit number of passes done: CutOff
+        let root = self.vtree_manager.borrow().root.clone().unwrap();
+
+        // root == leaf?
+        // TODO: garbage collection
+        //
+        // TODO: identify sub-vtree to minimize (heuristic, search.c::274):
+        //       It looks like they find some subtree that has some nice properties,
+        //       create fragment of it and look through all the states there.
+        //
+        // init_size = # of live SDD nodes that are normalized for the heuristically found vtree
+        // out_size = (# of all live SDD nodes) - init_size
+        // TODO: threshold
+        // TODO: iterations
+        // TODO: reduction - percentage of reduction in size
+        //
+        // Minimization done in multiple passes
+        // loop {
+        //       let prev_size = ...;
+        //       TODO: local_search_pass - this seems like the main part
+        //       let subtree = local_search_pass(subtree);
+        //       let curr_size = ...;
+        //       let reduction = size_reduction(prev_size, curr_size);
+        //       let subtree = find_new_subtree(...); // what to optimize in the next pass
+        //       TODO: Properly abstract away stop limits (time, number of passes, total_size, reduction...?)
+        // }
+        // TODO: Verify whether the vtree is X-constrained?
+        unimplemented!()
+    }
+
     fn _model_enumeration(&self, sdd: &Sdd, bitvecs: &mut Vec<BitVec>) {
         // Return the cached value if it already exists.
         if let Some(ref mut models) = sdd.models.clone() {
@@ -359,26 +442,6 @@ impl SddManager {
         let mut sdd_clone = sdd.clone();
         sdd_clone.models = Some(bitvecs.clone());
         self.insert_node(&sdd_clone);
-    }
-
-    pub fn model_count(&self, sdd: &Sdd) -> u64 {
-        let models = self._model_count(sdd);
-
-        if self.vtree_manager.borrow().root_idx().unwrap() == sdd.vtree_idx {
-            return models;
-        }
-
-        let sdd_variables = self
-            .vtree_manager
-            .borrow()
-            .get_vtree(sdd.vtree_idx)
-            .unwrap()
-            .borrow()
-            .get_variables()
-            .len();
-        let unbound = self.label_manager.borrow().len() - sdd_variables;
-
-        models * 2_u64.pow(unbound as u32)
     }
 
     /// Count number of models for this SDD.
@@ -728,46 +791,30 @@ impl SddManager {
             }
         }
     }
+
+    pub(crate) fn root(&self) -> Option<VTreeRef> {
+        self.vtree_manager.borrow().root.clone()
+    }
+
+    pub(crate) fn rotate_vtree_left(&self, vtree: &VTreeRef) {
+        self.vtree_manager.borrow_mut().rotate_left(vtree)
+    }
+    pub(crate) fn rotate_vtree_right(&self, vtree: &VTreeRef) {
+        self.vtree_manager.borrow_mut().rotate_right(vtree)
+    }
 }
 
 #[cfg(test)]
 mod test {
     #![allow(non_snake_case)]
 
+    use super::{SddManager, SddOptions};
     use crate::{
         literal::{Literal, Polarity},
         manager::model::Model,
         vtree::test::right_child,
     };
     use pretty_assertions::assert_eq;
-    use std::fs::File;
-    use std::io::BufWriter;
-
-    use super::{Sdd, SddManager, SddOptions};
-
-    #[allow(unused)]
-    fn quick_draw(manager: &SddManager, sdd: &Sdd, path: &str) {
-        let f = File::create(format!("{path}.dot")).unwrap();
-        let mut b = BufWriter::new(f);
-        manager
-            .draw_sdd(&mut b as &mut dyn std::io::Write, sdd)
-            .unwrap();
-
-        let f = File::create(format!("{path}_vtree.dot")).unwrap();
-        let mut b = BufWriter::new(f);
-        manager
-            .draw_vtree_graph(&mut b as &mut dyn std::io::Write)
-            .unwrap();
-    }
-
-    #[allow(unused)]
-    fn quick_draw_all(manager: &SddManager, path: &str) {
-        let f = File::create(path).unwrap();
-        let mut b = BufWriter::new(f);
-        manager
-            .draw_all_sdds(&mut b as &mut dyn std::io::Write)
-            .unwrap();
-    }
 
     #[test]
     fn simple_conjoin() {
