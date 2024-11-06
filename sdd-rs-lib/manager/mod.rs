@@ -1,3 +1,4 @@
+mod dimacs;
 mod manager;
 
 pub mod model;

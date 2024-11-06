@@ -1,5 +1,4 @@
 use crate::manager::SddManager;
-use crate::Result;
 
 pub trait Dot {
     fn draw<'a>(&self, writer: &mut DotWriter, manager: &SddManager);
@@ -87,8 +86,9 @@ impl DotWriter {
 
     /// # Errors
     /// Function returns an error if the writing to a file or flushing fails.
-    pub fn write(&self, writer: &mut dyn std::io::Write) -> Result<()> {
-        write!(writer, "digraph {} {{\n  overlap=false", self.graph_name)?;
+    pub fn write(&self, writer: &mut dyn std::io::Write) -> Result<(), String> {
+        write!(writer, "digraph {} {{\n  overlap=false", self.graph_name)
+            .map_err(|err| err.to_string())?;
 
         for (node, node_type) in &self.nodes {
             write!(
@@ -97,16 +97,17 @@ impl DotWriter {
                 node_type.shape(),
                 node_type.label(self.show_ids),
                 NodeType::metadata(),
-            )?;
+            )
+            .map_err(|err| err.to_string())?;
         }
 
         for edge in &self.edges {
             // TODO: Make the edge begin in the middle of the child.
-            write!(writer, "\n  {edge} [arrowsize=.50]")?;
+            write!(writer, "\n  {edge} [arrowsize=.50]").map_err(|err| err.to_string())?;
         }
 
-        write!(writer, "\n}}")?;
-        writer.flush()?;
+        write!(writer, "\n}}").map_err(|err| err.to_string())?;
+        writer.flush().map_err(|err| err.to_string())?;
         Ok(())
     }
 }

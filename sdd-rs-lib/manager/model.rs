@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::literal::{Literal, Polarity, Variable};
 
 use bitvec::prelude::*;
@@ -13,7 +15,7 @@ impl Models {
     }
 
     #[allow(unused)]
-    pub(crate) fn all_models(&self) -> Vec<Model> {
+    pub fn all_models(&self) -> Vec<Model> {
         // TODO: Remove this once EnumerationIterator is implemented.
         self.models
             .iter()
@@ -21,6 +23,20 @@ impl Models {
                 Model::new_from_bitvector(enumeration_bitvec, &self.variables)
             })
             .collect()
+    }
+}
+
+impl Display for Models {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{{\n{}\n}}",
+            self.all_models()
+                .iter()
+                .map(|model| format!("  {model}"))
+                .collect::<Vec<String>>()
+                .join(",\n")
+        )
     }
 }
 
@@ -45,5 +61,30 @@ impl Model {
                 })
                 .collect(),
         }
+    }
+}
+
+impl Display for Model {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn lit_repr(literal: &Literal) -> String {
+            format!(
+                "{}{literal}",
+                if literal.polarity() == Polarity::Negative {
+                    ""
+                } else {
+                    " "
+                }
+            )
+        }
+
+        write!(
+            f,
+            "{{{}}}",
+            self.literals
+                .iter()
+                .map(|literal| lit_repr(literal))
+                .collect::<Vec<String>>()
+                .join(", ")
+        )
     }
 }

@@ -4,11 +4,10 @@ use crate::{
     btreeset,
     dot_writer::{Dot, DotWriter},
     literal::{Literal, Polarity, Variable},
-    manager::{model::Models, options::SddOptions},
+    manager::{dimacs, model::Models, options::SddOptions},
     sdd::{Decision, Element, Sdd, SddType},
     util::set_bits_indices,
     vtree::{VTreeManager, VTreeOrder},
-    Result,
 };
 
 use std::{
@@ -75,6 +74,41 @@ impl SddManager {
         }
     }
 
+    // TODO: function to "dynamically" create alphabetical variables from a given range.
+
+    /// Parse a CNF in [DIMACS] format and construct an SDD. Function expects there is a
+    /// sufficient number of variables already defined in the manager and tries to map
+    /// variable indices in DIMACS to their string representations.
+    ///
+    /// [DIMACS]: https://www21.in.tum.de/~lammich/2015_SS_Seminar_SAT/resources/dimacs-cnf.pdf
+    pub fn from_dimacs(&self, reader: &mut dyn std::io::Read) -> Result<Sdd, String> {
+        // TODO: Timing
+
+        let mut reader = std::io::BufReader::new(reader);
+        let mut dimacs = dimacs::DimacsReader::new(&mut reader);
+
+        let preamble = dimacs.parse_preamble().map_err(|err| err.to_string())?;
+        if preamble.variables > self.label_manager.borrow().len() {
+            return Err(String::from(
+                "preamble specifies more variables than those present in the manager",
+            ));
+        }
+
+        let mut sdd = self.tautology();
+
+        loop {
+            match dimacs.parse_next_clause().map_err(|err| err.to_string())? {
+                None => break,
+                Some(clause) => {
+                    sdd = self.conjoin(&sdd, &clause.to_sdd(self));
+                }
+            }
+        }
+
+        // TODO: Dimacs output.
+        Ok(sdd)
+    }
+
     // TODO: This function should be removed as user should not be able to fill the unique_table
     // directly.
     #[must_use]
@@ -108,6 +142,19 @@ impl SddManager {
     #[must_use]
     pub(crate) fn get_node(&self, id: usize) -> Option<Sdd> {
         self.unique_table.borrow().get(&id).map(|n| n.clone())
+    }
+
+    #[must_use]
+    pub(crate) fn literal_from_idx(&self, literal: u16, polarity: Polarity) -> Sdd {
+        let label = self
+            .label_manager
+            .borrow()
+            .iter()
+            .find(|variable| variable.index() == literal)
+            .cloned()
+            .unwrap();
+
+        self.literal(&label.label(), polarity)
     }
 
     pub fn literal(&self, literal: &str, polarity: Polarity) -> Sdd {
@@ -305,7 +352,10 @@ impl SddManager {
         }
 
         let SddType::Decision(decision) = sdd.sdd_type.clone() else {
-            panic!("every other sddType should've been handled");
+            panic!(
+                "every other sddType should've been handled ({:?})",
+                sdd.sdd_type
+            );
         };
 
         let mut all_models = Vec::new();
@@ -436,7 +486,7 @@ impl SddManager {
 
     /// # Errors
     /// Returns an error if TBD.
-    pub fn draw_all_sdds<'b>(&self, writer: &mut dyn std::io::Write) -> Result<()> {
+    pub fn draw_all_sdds<'b>(&self, writer: &mut dyn std::io::Write) -> Result<(), String> {
         let mut dot_writer = DotWriter::new(String::from("sdd"), true);
         for node in self.unique_table.borrow().values() {
             node.draw(&mut dot_writer, self);
@@ -444,7 +494,7 @@ impl SddManager {
         dot_writer.write(writer)
     }
 
-    pub fn draw_sdd(&self, writer: &mut dyn std::io::Write, sdd: &Sdd) -> Result<()> {
+    pub fn draw_sdd(&self, writer: &mut dyn std::io::Write, sdd: &Sdd) -> Result<(), String> {
         let mut dot_writer = DotWriter::new(String::from("sdd"), true);
 
         let mut sdds = vec![sdd.clone()];
@@ -468,7 +518,7 @@ impl SddManager {
 
     /// # Errors
     /// Returns an error if TBD.
-    pub fn draw_vtree_graph<'b>(&self, writer: &mut dyn std::io::Write) -> Result<()> {
+    pub fn draw_vtree_graph<'b>(&self, writer: &mut dyn std::io::Write) -> Result<(), String> {
         let mut dot_writer = DotWriter::new(String::from("vtree"), false);
         self.vtree_manager.borrow().draw(&mut dot_writer, self);
         dot_writer.write(writer)
