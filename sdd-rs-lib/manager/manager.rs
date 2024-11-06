@@ -1,4 +1,5 @@
 use bitvec::prelude::*;
+use tracing::instrument;
 
 use crate::{
     btreeset,
@@ -14,7 +15,6 @@ use std::{
     cell::RefCell,
     collections::{BTreeSet, HashMap},
     ops::BitOr,
-    ptr::null,
 };
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug, Copy)]
@@ -33,7 +33,7 @@ impl Operation {
     }
 }
 
-#[derive(Eq, PartialEq, Hash)]
+#[derive(Eq, PartialEq, Hash, Debug)]
 struct Entry {
     fst: usize,
     snd: usize,
@@ -41,6 +41,7 @@ struct Entry {
 }
 
 #[allow(clippy::module_name_repetitions)]
+#[derive(Debug)]
 pub struct SddManager {
     options: SddOptions,
 

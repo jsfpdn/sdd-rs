@@ -150,6 +150,7 @@ pub(crate) enum VTreeOrder {
 
 pub(crate) type VTreeRef = Rc<RefCell<VTree>>;
 
+#[derive(Debug)]
 pub struct VTreeManager {
     pub(crate) root: Option<VTreeRef>,
 

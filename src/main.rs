@@ -4,7 +4,7 @@ use std::io::{BufWriter, Error};
 use clap::Parser;
 
 use sddrs::manager::{
-    options::{GcSchedule, InitialVTree, SddOptions, VTreeStrategy},
+    options::{InitialVTree, SddOptions},
     SddManager,
 };
 
@@ -36,13 +36,16 @@ struct Cli {
     /// the result of the computation.
     #[arg(short, long)]
     render_all_sdds: bool,
+    // Verbosity level. See `tracing::Level` for more information.
+    // `tracing::Level::INFO` is the default.
+    // #[arg(long, value_enum)]
+    // verbosity: Option<tracing::Level>,
 }
 
 fn main() -> Result<(), std::io::Error> {
     let cli = Cli::parse();
+
     let options = SddOptions::default()
-        .set_gc_schedule(GcSchedule::Automatic(1120))
-        .set_gc_strategy(VTreeStrategy::Cycle)
         .set_initial_vtree(InitialVTree::Balanced)
         .to_owned();
 
