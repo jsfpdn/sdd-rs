@@ -7,22 +7,22 @@ use crate::{
 };
 
 #[derive(Clone, PartialEq)]
-enum Node {
+pub(super) enum Node {
     Leaf(Variable),
     Internal(VTreeRef, VTreeRef),
 }
 
-// impl Node {
-//     #[must_use]
-//     fn is_leaf(&self) -> bool {
-//         matches!(self, Node::Leaf(_))
-//     }
+impl Node {
+    #[must_use]
+    pub(super) fn is_leaf(&self) -> bool {
+        matches!(self, Node::Leaf(_))
+    }
 
-//     #[must_use]
-//     fn is_internal(&self) -> bool {
-//         !self.is_leaf()
-//     }
-// }
+    #[must_use]
+    pub(super) fn is_internal(&self) -> bool {
+        !self.is_leaf()
+    }
+}
 
 #[derive(PartialEq)]
 pub struct VTree {
@@ -30,7 +30,8 @@ pub struct VTree {
     // Index according to the inorder traversal of the VTree. Can change when manipulating the tree in any way,
     // e.g. adding/removing variables and swapping or rotating nodes.
     idx: u16,
-    node: Node,
+
+    pub(super) node: Node,
 
     // Pointer to first vtree node in the subtree given by the current node
     // according to the inorder.
@@ -132,6 +133,10 @@ impl VTree {
                 .cloned()
                 .collect::<BTreeSet<_>>(),
         }
+    }
+
+    pub(crate) fn get_parent(&self) -> Option<VTreeRef> {
+        self.parent.clone()
     }
 }
 
