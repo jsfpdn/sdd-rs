@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use crate::{
     literal::Literal,
     manager::SddManager,
-    sdd::{Decision, Element, LeftDependence, RightDependence, Sdd, SddRef, SddType},
+    sdd::{Decision, Element, LeftDependence, RightDependence, SddRef, SddType},
     vtree::VTreeRef,
 };
 
@@ -255,11 +255,11 @@ fn sdd_vtree_rotate_left(x: &VTreeRef, manager: &SddManager) {
 
     for bc in &bc_vec {
         let elements = rotate_partition_left(bc, x, manager).elements;
-        let new_node = SddRef::new(Sdd::new(
+        let new_node = manager.new_sdd_from_type(
             SddType::Decision(Decision { elements }),
             x.borrow().get_index(),
             None,
-        ));
+        );
 
         replace_node(bc, &new_node, manager);
     }

@@ -11,6 +11,7 @@ pub struct SddRef(pub(crate) Rc<RefCell<Sdd>>);
 
 impl SddRef {
     pub(crate) fn new(sdd: Sdd) -> Self {
+        // TODO: Check that this gets called only from manager while maintaining the index.
         SddRef(Rc::new(RefCell::new(sdd)))
     }
 
@@ -76,7 +77,7 @@ impl SddRef {
                 .expect("Negation has been already computed and the SDD must therefore exist");
         }
 
-        let negation = SddRef::new(self.0.borrow_mut().negate(manager));
+        let negation = self.0.borrow_mut().negate(manager);
         manager.insert_node(&negation);
         negation
     }

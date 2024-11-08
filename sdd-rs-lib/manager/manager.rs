@@ -3,7 +3,7 @@ use bitvec::prelude::*;
 use crate::{
     btreeset,
     dot_writer::{Dot, DotWriter},
-    literal::{Literal, Polarity, Variable},
+    literal::{Literal, LiteralManager, Polarity, Variable},
     manager::{dimacs, model::Models, options::SddOptions},
     sdd::{Decision, Element, Sdd, SddRef, SddType},
     util::set_bits_indices,
@@ -11,7 +11,6 @@ use crate::{
 };
 
 use std::{
-    borrow::BorrowMut,
     cell::RefCell,
     collections::{BTreeSet, HashMap},
     ops::BitOr,
@@ -53,7 +52,7 @@ pub struct SddManager {
     options: SddOptions,
 
     vtree_manager: RefCell<VTreeManager>,
-    label_manager: RefCell<BTreeSet<Variable>>,
+    literal_manager: RefCell<LiteralManager>,
 
     // Unique table holding all the decision nodes.
     // More details can be found in [Algorithms and Data Structures in VLSI Design](https://link.springer.com/book/10.1007/978-3-642-58940-9).
@@ -61,14 +60,20 @@ pub struct SddManager {
 
     // Caches all the computations.
     op_cache: RefCell<HashMap<Entry, usize>>,
+
+    next_idx: RefCell<u16>,
 }
+
+// True and false SDDs have indicies 0 and 1 throughout the whole computation.
+pub(crate) const FALSE_SDD_IDX: u16 = 0;
+pub(crate) const TRUE_SDD_IDX: u16 = 1;
 
 impl SddManager {
     #[must_use]
     pub fn new(options: SddOptions) -> SddManager {
         let mut unique_table = RefCell::new(HashMap::new());
-        let tt = SddRef::new(Sdd::new_true());
         let ff = SddRef::new(Sdd::new_false());
+        let tt = SddRef::new(Sdd::new_true());
 
         unique_table.get_mut().insert(tt.id(), tt);
         unique_table.get_mut().insert(ff.id(), ff);
@@ -76,8 +81,9 @@ impl SddManager {
         SddManager {
             options,
             vtree_manager: RefCell::new(VTreeManager::new()),
-            label_manager: RefCell::new(BTreeSet::new()),
+            literal_manager: RefCell::new(LiteralManager::new()),
             op_cache: RefCell::new(HashMap::new()),
+            next_idx: RefCell::new(2), // Account for ff and tt created earlier which have indices 0 and 1.
             unique_table,
         }
     }
@@ -98,7 +104,7 @@ impl SddManager {
         let mut dimacs = dimacs::DimacsReader::new(&mut reader);
 
         let preamble = dimacs.parse_preamble().map_err(|err| err.to_string())?;
-        let num_variables = self.label_manager.borrow().len();
+        let num_variables = self.literal_manager.borrow().len();
         if !create_variables && preamble.variables > num_variables {
             return Err(String::from(
                 "preamble specifies more variables than those present in the manager",
@@ -122,38 +128,6 @@ impl SddManager {
         Ok(sdd)
     }
 
-    // TODO: This function should be removed as user should not be able to fill the unique_table
-    // directly.
-    #[must_use]
-    pub(crate) fn new_with_nodes(options: SddOptions, sdds: &[Sdd]) -> SddManager {
-        let mut table = HashMap::new();
-        let mut vars = BTreeSet::new();
-        for sdd in sdds {
-            table.insert(sdd.id(), SddRef::new(sdd.clone()));
-
-            match &sdd.sdd_type {
-                SddType::Literal(literal) => {
-                    _ = vars.insert(literal.clone().var_label());
-                }
-                _ => {}
-            };
-        }
-
-        let tt = SddRef::new(Sdd::new_true());
-        let ff = SddRef::new(Sdd::new_false());
-
-        table.insert(tt.id(), tt);
-        table.insert(ff.id(), ff);
-
-        SddManager {
-            options,
-            vtree_manager: RefCell::new(VTreeManager::new()),
-            label_manager: RefCell::new(vars),
-            unique_table: RefCell::new(table),
-            op_cache: RefCell::new(HashMap::new()),
-        }
-    }
-
     /// # Panics
     /// Function panics if there is no such node with the corresponding id in the unique table.
     #[must_use]
@@ -163,15 +137,18 @@ impl SddManager {
 
     #[must_use]
     pub(crate) fn literal_from_idx(&self, literal: u16, polarity: Polarity) -> SddRef {
-        let label = self
-            .label_manager
-            .borrow()
-            .iter()
-            .find(|variable| variable.index() == literal)
-            .cloned()
-            .unwrap();
+        let (sdd, created) = self.literal_manager.borrow().new_literal_from_idx(
+            literal,
+            *self.next_idx.borrow(),
+            polarity,
+            &mut self.vtree_manager.borrow_mut(),
+        );
 
-        self.literal(&label.label(), polarity)
+        if created {
+            self.move_idx();
+        }
+
+        sdd
     }
 
     pub(crate) fn get_nodes_normalized_for(&self, vtree_idx: u16) -> Vec<(usize, SddRef)> {
@@ -191,50 +168,32 @@ impl SddManager {
     }
 
     pub fn literal(&self, literal: &str, polarity: Polarity) -> SddRef {
-        let variable = self
-            .label_manager
-            .borrow()
-            .iter()
-            .find(|variable| variable.label() == literal)
-            .cloned();
-        let variable = variable.unwrap_or_else(|| {
-            let variable = Variable::new(literal, self.label_manager.borrow().len() as u16);
-            self.vtree_manager.borrow_mut().add_variable(&variable);
-            self.label_manager.borrow_mut().insert(variable.clone());
-            variable
-        });
-
         // TODO: Adding new variable should either invalidate cached model counts
         // in existing SDDs or recompute them.
         // warn!("should invalidate cached model counts");
 
-        let vtree_idx = self
-            .vtree_manager
-            .borrow()
-            .get_variable_vtree(&variable)
-            .expect("var_label was just inserted, therefore it must be present and found")
-            .borrow()
-            .get_index();
+        let (literal, created) = self.literal_manager.borrow().new_literal(
+            literal,
+            polarity,
+            *self.next_idx.borrow(),
+            &mut self.vtree_manager.borrow_mut(),
+        );
 
-        let literal = SddRef::new(Sdd::new(
-            SddType::Literal(Literal::new_with_label(polarity, variable.clone())),
-            vtree_idx,
-            None,
-        ));
+        if created {
+            self.move_idx();
+        }
 
         self.insert_node(&literal);
         literal
     }
 
     pub fn tautology(&self) -> SddRef {
-        // TODO: This will change once we have fixed Sdd indexing.
-        self.get_node(Sdd::new_true().id())
+        self.get_node(1)
             .expect("True SDD node must be present in the unique table at all times")
     }
 
     pub fn contradiction(&self) -> SddRef {
-        // TODO: This will change once we have fixed Sdd indexing.
-        self.get_node(Sdd::new_false().id())
+        self.get_node(0)
             .expect("False SDD node must be present in the unique table at all times")
     }
 
@@ -344,7 +303,7 @@ impl SddManager {
         let mut models: Vec<BitVec> = Vec::new();
         self._model_enumeration(sdd, &mut models);
 
-        let all_variables: BTreeSet<_> = self.label_manager.borrow().iter().cloned().collect();
+        let all_variables: BTreeSet<_> = self.literal_manager.borrow().all_variables();
         let unbound_variables: Vec<_> = all_variables
             .difference(&self.get_variables(&sdd))
             .cloned()
@@ -368,7 +327,7 @@ impl SddManager {
             .borrow()
             .get_variables()
             .len();
-        let unbound = self.label_manager.borrow().len() - sdd_variables;
+        let unbound = self.literal_manager.borrow().len() - sdd_variables;
 
         models * 2_u64.pow(unbound as u32)
     }
@@ -427,7 +386,7 @@ impl SddManager {
             let sdd_type = &sdd.0.borrow().sdd_type;
 
             if let SddType::Literal(ref literal) = sdd_type {
-                let mut model = bitvec![usize, LocalBits; 0; self.label_manager.borrow().len()];
+                let mut model = bitvec![usize, LocalBits; 0; self.literal_manager.borrow().len()];
                 model.set(
                     literal.var_label().index() as usize,
                     literal.polarity() == Polarity::Positive,
@@ -607,8 +566,9 @@ impl SddManager {
             VTreeOrder::RightSubOfLeft => self._apply_right_sub_of_left(fst, snd, op),
         };
 
-        let sdd = SddRef::new(Sdd::unique_d(elements, lca.borrow().get_index()));
+        let sdd = self.new_sdd(Sdd::unique_d(elements, lca.borrow().get_index(), self));
         sdd.canonicalize(self);
+        // TODO: canonicalize is not working properly => infinite loop since it's not changing.
 
         self.insert_node(&sdd);
         self.cache_operation(fst.id(), snd.id(), op, sdd.id());
@@ -672,7 +632,7 @@ impl SddManager {
 
         let fst_negated = fst.clone().negate(self);
 
-        let apply = |fst, snd| {
+        let apply = |fst: &SddRef, snd: &SddRef| {
             if op == Operation::Conjoin {
                 self.conjoin(fst, snd)
             } else {
@@ -845,11 +805,11 @@ impl SddManager {
     /// and adjust the vtree accordingly.
     fn add_remaining_variables(&self, to_add: usize) {
         fn variable_exists(manager: &SddManager, variable: &Variable) -> bool {
-            manager.label_manager.borrow().get(variable).is_some()
+            manager.literal_manager.borrow().exists(variable)
         }
 
         fn next_variable_idx(manager: &SddManager) -> usize {
-            manager.label_manager.borrow().len()
+            manager.literal_manager.borrow().len()
         }
 
         let alphabet = String::from_utf8((b'A'..=b'Z').collect()).unwrap();
@@ -884,6 +844,41 @@ impl SddManager {
 
     pub(crate) fn rotate_vtree_right(&self, vtree: &VTreeRef) {
         self.vtree_manager.borrow_mut().rotate_right(vtree)
+    }
+
+    pub(crate) fn new_sdd_from_type(
+        &self,
+        sdd_type: SddType,
+        vtree_idx: u16,
+        negation: Option<usize>,
+    ) -> SddRef {
+        let sdd = SddRef::new(Sdd::new(
+            sdd_type,
+            *self.next_idx.borrow(),
+            vtree_idx,
+            negation,
+        ));
+        self.move_idx();
+
+        self.insert_node(&sdd);
+        sdd
+    }
+
+    pub(crate) fn new_sdd(&self, sdd: Sdd) -> SddRef {
+        let mut sdd = sdd.clone();
+        sdd.sdd_idx = *self.next_idx.borrow();
+
+        let sdd = SddRef::new(sdd);
+        self.insert_node(&sdd);
+
+        self.move_idx();
+
+        sdd
+    }
+
+    fn move_idx(&self) {
+        let mut idx = self.next_idx.borrow_mut();
+        *idx += 1;
     }
 }
 
@@ -1034,6 +1029,7 @@ mod test {
         let lit_c = manager.literal("c", Polarity::Positive);
         let lit_d = manager.literal("d", Polarity::Positive);
 
+        // Make the vtree balanced.
         let root = manager.vtree_manager.borrow().root.clone().unwrap();
         manager
             .vtree_manager

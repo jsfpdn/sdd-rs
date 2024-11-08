@@ -179,7 +179,9 @@ impl VTreeManager {
 
     /// Add variable to the variable tree. The variable is inserted to the very end of the total
     /// variable order.
-    pub(crate) fn add_variable(&mut self, label: &Variable) {
+    ///
+    /// TODO: Allow different insertion strategies.
+    pub(crate) fn add_variable(&mut self, label: &Variable) -> u16 {
         let new_leaf = VTree::new_as_ref(None, self.next_idx, Node::Leaf(label.clone()));
         new_leaf.borrow_mut().inorder_last = Some(new_leaf.clone());
 
@@ -187,7 +189,7 @@ impl VTreeManager {
             self.next_idx += 1;
             self.root = Some(new_leaf);
             VTreeManager::set_inorder_indices(self.root.clone().unwrap(), 0);
-            return;
+            return self.next_idx - 1;
         }
 
         match self.root.as_ref() {
@@ -223,6 +225,7 @@ impl VTreeManager {
 
         // TODO: This can be optimized further.
         VTreeManager::set_inorder_indices(self.root.clone().unwrap(), 0);
+        self.next_idx - 1
     }
 
     pub(crate) fn root_idx(&self) -> Option<u16> {
@@ -431,6 +434,8 @@ impl VTreeManager {
                 } else {
                     current = rc.clone();
                 }
+            } else {
+                panic!("vtree is malformed or vtree with index {index} does not exist");
             }
         }
     }
