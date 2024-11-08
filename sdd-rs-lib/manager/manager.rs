@@ -1,5 +1,3 @@
-use bitvec::prelude::*;
-
 use crate::{
     btreeset,
     dot_writer::{Dot, DotWriter},
@@ -9,7 +7,7 @@ use crate::{
     util::set_bits_indices,
     vtree::{VTreeIdx, VTreeManager, VTreeOrder, VTreeRef},
 };
-
+use bitvec::prelude::*;
 use std::{
     cell::RefCell,
     collections::{BTreeSet, HashMap},

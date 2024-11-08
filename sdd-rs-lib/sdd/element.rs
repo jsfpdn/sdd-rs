@@ -1,10 +1,8 @@
 use crate::{
     dot_writer::{Dot, DotWriter, Edge, NodeType},
     manager::SddManager,
-    sdd::{Sdd, SddRef, SddType},
+    sdd::{Sdd, SddId, SddRef, SddType},
 };
-
-use super::SddId;
 
 // Element node (a paired box) is a conjunction of prime and sub.
 #[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord, Debug, Copy)]

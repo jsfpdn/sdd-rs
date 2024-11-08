@@ -1,15 +1,14 @@
+use crate::{
+    dot_writer::{Dot, DotWriter, Edge, NodeType},
+    literal::Variable,
+    manager::SddManager,
+};
 use std::{
     cell::RefCell,
     collections::BTreeSet,
     fmt::{Debug, Display},
     ops::{Add, AddAssign, Sub},
     rc::Rc,
-};
-
-use crate::{
-    dot_writer::{Dot, DotWriter, Edge, NodeType},
-    literal::Variable,
-    manager::SddManager,
 };
 
 #[derive(Clone, PartialEq)]

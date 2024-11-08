@@ -1,7 +1,6 @@
+use crate::{manager::SddManager, sdd::SddRef};
 use std::fs::File;
 use std::io::BufWriter;
-
-use crate::{manager::SddManager, sdd::SddRef};
 
 #[macro_export]
 macro_rules! btreeset {

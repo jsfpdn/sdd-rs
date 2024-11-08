@@ -1,13 +1,10 @@
-use std::collections::BTreeSet;
-
 use crate::{
     literal::Literal,
     manager::SddManager,
     sdd::{Decision, Element, LeftDependence, RightDependence, SddRef, SddType},
-    vtree::VTreeRef,
+    vtree::{Node, VTreeRef},
 };
-
-use super::Node;
+use std::collections::BTreeSet;
 
 pub(crate) enum Direction {
     Forward,

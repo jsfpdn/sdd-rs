@@ -1,8 +1,6 @@
-use std::fmt::Display;
-
 use crate::literal::{Literal, Polarity, Variable};
-
 use bitvec::prelude::*;
+use std::fmt::Display;
 
 pub struct Models {
     models: Vec<BitVec>,

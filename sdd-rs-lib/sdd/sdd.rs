@@ -1,7 +1,6 @@
+use bitvec::vec::BitVec;
 use core::fmt;
 use std::{collections::BTreeSet, fmt::Display, ops::AddAssign};
-
-use bitvec::vec::BitVec;
 
 use crate::{
     btreeset,

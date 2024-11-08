@@ -1,11 +1,9 @@
 use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
 
-use crate::literal::{Literal, Polarity, Variable};
+use crate::literal::{Literal, Polarity, Variable, VariableIdx};
 use crate::sdd::{Sdd, SddId, SddRef, SddType};
 use crate::vtree::{VTreeIdx, VTreeManager};
-
-use super::VariableIdx;
 
 #[derive(Clone, Debug)]
 struct LiteralVariants {

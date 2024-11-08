@@ -1,9 +1,6 @@
 use crate::manager::SddManager;
-use crate::sdd::Sdd;
-use crate::sdd::SddId;
-use crate::sdd::SddType;
+use crate::sdd::{Sdd, SddId, SddType};
 use crate::vtree::VTreeIdx;
-
 use bitvec::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;

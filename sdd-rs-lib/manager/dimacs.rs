@@ -1,7 +1,6 @@
 use crate::literal::{Polarity, VariableIdx};
+use crate::manager::SddManager;
 use crate::sdd::SddRef;
-
-use super::SddManager;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Preamble {

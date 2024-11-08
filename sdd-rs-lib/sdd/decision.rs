@@ -1,11 +1,9 @@
+use super::{SddId, SddType};
 use crate::{
     manager::SddManager,
     sdd::{element::Element, Sdd, SddRef},
 };
-
 use std::collections::{BTreeSet, HashSet};
-
-use super::{SddId, SddType};
 
 #[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord, Debug)]
 pub(crate) struct Decision {
