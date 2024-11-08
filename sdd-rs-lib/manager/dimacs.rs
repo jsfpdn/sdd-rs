@@ -1,5 +1,5 @@
 use crate::literal::Polarity;
-use crate::sdd::Sdd;
+use crate::sdd::SddRef;
 
 use super::SddManager;
 
@@ -17,7 +17,7 @@ pub(crate) struct Clause {
 
 impl Clause {
     #[must_use]
-    pub(crate) fn to_sdd(&self, manager: &SddManager) -> Sdd {
+    pub(crate) fn to_sdd(&self, manager: &SddManager) -> SddRef {
         let mut sdd = manager.contradiction();
 
         for (idx, polarity) in self

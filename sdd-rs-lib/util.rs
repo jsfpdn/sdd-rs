@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::BufWriter;
 
-use crate::{manager::SddManager, sdd::Sdd};
+use crate::{manager::SddManager, sdd::SddRef};
 
 #[macro_export]
 macro_rules! btreeset {
@@ -30,7 +30,7 @@ pub(crate) fn set_bits_indices(number: usize) -> Vec<usize> {
 }
 
 #[allow(unused)]
-pub(crate) fn quick_draw(manager: &SddManager, sdd: &Sdd, path: &str) {
+pub(crate) fn quick_draw(manager: &SddManager, sdd: &SddRef, path: &str) {
     let f = File::create(format!("{path}.dot")).unwrap();
     let mut b = BufWriter::new(f);
     manager

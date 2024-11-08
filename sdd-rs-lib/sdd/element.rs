@@ -1,7 +1,9 @@
+use std::{cell::RefCell, rc::Rc};
+
 use crate::{
     dot_writer::{Dot, DotWriter, Edge, NodeType},
     manager::SddManager,
-    sdd::{Sdd, SddType},
+    sdd::{Sdd, SddRef, SddType},
 };
 
 // Element node (a paired box) is a conjunction of prime and sub.
@@ -22,7 +24,7 @@ impl Element {
         prime.is_compressed(manager) && sub.is_compressed(manager)
     }
 
-    pub(crate) fn get_prime_sub<'a>(&self, manager: &'a SddManager) -> (Sdd, Sdd) {
+    pub(crate) fn get_prime_sub<'a>(&self, manager: &'a SddManager) -> (SddRef, SddRef) {
         (
             manager.get_node(self.prime).expect(
                 format!(
@@ -48,7 +50,10 @@ impl Dot for Element {
 
         let (prime, sub) = self.get_prime_sub(manager);
 
-        writer.add_node(idx, NodeType::Record(prime.dot_repr(), sub.dot_repr()));
+        writer.add_node(
+            idx,
+            NodeType::Record(prime.0.borrow().dot_repr(), sub.0.borrow().dot_repr()),
+        );
 
         if let Sdd {
             sdd_type: SddType::Decision(node),
@@ -56,6 +61,9 @@ impl Dot for Element {
         } = manager
             .get_node(self.prime)
             .expect("element_prime not present in unique_table")
+            .0
+            .borrow()
+            .to_owned()
         {
             writer.add_edge(Edge::Prime(idx, fxhash::hash(&node)));
         }
@@ -65,6 +73,9 @@ impl Dot for Element {
         } = manager
             .get_node(self.sub)
             .expect("element_sub not present in unique_table")
+            .0
+            .borrow()
+            .to_owned()
         {
             writer.add_edge(Edge::Sub(idx, fxhash::hash(&node)));
         };

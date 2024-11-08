@@ -1,9 +1,9 @@
-use std::{any::Any, collections::BTreeSet};
+use std::collections::BTreeSet;
 
 use crate::{
     literal::Literal,
     manager::SddManager,
-    sdd::{Decision, Element, LeftDependence, RightDependence, Sdd, SddType},
+    sdd::{Decision, Element, LeftDependence, RightDependence, Sdd, SddRef, SddType},
     vtree::VTreeRef,
 };
 
@@ -216,13 +216,13 @@ impl Fragment {
 //
 
 struct LeftRotateSplit {
-    bc_vec: Vec<Sdd>,
-    c_vec: Vec<Sdd>,
+    bc_vec: Vec<SddRef>,
+    c_vec: Vec<SddRef>,
 }
 
 struct RightRotateSplit {
-    ab_vec: Vec<Sdd>,
-    a_vec: Vec<Sdd>,
+    ab_vec: Vec<SddRef>,
+    a_vec: Vec<SddRef>,
 }
 
 /// Rotate the vtree `x` to the left and adjust SDDs accordingly.
@@ -255,11 +255,11 @@ fn sdd_vtree_rotate_left(x: &VTreeRef, manager: &SddManager) {
 
     for bc in &bc_vec {
         let elements = rotate_partition_left(bc, x, manager).elements;
-        let new_node = Sdd::new(
+        let new_node = SddRef::new(Sdd::new(
             SddType::Decision(Decision { elements }),
             x.borrow().get_index(),
             None,
-        );
+        ));
 
         replace_node(bc, &new_node, manager);
     }
@@ -283,7 +283,7 @@ fn swap(fst: &Literal, snd: &Literal, manager: &SddManager) {
     unimplemented!()
 }
 
-fn replace_node(old: &Sdd, new: &Sdd, manager: &SddManager) {
+fn replace_node(old: &SddRef, new: &SddRef, manager: &SddManager) {
     // TODO: Somehow replace bc with new.
     // This means recursively going up the SDD graph to the root and updating all
     // SDDs that have been "tainted"?
@@ -305,7 +305,7 @@ fn split_nodes_for_left_rotate(
     let normalized_sdds = manager
         .get_nodes_normalized_for(w_idx)
         .iter()
-        .map(|(id, sdd)| (sdd.dependence_on_right_vtree(x, manager), *id))
+        .map(|(id, sdd)| (sdd.0.borrow().dependence_on_right_vtree(x, manager), *id))
         .collect::<Vec<_>>();
 
     let mut c_vec = Vec::new();
@@ -340,7 +340,7 @@ fn split_nodes_for_right_rotate(
     let normalized_sdds = manager
         .get_nodes_normalized_for(x_idx)
         .iter()
-        .map(|(id, sdd)| (sdd.dependence_on_left_vtree(w, manager), *id))
+        .map(|(id, sdd)| (sdd.0.borrow().dependence_on_left_vtree(w, manager), *id))
         .collect::<Vec<_>>();
 
     let mut a_vec = Vec::new();
@@ -371,7 +371,7 @@ fn split_nodes_for_swap() {
 
 /// Rotate partitions to the left.
 #[must_use]
-fn rotate_partition_left(node: &Sdd, x: &VTreeRef, manager: &SddManager) -> Decision {
+fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddManager) -> Decision {
     // This function assumes that `x` has been already rotated and `w` is it's left child.
     let w = match x.borrow().node.clone() {
         Node::Internal(.., left_child) => left_child,
@@ -380,7 +380,7 @@ fn rotate_partition_left(node: &Sdd, x: &VTreeRef, manager: &SddManager) -> Deci
 
     let x_idx = x.borrow().get_index();
 
-    let SddType::Decision(ref decision) = node.sdd_type else {
+    let SddType::Decision(ref decision) = node.0.borrow().sdd_type else {
         panic!("node must be a decision node");
     };
 
@@ -388,7 +388,7 @@ fn rotate_partition_left(node: &Sdd, x: &VTreeRef, manager: &SddManager) -> Deci
     for element in &decision.elements {
         let (a, bc) = element.get_prime_sub(manager);
 
-        if bc.is_constant() || bc.vtree_idx > x_idx {
+        if bc.is_constant() || bc.vtree_idx() > x_idx {
             elements.insert(Element {
                 prime: a.id(),
                 sub: bc.id(),
@@ -396,8 +396,8 @@ fn rotate_partition_left(node: &Sdd, x: &VTreeRef, manager: &SddManager) -> Deci
             continue;
         }
 
-        if bc.vtree_idx == x_idx {
-            let SddType::Decision(ref bc_decision) = bc.sdd_type else {
+        if bc.vtree_idx() == x_idx {
+            let SddType::Decision(ref bc_decision) = bc.0.borrow().sdd_type else {
                 panic!("node must be a decision node");
             };
 

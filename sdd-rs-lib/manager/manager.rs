@@ -5,12 +5,13 @@ use crate::{
     dot_writer::{Dot, DotWriter},
     literal::{Literal, Polarity, Variable},
     manager::{dimacs, model::Models, options::SddOptions},
-    sdd::{Decision, Element, Sdd, SddType},
+    sdd::{Decision, Element, Sdd, SddRef, SddType},
     util::set_bits_indices,
     vtree::{VTreeManager, VTreeOrder, VTreeRef},
 };
 
 use std::{
+    borrow::BorrowMut,
     cell::RefCell,
     collections::{BTreeSet, HashMap},
     ops::BitOr,
@@ -56,7 +57,7 @@ pub struct SddManager {
 
     // Unique table holding all the decision nodes.
     // More details can be found in [Algorithms and Data Structures in VLSI Design](https://link.springer.com/book/10.1007/978-3-642-58940-9).
-    unique_table: RefCell<HashMap<usize, Sdd>>,
+    unique_table: RefCell<HashMap<usize, SddRef>>,
 
     // Caches all the computations.
     op_cache: RefCell<HashMap<Entry, usize>>,
@@ -66,12 +67,11 @@ impl SddManager {
     #[must_use]
     pub fn new(options: SddOptions) -> SddManager {
         let mut unique_table = RefCell::new(HashMap::new());
-        unique_table
-            .get_mut()
-            .insert(Sdd::new_true().id(), Sdd::new_true());
-        unique_table
-            .get_mut()
-            .insert(Sdd::new_false().id(), Sdd::new_false());
+        let tt = SddRef::new(Sdd::new_true());
+        let ff = SddRef::new(Sdd::new_false());
+
+        unique_table.get_mut().insert(tt.id(), tt);
+        unique_table.get_mut().insert(ff.id(), ff);
 
         SddManager {
             options,
@@ -91,7 +91,7 @@ impl SddManager {
         &self,
         reader: &mut dyn std::io::Read,
         create_variables: bool,
-    ) -> Result<Sdd, String> {
+    ) -> Result<SddRef, String> {
         // TODO: Timing
 
         let mut reader = std::io::BufReader::new(reader);
@@ -129,7 +129,7 @@ impl SddManager {
         let mut table = HashMap::new();
         let mut vars = BTreeSet::new();
         for sdd in sdds {
-            table.insert(sdd.id(), sdd.clone());
+            table.insert(sdd.id(), SddRef::new(sdd.clone()));
 
             match &sdd.sdd_type {
                 SddType::Literal(literal) => {
@@ -138,8 +138,12 @@ impl SddManager {
                 _ => {}
             };
         }
-        table.insert(Sdd::new_true().id(), Sdd::new_true());
-        table.insert(Sdd::new_false().id(), Sdd::new_false());
+
+        let tt = SddRef::new(Sdd::new_true());
+        let ff = SddRef::new(Sdd::new_false());
+
+        table.insert(tt.id(), tt);
+        table.insert(ff.id(), ff);
 
         SddManager {
             options,
@@ -153,12 +157,12 @@ impl SddManager {
     /// # Panics
     /// Function panics if there is no such node with the corresponding id in the unique table.
     #[must_use]
-    pub(crate) fn get_node(&self, id: usize) -> Option<Sdd> {
-        self.unique_table.borrow().get(&id).map(|n| n.clone())
+    pub(crate) fn get_node(&self, id: usize) -> Option<SddRef> {
+        self.unique_table.borrow().get(&id).cloned()
     }
 
     #[must_use]
-    pub(crate) fn literal_from_idx(&self, literal: u16, polarity: Polarity) -> Sdd {
+    pub(crate) fn literal_from_idx(&self, literal: u16, polarity: Polarity) -> SddRef {
         let label = self
             .label_manager
             .borrow()
@@ -170,11 +174,11 @@ impl SddManager {
         self.literal(&label.label(), polarity)
     }
 
-    pub(crate) fn get_nodes_normalized_for(&self, vtree_idx: u16) -> Vec<(usize, Sdd)> {
+    pub(crate) fn get_nodes_normalized_for(&self, vtree_idx: u16) -> Vec<(usize, SddRef)> {
         self.unique_table
             .borrow()
             .iter()
-            .filter(|(_, sdd)| sdd.vtree_idx == vtree_idx)
+            .filter(|(_, sdd)| sdd.vtree_idx() == vtree_idx)
             .map(|(id, sdd)| (*id, sdd.clone()))
             .collect()
     }
@@ -186,7 +190,7 @@ impl SddManager {
         }
     }
 
-    pub fn literal(&self, literal: &str, polarity: Polarity) -> Sdd {
+    pub fn literal(&self, literal: &str, polarity: Polarity) -> SddRef {
         let variable = self
             .label_manager
             .borrow()
@@ -212,26 +216,30 @@ impl SddManager {
             .borrow()
             .get_index();
 
-        let literal = Sdd::new(
+        let literal = SddRef::new(Sdd::new(
             SddType::Literal(Literal::new_with_label(polarity, variable.clone())),
             vtree_idx,
             None,
-        );
+        ));
 
         self.insert_node(&literal);
         literal
     }
 
-    pub fn tautology(&self) -> Sdd {
-        Sdd::new_true()
+    pub fn tautology(&self) -> SddRef {
+        // TODO: This will change once we have fixed Sdd indexing.
+        self.get_node(Sdd::new_true().id())
+            .expect("True SDD node must be present in the unique table at all times")
     }
 
-    pub fn contradiction(&self) -> Sdd {
-        Sdd::new_false()
+    pub fn contradiction(&self) -> SddRef {
+        // TODO: This will change once we have fixed Sdd indexing.
+        self.get_node(Sdd::new_false().id())
+            .expect("False SDD node must be present in the unique table at all times")
     }
 
     #[must_use]
-    pub fn conjoin(&self, fst: &Sdd, snd: &Sdd) -> Sdd {
+    pub fn conjoin(&self, fst: &SddRef, snd: &SddRef) -> SddRef {
         if fst == snd {
             return fst.clone();
         }
@@ -260,7 +268,7 @@ impl SddManager {
     }
 
     #[must_use]
-    pub fn disjoin(&self, fst: &Sdd, snd: &Sdd) -> Sdd {
+    pub fn disjoin(&self, fst: &SddRef, snd: &SddRef) -> SddRef {
         if fst == snd {
             return fst.clone();
         }
@@ -289,12 +297,12 @@ impl SddManager {
     }
 
     #[must_use]
-    pub fn negate(&self, fst: &Sdd) -> Sdd {
+    pub fn negate(&self, fst: &SddRef) -> SddRef {
         fst.clone().negate(self)
     }
 
     #[must_use]
-    pub fn imply(&self, fst: &Sdd, snd: &Sdd) -> Sdd {
+    pub fn imply(&self, fst: &SddRef, snd: &SddRef) -> SddRef {
         if fst == snd && fst.is_true() {
             return snd.clone();
         }
@@ -312,37 +320,27 @@ impl SddManager {
         }
 
         // Relies on the fact that A => B is equivalent to !A || B.
-        self.apply(&fst.clone().negate(self), snd, Operation::Disjoin)
+        self.apply(&fst.negate(self), snd, Operation::Disjoin)
     }
 
     #[must_use]
-    pub fn equiv(&self, fst: &Sdd, snd: &Sdd) -> Sdd {
+    pub fn equiv(&self, fst: &SddRef, snd: &SddRef) -> SddRef {
         if fst == snd {
             return self.tautology();
         }
 
-        if fst.eq_negated(snd, self) {
+        if fst.eq_negated(&snd, self) {
             return self.contradiction();
         }
 
         // Relies on the fact that A <=> B is equivalent (!A && !B) || (A && B).
-        let fst_con = &self.conjoin(&fst.clone().negate(self), &snd.clone().negate(self));
-        let snd_con = &self.conjoin(fst, snd);
-        self.disjoin(fst_con, snd_con)
+        let fst_con = self.conjoin(&fst.negate(self), &snd.negate(self));
+        let snd_con = self.conjoin(&fst, &snd);
+        self.disjoin(&fst_con, &snd_con)
     }
-
-    /// Condition an SDD on a literal.
-    pub fn condition(&self, literal: &Literal, sdd: &Sdd) -> Sdd {
-        // TODO: Improve construction of literals to be passed here since from user's POV
-        // they are just SDDs, since we want to levarage type system.
-        unimplemented!()
-    }
-
-    pub fn exist() {}
-    pub fn forall() {}
 
     /// Enumerate all models of the SDD. This method eagerly computes all satisfying assignments.
-    pub fn model_enumeration(&self, sdd: &Sdd) -> Models {
+    pub fn model_enumeration(&self, sdd: &SddRef) -> Models {
         let mut models: Vec<BitVec> = Vec::new();
         self._model_enumeration(sdd, &mut models);
 
@@ -355,17 +353,17 @@ impl SddManager {
         Models::new(models, all_variables.iter().cloned().collect())
     }
 
-    pub fn model_count(&self, sdd: &Sdd) -> u64 {
+    pub fn model_count(&self, sdd: &SddRef) -> u64 {
         let models = self._model_count(sdd);
 
-        if self.vtree_manager.borrow().root_idx().unwrap() == sdd.vtree_idx {
+        if self.vtree_manager.borrow().root_idx().unwrap() == sdd.vtree_idx() {
             return models;
         }
 
         let sdd_variables = self
             .vtree_manager
             .borrow()
-            .get_vtree(sdd.vtree_idx)
+            .get_vtree(sdd.vtree_idx())
             .unwrap()
             .borrow()
             .get_variables()
@@ -416,163 +414,146 @@ impl SddManager {
         unimplemented!()
     }
 
-    fn _model_enumeration(&self, sdd: &Sdd, bitvecs: &mut Vec<BitVec>) {
+    fn _model_enumeration(&self, sdd: &SddRef, bitvecs: &mut Vec<BitVec>) {
         // Return the cached value if it already exists.
-        if let Some(ref mut models) = sdd.models.clone() {
+        if let Some(ref mut models) = sdd.models() {
             bitvecs.append(models);
             return;
         }
-
-        // This is "hack" due to the very design of this lib. We may have computed
-        // the model count already but it's not visible in the Sdd reference. It should
-        // be in the unique table though, if it was in fact computed.
-        if let Some(ref mut models) = self.get_node(sdd.id()).unwrap().models.clone() {
-            bitvecs.append(models);
-            return;
-        }
-
-        if let SddType::Literal(ref literal) = sdd.sdd_type {
-            let mut model = bitvec![usize, LocalBits; 0; self.label_manager.borrow().len()];
-            model.set(
-                literal.var_label().index() as usize,
-                literal.polarity() == Polarity::Positive,
-            );
-            bitvecs.push(model);
-            return;
-        }
-
-        let SddType::Decision(decision) = sdd.sdd_type.clone() else {
-            panic!(
-                "every other sddType should've been handled ({:?})",
-                sdd.sdd_type
-            );
-        };
 
         let mut all_models = Vec::new();
-        let all_variables = self.get_variables(&sdd);
+        {
+            // Create a new scope to borrow sdd_type since we will mutate it later on due to caching.
+            let sdd_type = &sdd.0.borrow().sdd_type;
 
-        for Element { prime, sub } in decision.elements {
-            let mut models = Vec::new();
-            let prime = self.get_node(prime).unwrap();
-            let sub = self.get_node(sub).unwrap();
-
-            if prime.is_false() || sub.is_false() {
-                continue;
+            if let SddType::Literal(ref literal) = sdd_type {
+                let mut model = bitvec![usize, LocalBits; 0; self.label_manager.borrow().len()];
+                model.set(
+                    literal.var_label().index() as usize,
+                    literal.polarity() == Polarity::Positive,
+                );
+                bitvecs.push(model);
+                return;
             }
 
-            if prime.is_true() || sub.is_true() {
-                if prime.is_true() {
-                    self._model_enumeration(&sub, &mut models);
-                } else {
-                    self._model_enumeration(&prime, &mut models);
+            let SddType::Decision(decision) = sdd_type else {
+                panic!(
+                    "every other sddType should've been handled ({:?})",
+                    sdd_type
+                );
+            };
+
+            let all_variables = self.get_variables(&sdd);
+            for Element { prime, sub } in &decision.elements {
+                let mut models = Vec::new();
+                let prime = self.get_node(*prime).unwrap();
+                let sub = self.get_node(*sub).unwrap();
+
+                if prime.is_false() || sub.is_false() {
+                    continue;
                 }
-            } else {
-                let mut fst = Vec::new();
-                let mut snd = Vec::new();
 
-                self._model_enumeration(&prime, &mut fst);
-                self._model_enumeration(&sub, &mut snd);
+                if prime.is_true() || sub.is_true() {
+                    if prime.is_true() {
+                        self._model_enumeration(&sub, &mut models);
+                    } else {
+                        self._model_enumeration(&prime, &mut models);
+                    }
+                } else {
+                    let mut fst = Vec::new();
+                    let mut snd = Vec::new();
 
-                for fst_bv in &fst {
-                    for snd_bv in &snd {
-                        models.push(fst_bv.clone().bitor(snd_bv));
+                    self._model_enumeration(&prime, &mut fst);
+                    self._model_enumeration(&sub, &mut snd);
+
+                    for fst_bv in &fst {
+                        for snd_bv in &snd {
+                            models.push(fst_bv.clone().bitor(snd_bv));
+                        }
                     }
                 }
+
+                let all_reachable_variables = self
+                    .get_variables(&prime)
+                    .union(&self.get_variables(&sub))
+                    .cloned()
+                    .collect();
+                let unbound_variables: Vec<_> = all_variables
+                    .difference(&all_reachable_variables)
+                    .cloned()
+                    .collect();
+
+                self.expand_models(&mut models, &unbound_variables);
+                all_models.append(&mut models);
             }
-
-            let all_reachable_variables = self
-                .get_variables(&prime)
-                .union(&self.get_variables(&sub))
-                .cloned()
-                .collect();
-            let unbound_variables: Vec<_> = all_variables
-                .difference(&all_reachable_variables)
-                .cloned()
-                .collect();
-
-            self.expand_models(&mut models, &unbound_variables);
-            all_models.append(&mut models);
         }
-
         bitvecs.append(&mut all_models);
 
-        let mut sdd_clone = sdd.clone();
-        sdd_clone.models = Some(bitvecs.clone());
-        self.insert_node(&sdd_clone);
+        sdd.cache_models(&bitvecs);
     }
 
     /// Count number of models for this SDD.
-    fn _model_count(&self, sdd: &Sdd) -> u64 {
+    fn _model_count(&self, sdd: &SddRef) -> u64 {
         // Return the cached value if it already exists.
-        if let Some(model_count) = sdd.model_count {
+        if let Some(model_count) = sdd.model_count() {
             return model_count;
         }
-
-        // This is "hack" due to the very design of this lib. We may have computed
-        // the model count already but it's not visible in the Sdd reference. It should
-        // be in the unique table though, if it was in fact computed.
-        if let Some(model_count) = self.get_node(sdd.id()).unwrap().model_count {
-            return model_count;
-        }
-
-        let SddType::Decision(decision) = sdd.sdd_type.clone() else {
-            panic!("every other sddType should've been handled");
-        };
-
-        let get_models_count = |sdd: &Sdd| {
-            if sdd.is_literal() {
-                1
-            } else {
-                self._model_count(sdd)
-            }
-        };
 
         let mut total_models = 0;
-        let all_variables = self.get_variables(&sdd).len();
+        {
+            // Create a new scope to borrow sdd_type since we will mutate it later on due to caching.
+            let SddType::Decision(ref decision) = sdd.0.borrow().sdd_type else {
+                panic!("every other sddType should've been handled");
+            };
 
-        for Element { prime, sub } in decision.elements {
-            let prime = self.get_node(prime).unwrap();
-            let sub = self.get_node(sub).unwrap();
+            let get_models_count = |sdd: &SddRef| {
+                if sdd.is_literal() {
+                    1
+                } else {
+                    self._model_count(sdd)
+                }
+            };
 
-            let model_count = get_models_count(&prime) * get_models_count(&sub);
+            let all_variables = self.get_variables(&sdd).len();
 
-            // Account for variables that do not appear in neither prime or sub.
-            let all_reachable = self
-                .get_variables(&prime)
-                .union(&self.get_variables(&sub))
-                .count();
-            let unbound_variables = all_variables - all_reachable;
+            for Element { prime, sub } in &decision.elements {
+                let prime = self.get_node(*prime).unwrap();
+                let sub = self.get_node(*sub).unwrap();
 
-            total_models += model_count * 2_u64.pow(unbound_variables as u32);
+                let model_count = get_models_count(&prime) * get_models_count(&sub);
+
+                // Account for variables that do not appear in neither prime or sub.
+                let all_reachable = self
+                    .get_variables(&prime)
+                    .union(&self.get_variables(&sub))
+                    .count();
+                let unbound_variables = all_variables - all_reachable;
+
+                total_models += model_count * 2_u64.pow(unbound_variables as u32);
+            }
         }
 
-        // Update the "global" sdd in the unique table so we can find it later.
-        let mut sdd_clone = sdd.clone();
-        sdd_clone.model_count = Some(total_models);
-        self.insert_node(&sdd_clone);
-
+        sdd.cache_model_count(total_models);
         total_models
     }
 
-    /// # Errors
-    /// Returns an error if TBD.
     pub fn draw_all_sdds<'b>(&self, writer: &mut dyn std::io::Write) -> Result<(), String> {
         let mut dot_writer = DotWriter::new(String::from("sdd"), true);
         for node in self.unique_table.borrow().values() {
-            node.draw(&mut dot_writer, self);
+            node.0.borrow().draw(&mut dot_writer, self);
         }
         dot_writer.write(writer)
     }
 
-    pub fn draw_sdd(&self, writer: &mut dyn std::io::Write, sdd: &Sdd) -> Result<(), String> {
+    pub fn draw_sdd(&self, writer: &mut dyn std::io::Write, sdd: &SddRef) -> Result<(), String> {
         let mut dot_writer = DotWriter::new(String::from("sdd"), true);
 
         let mut sdds = vec![sdd.clone()];
         while !sdds.is_empty() {
             let sdd = sdds.pop().unwrap();
-            sdd.draw(&mut dot_writer, self);
+            sdd.0.borrow().draw(&mut dot_writer, self);
 
-            if let SddType::Decision(Decision { elements }) = sdd.sdd_type.clone() {
+            if let SddType::Decision(Decision { ref elements }) = sdd.0.borrow().sdd_type {
                 elements
                     .iter()
                     .map(|element| element.get_prime_sub(self))
@@ -580,7 +561,7 @@ impl SddManager {
                         sdds.push(prime);
                         sdds.push(sub)
                     });
-            }
+            };
         }
 
         dot_writer.write(writer)
@@ -596,8 +577,8 @@ impl SddManager {
 
     /// Apply operation on the two Sdds.
     #[must_use]
-    fn apply(&self, fst: &Sdd, snd: &Sdd, op: Operation) -> Sdd {
-        let (fst, snd) = if fst.vtree_idx < snd.vtree_idx {
+    fn apply(&self, fst: &SddRef, snd: &SddRef, op: Operation) -> SddRef {
+        let (fst, snd) = if fst.vtree_idx() < snd.vtree_idx() {
             (fst, snd)
         } else {
             (snd, fst)
@@ -617,7 +598,7 @@ impl SddManager {
         let (lca, order) = self
             .vtree_manager
             .borrow()
-            .least_common_ancestor(fst.vtree_idx, snd.vtree_idx);
+            .least_common_ancestor(fst.vtree_idx(), snd.vtree_idx());
 
         let elements = match order {
             VTreeOrder::Equal => self._apply_eq(fst, snd, op),
@@ -626,7 +607,8 @@ impl SddManager {
             VTreeOrder::RightSubOfLeft => self._apply_right_sub_of_left(fst, snd, op),
         };
 
-        let sdd = Sdd::unique_d(elements, lca.borrow().get_index()).canonicalize(self);
+        let sdd = SddRef::new(Sdd::unique_d(elements, lca.borrow().get_index()));
+        sdd.canonicalize(self);
 
         self.insert_node(&sdd);
         self.cache_operation(fst.id(), snd.id(), op, sdd.id());
@@ -638,8 +620,8 @@ impl SddManager {
         sdd
     }
 
-    fn _apply_eq(&self, fst: &Sdd, snd: &Sdd, op: Operation) -> BTreeSet<Element> {
-        assert_eq!(fst.vtree_idx, snd.vtree_idx);
+    fn _apply_eq(&self, fst: &SddRef, snd: &SddRef, op: Operation) -> BTreeSet<Element> {
+        assert_eq!(fst.vtree_idx(), snd.vtree_idx());
         assert!(!fst.is_constant());
         assert!(!snd.is_constant());
 
@@ -647,12 +629,12 @@ impl SddManager {
         for Element {
             prime: fst_prime,
             sub: fst_sub,
-        } in fst.expand().elements.iter()
+        } in fst.0.borrow().expand().elements.iter()
         {
             for Element {
                 prime: snd_prime,
                 sub: snd_sub,
-            } in snd.expand().elements.iter()
+            } in snd.0.borrow().expand().elements.iter()
             {
                 let fst_prime = self.get_node(*fst_prime).unwrap();
                 let snd_prime = self.get_node(*snd_prime).unwrap();
@@ -683,8 +665,8 @@ impl SddManager {
         elements
     }
 
-    fn _apply_ineq(&self, fst: &Sdd, snd: &Sdd, op: Operation) -> BTreeSet<Element> {
-        assert!(fst.vtree_idx < snd.vtree_idx);
+    fn _apply_ineq(&self, fst: &SddRef, snd: &SddRef, op: Operation) -> BTreeSet<Element> {
+        assert!(fst.vtree_idx() < snd.vtree_idx());
         assert!(!fst.is_constant());
         assert!(!snd.is_constant());
 
@@ -713,8 +695,13 @@ impl SddManager {
         )
     }
 
-    fn _apply_left_sub_of_right(&self, fst: &Sdd, snd: &Sdd, op: Operation) -> BTreeSet<Element> {
-        assert!(fst.vtree_idx < snd.vtree_idx);
+    fn _apply_left_sub_of_right(
+        &self,
+        fst: &SddRef,
+        snd: &SddRef,
+        op: Operation,
+    ) -> BTreeSet<Element> {
+        assert!(fst.vtree_idx() < snd.vtree_idx());
         assert!(!fst.is_constant());
         assert!(!snd.is_constant());
 
@@ -724,10 +711,10 @@ impl SddManager {
             &fst.clone().negate(self)
         };
 
-        let snd_elements = snd.sdd_type.elements().expect(
+        let snd_elements = snd.0.borrow().sdd_type.elements().expect(
             format!(
                 "snd of _apply_left_sub_of_right must be a decision node but was instead {} (id {})",
-                snd.sdd_type.name(),
+                snd.0.borrow().sdd_type.name(),
                 snd.id(),
             ).as_str()
         );
@@ -755,16 +742,21 @@ impl SddManager {
         elements
     }
 
-    fn _apply_right_sub_of_left(&self, fst: &Sdd, snd: &Sdd, op: Operation) -> BTreeSet<Element> {
-        assert!(fst.vtree_idx < snd.vtree_idx);
+    fn _apply_right_sub_of_left(
+        &self,
+        fst: &SddRef,
+        snd: &SddRef,
+        op: Operation,
+    ) -> BTreeSet<Element> {
+        assert!(fst.vtree_idx() < snd.vtree_idx());
         assert!(!fst.is_constant());
         assert!(!snd.is_constant());
 
-        let fst_elements = fst.sdd_type.elements().expect(
+        let fst_elements = fst.0.borrow().sdd_type.elements().expect(
             format!(
-                "snd of _apply_right_sub_of_left must be a decision node but was instead {} (id {})",
-                snd.sdd_type.name(),
-                snd.id(),
+                "fst of _apply_right_sub_of_left must be a decision node but was instead {} (id {})",
+                fst.0.borrow().sdd_type.name(),
+                fst.id(),
             )
             .as_str(),
         );
@@ -792,7 +784,7 @@ impl SddManager {
     }
     // TODO: expose operations manipulating the vtree.
 
-    pub(crate) fn insert_node(&self, sdd: &Sdd) {
+    pub(crate) fn insert_node(&self, sdd: &SddRef) {
         self.unique_table.borrow_mut().insert(sdd.id(), sdd.clone());
     }
 
@@ -802,14 +794,14 @@ impl SddManager {
             .insert(Entry { fst, snd, op }, res_id);
     }
 
-    fn get_variables(&self, sdd: &Sdd) -> BTreeSet<Variable> {
+    fn get_variables(&self, sdd: &SddRef) -> BTreeSet<Variable> {
         if sdd.is_constant() {
             return BTreeSet::new();
         }
 
         self.vtree_manager
             .borrow()
-            .get_vtree(sdd.vtree_idx)
+            .get_vtree(sdd.vtree_idx())
             .unwrap()
             .borrow()
             .get_variables()
@@ -1026,11 +1018,11 @@ mod test {
 
         // Resulting SDD must be normalized w.r.t. vtree with index 3.
         let a_and_d = manager.conjoin(&lit_a, &lit_d);
-        assert_eq!(a_and_d.vtree_idx, 3);
+        assert_eq!(a_and_d.vtree_idx(), 3);
 
         // Resulting SDD must be normalized w.r.t. vtree with index 3.
         let a_and_d__and_b = manager.conjoin(&a_and_d, &lit_b);
-        assert_eq!(a_and_d__and_b.vtree_idx, 3);
+        assert_eq!(a_and_d__and_b.vtree_idx(), 3);
     }
 
     #[test]

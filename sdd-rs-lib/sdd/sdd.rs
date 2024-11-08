@@ -83,6 +83,7 @@ impl SddType {
     }
 }
 
+// TODO: Sdd should become public only within the crate.
 #[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord)]
 pub struct Sdd {
     pub(crate) sdd_idx: u16,
@@ -128,7 +129,7 @@ impl Sdd {
         let (model_count, models) = match sdd_type.clone() {
             SddType::False => (Some(0), None),
             SddType::True => (Some(1), None),
-            SddType::Literal(literal) => (Some(1), None),
+            SddType::Literal(_) => (Some(1), None),
             _ => (None, None),
         };
 
@@ -228,21 +229,14 @@ impl Sdd {
     }
 
     /// Negate the SDD and cache it.
-    ///
-    /// The computation works lazily - if the negation has been already computed,
-    /// the value is just returned.
     pub(crate) fn negate(&mut self, manager: &SddManager) -> Sdd {
-        if let Some(negated_sdd_id) = self.negation {
-            return manager.get_node(negated_sdd_id).unwrap();
-        }
-
-        if let SddType::Decision(dec) = self.sdd_type.clone() {
+        if let SddType::Decision(ref dec) = self.sdd_type {
             let mut elements = BTreeSet::new();
-            for Element { prime, sub } in dec.elements {
-                let sub = manager.get_node(sub).unwrap().negate(manager);
+            for Element { prime, sub } in &dec.elements {
+                let sub = manager.get_node(*sub).unwrap().negate(manager);
 
                 elements.insert(Element {
-                    prime,
+                    prime: *prime,
                     sub: sub.id(),
                 });
             }
@@ -253,12 +247,8 @@ impl Sdd {
                 Some(self.id()),
             );
 
-            // Add the negation to the unique table and update the original SDD
-            // in the unique table to point to this new negation.
+            // Cache the negation for this SDD.
             self.negation = Some(negated_sdd.id());
-            manager.insert_node(self);
-            manager.insert_node(&negated_sdd);
-
             return negated_sdd;
         }
 
@@ -271,12 +261,7 @@ impl Sdd {
             }
         };
 
-        let negated_sdd = Sdd::new(sdd_type, self.vtree_idx, None);
-
-        // Cache the negation.
-        manager.insert_node(&negated_sdd);
-
-        negated_sdd
+        Sdd::new(sdd_type, self.vtree_idx, None)
     }
 
     /// Check whether [`self`] equals to negated [`other`].
@@ -321,11 +306,11 @@ impl Sdd {
         match &self.sdd_type {
             SddType::Decision(decision) => {
                 if let Some(trimmed_sdd) = decision.trim(manager) {
-                    trimmed_sdd
+                    trimmed_sdd.0.borrow().clone()
                 } else {
                     let decision = decision.compress(manager);
                     if let Some(trimmed_sdd) = decision.trim(manager) {
-                        trimmed_sdd
+                        trimmed_sdd.0.borrow().clone()
                     } else {
                         Sdd::new(
                             SddType::Decision(decision.clone()),
@@ -386,7 +371,7 @@ impl Sdd {
             panic!("cannot get dependence on anything other than decision node");
         };
 
-        let primes: Vec<Sdd> = decision.primes(&manager).iter().cloned().collect();
+        let primes: Vec<_> = decision.primes(&manager).iter().cloned().collect();
         // No need to filter out constants from collected primes since they cannot
         // occur as primes of elements.
 
@@ -395,11 +380,11 @@ impl Sdd {
         let w_idx = w.borrow().get_index();
 
         for prime in &primes {
-            if prime.vtree_idx == w_idx {
+            if prime.vtree_idx() == w_idx {
                 return LeftDependence::AB;
             }
 
-            if prime.vtree_idx < w_idx {
+            if prime.vtree_idx() < w_idx {
                 depends_on_a = true;
             } else {
                 depends_on_b = true;
@@ -429,7 +414,7 @@ impl Sdd {
             panic!("cannot get dependence on anything other than decision node");
         };
 
-        let subs: Vec<Sdd> = decision
+        let subs: Vec<_> = decision
             .subs(&manager)
             .iter()
             .filter(|sub| !sub.is_constant())
@@ -441,11 +426,11 @@ impl Sdd {
         let x_idx = x.borrow().get_index();
 
         for sub in &subs {
-            if sub.vtree_idx == x_idx {
+            if sub.vtree_idx() == x_idx {
                 return RightDependence::BC;
             }
 
-            if sub.vtree_idx < x_idx {
+            if sub.vtree_idx() < x_idx {
                 depends_on_b = true;
             } else {
                 depends_on_c = true;
@@ -470,8 +455,7 @@ mod test {
     use crate::btreeset;
     use crate::literal::{Literal, Polarity};
     use crate::manager::{options::SddOptions, SddManager};
-    use crate::sdd::{LeftDependence, RightDependence};
-    use crate::util::{quick_draw, quick_draw_all};
+    use crate::sdd::{LeftDependence, SddRef};
 
     #[test]
     fn not_trimmed_simple() {
@@ -494,9 +478,9 @@ mod test {
             .expect("node is not present in the unique table");
         assert!(!node.is_trimmed(&manager));
 
-        let node = node.canonicalize(&manager);
+        node.canonicalize(&manager);
         assert!(node.is_trimmed(&manager));
-        assert_eq!(node, Sdd::new_false());
+        assert_eq!(node, manager.contradiction());
     }
 
     fn create_literal(literal: Literal) -> Sdd {
@@ -530,11 +514,11 @@ mod test {
             .expect("node is not present in the unique table");
         assert!(!node.is_trimmed(&manager));
 
-        let node = node.canonicalize(&manager);
+        node.canonicalize(&manager);
         assert!(node.is_trimmed(&manager));
         assert_eq!(
             node,
-            create_literal(Literal::new(Polarity::Positive, "A", 0))
+            SddRef::new(create_literal(Literal::new(Polarity::Positive, "A", 0)))
         );
     }
 
@@ -567,11 +551,11 @@ mod test {
             .expect("node is not present in the unique table");
         assert!(!node.is_trimmed(&manager));
 
-        let node = node.canonicalize(&manager);
+        node.canonicalize(&manager);
         assert!(node.is_trimmed(&manager));
         assert_eq!(
             node,
-            create_literal(Literal::new(Polarity::Positive, "A", 0))
+            SddRef::new(create_literal(Literal::new(Polarity::Positive, "A", 0)))
         );
     }
 
@@ -760,9 +744,12 @@ mod test {
         let root = manager.root().unwrap();
 
         // `c && d && a` must be normalized for root.
-        assert_eq!(c_and_d_and_a.vtree_idx, root.borrow().get_index());
+        assert_eq!(c_and_d_and_a.vtree_idx(), root.borrow().get_index());
 
-        let dep = c_and_d_and_a.dependence_on_left_vtree(&root, &manager);
+        let dep = c_and_d_and_a
+            .0
+            .borrow()
+            .dependence_on_left_vtree(&root, &manager);
         assert_eq!(dep, LeftDependence::A);
 
         // TODO: Test dependencies more - try to capture all possible cases.

@@ -1,6 +1,6 @@
 use crate::{
     manager::SddManager,
-    sdd::{element::Element, Sdd},
+    sdd::{element::Element, Sdd, SddRef},
 };
 
 use std::collections::{BTreeSet, HashSet};
@@ -25,7 +25,7 @@ impl Decision {
     /// * the decision node contains something else than boxed elements.
     #[must_use]
     pub(crate) fn is_trimmed(&self, manager: &SddManager) -> bool {
-        let mut primes: HashSet<Sdd> = HashSet::new();
+        let mut primes: HashSet<usize> = HashSet::new();
 
         if self.elements.len() >= 3 {
             return true;
@@ -46,11 +46,11 @@ impl Decision {
             }
 
             // Check whether we have already seen this literal but negated.
-            if primes.contains(&prime) {
+            if primes.contains(&prime.id()) {
                 return false;
             }
 
-            primes.insert(prime.clone().negate(manager));
+            primes.insert(prime.negate(manager).id());
         }
 
         // Check that elements are also trimmed.
@@ -69,14 +69,14 @@ impl Decision {
     /// * the decision node contains something else than boxed elements.
     #[must_use]
     pub(super) fn is_compressed(&self, manager: &SddManager) -> bool {
-        let mut subs: HashSet<Sdd> = HashSet::new();
+        let mut subs: HashSet<usize> = HashSet::new();
         for element in &self.elements {
             let (_, sub) = element.get_prime_sub(manager);
-            if subs.contains(&sub) {
+            if subs.contains(&sub.id()) {
                 return false;
             }
 
-            subs.insert(sub);
+            subs.insert(sub.id());
         }
 
         // Check that all elements are also compressed.
@@ -86,7 +86,7 @@ impl Decision {
     /// Trim decision node by replacing decompositions {(true, alpha)}
     /// and {(alpha, true), (!alpha, false)} with alpha. Returns a Boolean
     /// denoting whether the decision node had to be trimmed.
-    pub(super) fn trim(&self, manager: &SddManager) -> Option<Sdd> {
+    pub(super) fn trim(&self, manager: &SddManager) -> Option<SddRef> {
         let elements: Vec<&Element> = self.elements.iter().collect();
         if self.elements.len() == 1 {
             let el = elements.get(0).unwrap();
@@ -179,18 +179,18 @@ impl Decision {
         };
 
         if let Some(trimmed_sdd) = self.trim(manager) {
-            unwrap_decision(trimmed_sdd.sdd_type)
+            unwrap_decision(trimmed_sdd.0.borrow().sdd_type.clone())
         } else {
             let decision = self.compress(manager);
             if let Some(trimmed_sdd) = decision.trim(manager) {
-                unwrap_decision(trimmed_sdd.sdd_type)
+                unwrap_decision(trimmed_sdd.0.borrow().sdd_type.clone())
             } else {
                 decision.clone()
             }
         }
     }
 
-    pub(super) fn subs(&self, manager: &SddManager) -> Vec<Sdd> {
+    pub(super) fn subs(&self, manager: &SddManager) -> Vec<SddRef> {
         self.elements
             .iter()
             .map(|Element { sub, .. }| {
@@ -201,7 +201,7 @@ impl Decision {
             .collect()
     }
 
-    pub(super) fn primes(&self, manager: &SddManager) -> Vec<Sdd> {
+    pub(super) fn primes(&self, manager: &SddManager) -> Vec<SddRef> {
         self.elements
             .iter()
             .map(|Element { prime, .. }| {
