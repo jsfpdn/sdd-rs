@@ -1,17 +1,32 @@
 use std::{convert::From, fmt::Display};
 
-#[derive(Hash, Eq, PartialEq, Debug, Clone, Ord)]
+#[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Debug, Copy, Hash)]
+pub(crate) struct VariableIdx(pub(crate) u32);
+
+impl From<u16> for VariableIdx {
+    fn from(value: u16) -> Self {
+        VariableIdx(value as u32)
+    }
+}
+
+impl From<usize> for VariableIdx {
+    fn from(value: usize) -> Self {
+        VariableIdx(value.try_into().unwrap())
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Clone, Ord, Hash)]
 pub(crate) struct Variable {
     label: String,
-    idx: u16,
+    idx: VariableIdx,
 }
 
 impl Variable {
     #[must_use]
-    pub fn new(v: &str, idx: u16) -> Variable {
+    pub fn new(v: &str, idx: u32) -> Variable {
         Variable {
             label: v.to_owned(),
-            idx,
+            idx: VariableIdx(idx),
         }
     }
 
@@ -20,7 +35,7 @@ impl Variable {
         self.label.clone()
     }
 
-    pub(crate) fn index(&self) -> u16 {
+    pub(crate) fn index(&self) -> VariableIdx {
         self.idx
     }
 }
@@ -32,7 +47,7 @@ impl PartialOrd for Variable {
 }
 
 // Either true or false
-#[derive(Hash, Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Copy)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Copy)]
 pub enum Polarity {
     Positive,
     Negative,
@@ -59,7 +74,7 @@ impl std::ops::Not for Polarity {
     }
 }
 
-#[derive(Hash, Eq, PartialEq, Debug, Clone, PartialOrd, Ord)]
+#[derive(Eq, PartialEq, Debug, Clone, PartialOrd, Ord)]
 pub struct Literal {
     variable: Variable,
     polarity: Polarity,
@@ -67,10 +82,10 @@ pub struct Literal {
 
 impl Literal {
     #[must_use]
-    pub fn new(polarity: Polarity, variable: &str, idx: u16) -> Literal {
+    pub fn new(polarity: Polarity, variable: &str, idx: VariableIdx) -> Literal {
         // TODO: Get rid of this public constructor
         Literal {
-            variable: Variable::new(variable, idx),
+            variable: Variable::new(variable, idx.0),
             polarity,
         }
     }

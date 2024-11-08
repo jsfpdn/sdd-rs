@@ -1,4 +1,10 @@
-use std::{cell::RefCell, collections::BTreeSet, fmt::Debug, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::BTreeSet,
+    fmt::{Debug, Display},
+    ops::{Add, AddAssign, Sub},
+    rc::Rc,
+};
 
 use crate::{
     dot_writer::{Dot, DotWriter, Edge, NodeType},
@@ -12,15 +18,52 @@ pub(super) enum Node {
     Internal(VTreeRef, VTreeRef),
 }
 
-impl Node {
-    #[must_use]
-    pub(super) fn is_leaf(&self) -> bool {
-        matches!(self, Node::Leaf(_))
-    }
+#[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Debug, Copy)]
+pub struct VTreeIdx(pub u32);
 
-    #[must_use]
-    pub(super) fn is_internal(&self) -> bool {
-        !self.is_leaf()
+impl Add for VTreeIdx {
+    type Output = VTreeIdx;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        VTreeIdx(self.0 + rhs.0)
+    }
+}
+
+impl Sub for VTreeIdx {
+    type Output = VTreeIdx;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        VTreeIdx(self.0 - rhs.0)
+    }
+}
+
+impl AddAssign for VTreeIdx {
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 += rhs.0;
+    }
+}
+
+impl Display for VTreeIdx {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<u16> for VTreeIdx {
+    fn from(value: u16) -> Self {
+        VTreeIdx(value as u32)
+    }
+}
+
+impl From<u32> for VTreeIdx {
+    fn from(value: u32) -> Self {
+        VTreeIdx(value)
+    }
+}
+
+impl From<usize> for VTreeIdx {
+    fn from(value: usize) -> Self {
+        VTreeIdx(value.try_into().unwrap())
     }
 }
 
@@ -29,7 +72,7 @@ pub struct VTree {
     parent: Option<VTreeRef>,
     // Index according to the inorder traversal of the VTree. Can change when manipulating the tree in any way,
     // e.g. adding/removing variables and swapping or rotating nodes.
-    idx: u16,
+    idx: VTreeIdx,
 
     pub(super) node: Node,
 
@@ -59,7 +102,7 @@ impl Debug for VTree {
 
 impl VTree {
     #[must_use]
-    fn new(parent: Option<VTreeRef>, idx: u16, node: Node) -> VTree {
+    fn new(parent: Option<VTreeRef>, idx: VTreeIdx, node: Node) -> VTree {
         VTree {
             parent,
             idx,
@@ -70,11 +113,11 @@ impl VTree {
     }
 
     #[must_use]
-    fn new_as_ref(parent: Option<VTreeRef>, idx: u16, node: Node) -> VTreeRef {
+    fn new_as_ref(parent: Option<VTreeRef>, idx: VTreeIdx, node: Node) -> VTreeRef {
         Rc::new(RefCell::new(VTree::new(parent, idx, node)))
     }
 
-    pub(crate) fn get_index(&self) -> u16 {
+    pub(crate) fn get_index(&self) -> VTreeIdx {
         self.idx
     }
 
@@ -102,11 +145,11 @@ impl VTree {
         }
     }
 
-    fn inorder_first_idx(&self) -> u16 {
+    fn inorder_first_idx(&self) -> VTreeIdx {
         self.inorder_first.clone().unwrap().borrow().idx
     }
 
-    fn inorder_last_idx(&self) -> u16 {
+    fn inorder_last_idx(&self) -> VTreeIdx {
         self.inorder_last.clone().unwrap().borrow().idx
     }
 
@@ -114,7 +157,7 @@ impl VTree {
         &mut self,
         inorder_first: Option<VTreeRef>,
         inorder_last: Option<VTreeRef>,
-        idx: u16,
+        idx: VTreeIdx,
     ) {
         self.idx = idx;
         self.inorder_first = inorder_first;
@@ -161,7 +204,7 @@ pub struct VTreeManager {
 
     // TODO: Fix the meaningless bookkeeping and computation of
     // next_idx in `VTreeManager::add_variable`.
-    next_idx: u16,
+    next_idx: VTreeIdx,
     // TODO: Change the Rc<RefCell<...>> approach to indexing into
     // global hashmap owning all the nodes.
     //
@@ -173,7 +216,7 @@ impl VTreeManager {
     pub fn new() -> VTreeManager {
         VTreeManager {
             root: None,
-            next_idx: 0,
+            next_idx: VTreeIdx(0),
         }
     }
 
@@ -181,15 +224,15 @@ impl VTreeManager {
     /// variable order.
     ///
     /// TODO: Allow different insertion strategies.
-    pub(crate) fn add_variable(&mut self, label: &Variable) -> u16 {
+    pub(crate) fn add_variable(&mut self, label: &Variable) -> VTreeIdx {
         let new_leaf = VTree::new_as_ref(None, self.next_idx, Node::Leaf(label.clone()));
         new_leaf.borrow_mut().inorder_last = Some(new_leaf.clone());
 
         if self.root.is_none() {
-            self.next_idx += 1;
+            self.next_idx += VTreeIdx(1);
             self.root = Some(new_leaf);
-            VTreeManager::set_inorder_indices(self.root.clone().unwrap(), 0);
-            return self.next_idx - 1;
+            VTreeManager::set_inorder_indices(self.root.clone().unwrap(), VTreeIdx(0));
+            return self.next_idx - VTreeIdx(1);
         }
 
         match self.root.as_ref() {
@@ -211,7 +254,7 @@ impl VTreeManager {
                     self.next_idx,
                     Node::Internal(rightest.clone(), new_leaf.clone()),
                 );
-                self.next_idx += 1;
+                self.next_idx += VTreeIdx(0);
 
                 rightest.borrow_mut().parent = Some(parent.clone());
                 new_leaf.borrow_mut().parent = Some(parent.clone());
@@ -224,24 +267,33 @@ impl VTreeManager {
         }
 
         // TODO: This can be optimized further.
-        VTreeManager::set_inorder_indices(self.root.clone().unwrap(), 0);
-        self.next_idx - 1
+        VTreeManager::set_inorder_indices(self.root.clone().unwrap(), VTreeIdx(0));
+        self.next_idx - VTreeIdx(1)
     }
 
-    pub(crate) fn root_idx(&self) -> Option<u16> {
+    pub(crate) fn root_idx(&self) -> Option<VTreeIdx> {
         self.root.clone().map(|root| root.borrow().idx)
     }
 
-    fn set_inorder_indices(node: VTreeRef, idx: u16) -> (u16, Option<VTreeRef>, Option<VTreeRef>) {
-        let (new_idx, par_idx, fst, last) =
-            if let Node::Internal(lc, rc) = node.borrow().node.clone() {
-                let (new_idx, fst, _) = VTreeManager::set_inorder_indices(lc, idx);
-                let (par_idx, _, last) = VTreeManager::set_inorder_indices(rc, new_idx + 1);
+    fn set_inorder_indices(
+        node: VTreeRef,
+        idx: VTreeIdx,
+    ) -> (VTreeIdx, Option<VTreeRef>, Option<VTreeRef>) {
+        let (new_idx, par_idx, fst, last) = if let Node::Internal(lc, rc) =
+            node.borrow().node.clone()
+        {
+            let (new_idx, fst, _) = VTreeManager::set_inorder_indices(lc, idx);
+            let (par_idx, _, last) = VTreeManager::set_inorder_indices(rc, new_idx + VTreeIdx(1));
 
-                (new_idx, par_idx, fst, last)
-            } else {
-                (idx, idx + 1, Some(node.clone()), Some(node.clone()))
-            };
+            (new_idx, par_idx, fst, last)
+        } else {
+            (
+                idx,
+                idx + VTreeIdx(1),
+                Some(node.clone()),
+                Some(node.clone()),
+            )
+        };
 
         node.borrow_mut()
             .set_pointers(fst.clone(), last.clone(), new_idx);
@@ -250,8 +302,8 @@ impl VTreeManager {
     }
 
     #[must_use]
-    pub(crate) fn variables_total_order(&self) -> Vec<(Variable, u16)> {
-        fn dfs(vtree: &VTreeRef, order: &mut Vec<(Variable, u16)>) {
+    pub(crate) fn variables_total_order(&self) -> Vec<(Variable, VTreeIdx)> {
+        fn dfs(vtree: &VTreeRef, order: &mut Vec<(Variable, VTreeIdx)>) {
             let idx = vtree.borrow().idx;
             match vtree.borrow().node.clone() {
                 Node::Leaf(label) => order.push((label, idx)),
@@ -321,7 +373,7 @@ impl VTreeManager {
             parent.borrow_mut().parent = Some(vtree.clone());
         }
 
-        VTreeManager::set_inorder_indices(self.root.clone().unwrap(), 0);
+        VTreeManager::set_inorder_indices(self.root.clone().unwrap(), VTreeIdx(0));
     }
 
     /// Rotates the vtree to the right. Given the following tree,
@@ -375,7 +427,7 @@ impl VTreeManager {
             parent.borrow_mut().parent = Some(vtree.clone());
         }
 
-        VTreeManager::set_inorder_indices(self.root.clone().unwrap(), 0);
+        VTreeManager::set_inorder_indices(self.root.clone().unwrap(), VTreeIdx(0));
     }
 
     /// Swaps children of internal node.
@@ -394,7 +446,7 @@ impl VTreeManager {
             }
         }
 
-        VTreeManager::set_inorder_indices(self.root.clone().unwrap(), 0);
+        VTreeManager::set_inorder_indices(self.root.clone().unwrap(), VTreeIdx(0));
     }
 
     pub(crate) fn get_variable_vtree(&self, variable: &Variable) -> Option<VTreeRef> {
@@ -416,7 +468,7 @@ impl VTreeManager {
         find_vtree(&self.root.clone().unwrap(), variable)
     }
 
-    pub(crate) fn get_vtree(&self, index: u16) -> Option<VTreeRef> {
+    pub(crate) fn get_vtree(&self, index: VTreeIdx) -> Option<VTreeRef> {
         // TODO: This will get obsolete once VTrees are stored in a single hashmap.
         let Some(mut current) = self.root.clone() else {
             return None;
@@ -442,8 +494,8 @@ impl VTreeManager {
 
     pub(crate) fn least_common_ancestor(
         &self,
-        fst_idx: u16,
-        snd_idx: u16,
+        fst_idx: VTreeIdx,
+        snd_idx: VTreeIdx,
     ) -> (VTreeRef, VTreeOrder) {
         assert!(
             fst_idx <= snd_idx,
@@ -489,19 +541,31 @@ impl Dot for VTreeManager {
 
         // Get the total order first to neatly order the leaf nodes in the graph.
         for (variable, idx) in self.variables_total_order() {
-            writer.add_node(usize::from(idx), NodeType::CircleStr(variable.label(), idx));
+            writer.add_node(
+                idx.0 as usize,
+                NodeType::CircleStr(variable.label(), idx.0 as u16),
+            );
         }
 
         let mut nodes = vec![self.root.as_ref().unwrap().clone()];
         while let Some(vtree) = nodes.pop() {
             let vtree = vtree.borrow();
             if let Node::Internal(lc, rc) = vtree.node.clone() {
-                writer.add_edge(Edge::Simple(vtree.idx as usize, lc.borrow().idx as usize));
-                writer.add_edge(Edge::Simple(vtree.idx as usize, rc.borrow().idx as usize));
+                writer.add_edge(Edge::Simple(
+                    vtree.idx.0 as usize,
+                    lc.borrow().idx.0 as usize,
+                ));
+                writer.add_edge(Edge::Simple(
+                    vtree.idx.0 as usize,
+                    rc.borrow().idx.0 as usize,
+                ));
                 nodes.push(lc.clone());
                 nodes.push(rc.clone());
 
-                writer.add_node(usize::from(vtree.idx), NodeType::Circle(vtree.idx, None));
+                writer.add_node(
+                    vtree.idx.0 as usize,
+                    NodeType::Circle(vtree.idx.0 as u16, None),
+                );
             };
         }
     }
@@ -517,12 +581,12 @@ impl Default for VTreeManager {
 pub(crate) mod test {
     use crate::{
         literal::Variable,
-        vtree::{VTreeOrder, VTreeRef},
+        vtree::{VTreeIdx, VTreeOrder, VTreeRef},
     };
 
     use super::{Node, VTreeManager};
 
-    fn orders_eq(got_order: Vec<(Variable, u16)>, want_order: Vec<Variable>) {
+    fn orders_eq(got_order: Vec<(Variable, VTreeIdx)>, want_order: Vec<Variable>) {
         assert_eq!(got_order.len(), want_order.len());
         for ((got, _), want) in got_order.iter().zip(want_order) {
             assert_eq!(got, &want);
@@ -580,43 +644,43 @@ pub(crate) mod test {
         manager.rotate_left(&rc);
 
         let root = manager.root.unwrap().clone();
-        assert_eq!(root.borrow().idx, 3);
-        assert_eq!(get_inorder_first(root.clone()), 0);
-        assert_eq!(get_inorder_last(root.clone()), 6);
+        assert_eq!(root.borrow().idx.0, 3);
+        assert_eq!(get_inorder_first(root.clone()).0, 0);
+        assert_eq!(get_inorder_last(root.clone()).0, 6);
 
         let Node::Internal(lc, rc) = root.borrow().node.clone() else {
             panic!("root must be an internal node, not a leaf")
         };
 
-        assert_eq!(lc.borrow().idx, 1);
-        assert_eq!(get_inorder_first(lc.clone()), 0);
-        assert_eq!(get_inorder_last(lc.clone()), 2);
+        assert_eq!(lc.borrow().idx.0, 1);
+        assert_eq!(get_inorder_first(lc.clone()).0, 0);
+        assert_eq!(get_inorder_last(lc.clone()).0, 2);
 
-        assert_eq!(rc.borrow().idx, 5);
-        assert_eq!(get_inorder_first(rc.clone()), 4);
-        assert_eq!(get_inorder_last(rc.clone()), 6);
+        assert_eq!(rc.borrow().idx.0, 5);
+        assert_eq!(get_inorder_first(rc.clone()).0, 4);
+        assert_eq!(get_inorder_last(rc.clone()).0, 6);
 
         let Node::Internal(llc, lrc) = lc.borrow().node.clone() else {
             panic!("root must be an internal node, not a leaf")
         };
-        assert_eq!(llc.borrow().idx, 0);
-        assert_eq!(get_inorder_first(llc.clone()), 0);
-        assert_eq!(get_inorder_last(llc.clone()), 0);
+        assert_eq!(llc.borrow().idx.0, 0);
+        assert_eq!(get_inorder_first(llc.clone()).0, 0);
+        assert_eq!(get_inorder_last(llc.clone()).0, 0);
 
-        assert_eq!(lrc.borrow().idx, 2);
-        assert_eq!(get_inorder_first(lrc.clone()), 2);
-        assert_eq!(get_inorder_last(lrc.clone()), 2);
+        assert_eq!(lrc.borrow().idx.0, 2);
+        assert_eq!(get_inorder_first(lrc.clone()).0, 2);
+        assert_eq!(get_inorder_last(lrc.clone()).0, 2);
 
         let Node::Internal(rlc, rrc) = rc.borrow().node.clone() else {
             panic!("root must be an internal node, not a leaf")
         };
-        assert_eq!(rlc.borrow().idx, 4);
-        assert_eq!(get_inorder_first(rlc.clone()), 4);
-        assert_eq!(get_inorder_last(rlc.clone()), 4);
+        assert_eq!(rlc.borrow().idx.0, 4);
+        assert_eq!(get_inorder_first(rlc.clone()).0, 4);
+        assert_eq!(get_inorder_last(rlc.clone()).0, 4);
 
-        assert_eq!(rrc.borrow().idx, 6);
-        assert_eq!(get_inorder_first(rrc.clone()), 6);
-        assert_eq!(get_inorder_last(rrc.clone()), 6);
+        assert_eq!(rrc.borrow().idx.0, 6);
+        assert_eq!(get_inorder_first(rrc.clone()).0, 6);
+        assert_eq!(get_inorder_last(rrc.clone()).0, 6);
     }
 
     #[test]
@@ -825,24 +889,24 @@ pub(crate) mod test {
         assert_eq!(lca.borrow().idx, root_idx);
 
         // lc has index of 1
-        let (lca, ord) = manager.least_common_ancestor(1, root_idx);
+        let (lca, ord) = manager.least_common_ancestor(1_u32.into(), root_idx);
         assert_eq!(ord, VTreeOrder::LeftSubOfRight);
         assert_eq!(lca.borrow().idx, root_idx);
 
         // rc has index of 5
-        let (lca, ord) = manager.least_common_ancestor(root_idx, 5);
+        let (lca, ord) = manager.least_common_ancestor(root_idx, 5_u32.into());
         assert_eq!(ord, VTreeOrder::RightSubOfLeft);
         assert_eq!(lca.borrow().idx, root_idx);
 
         // llc has index of 0, rrc has index of 6
-        let (lca, ord) = manager.least_common_ancestor(0, 6);
+        let (lca, ord) = manager.least_common_ancestor(0_u32.into(), 6_u32.into());
         assert_eq!(ord, VTreeOrder::Inequal);
         assert_eq!(lca.borrow().idx, root_idx);
     }
 
     #[test]
     fn literal_indices() {
-        let var_label_index = |vtree: Option<VTreeRef>| -> u16 { vtree.unwrap().borrow().idx };
+        let var_label_index = |vtree: Option<VTreeRef>| -> VTreeIdx { vtree.unwrap().borrow().idx };
 
         let mut manager = VTreeManager::new();
         manager.add_variable(&Variable::new("A", 0));
@@ -859,19 +923,19 @@ pub(crate) mod test {
         //        C     D
 
         assert_eq!(
-            var_label_index(manager.get_variable_vtree(&Variable::new("A", 0))),
+            var_label_index(manager.get_variable_vtree(&Variable::new("A", 0))).0,
             0
         );
         assert_eq!(
-            var_label_index(manager.get_variable_vtree(&Variable::new("B", 1))),
+            var_label_index(manager.get_variable_vtree(&Variable::new("B", 1))).0,
             2
         );
         assert_eq!(
-            var_label_index(manager.get_variable_vtree(&Variable::new("C", 2))),
+            var_label_index(manager.get_variable_vtree(&Variable::new("C", 2))).0,
             4
         );
         assert_eq!(
-            var_label_index(manager.get_variable_vtree(&Variable::new("D", 3))),
+            var_label_index(manager.get_variable_vtree(&Variable::new("D", 3))).0,
             6
         );
         assert_eq!(manager.get_variable_vtree(&Variable::new("E", 4)), None);

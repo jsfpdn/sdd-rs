@@ -1,4 +1,4 @@
-use crate::literal::Polarity;
+use crate::literal::{Polarity, VariableIdx};
 use crate::sdd::SddRef;
 
 use super::SddManager;
@@ -26,7 +26,7 @@ impl Clause {
             .zip(self.var_label_polarities.iter())
         {
             // DIMACS variables are indexed from 1 but our variables start at 0.
-            let lit = manager.literal_from_idx(*idx - 1, *polarity);
+            let lit = manager.literal_from_idx(VariableIdx((*idx - 1) as u32), *polarity);
             sdd = manager.disjoin(&sdd, &lit);
         }
 

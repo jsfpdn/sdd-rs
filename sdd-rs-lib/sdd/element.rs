@@ -1,16 +1,16 @@
-use std::{cell::RefCell, rc::Rc};
-
 use crate::{
     dot_writer::{Dot, DotWriter, Edge, NodeType},
     manager::SddManager,
     sdd::{Sdd, SddRef, SddType},
 };
 
+use super::SddId;
+
 // Element node (a paired box) is a conjunction of prime and sub.
 #[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord, Debug, Copy)]
 pub(crate) struct Element {
-    pub(crate) prime: usize,
-    pub(crate) sub: usize,
+    pub(crate) prime: SddId,
+    pub(crate) sub: SddId,
 }
 
 impl Element {

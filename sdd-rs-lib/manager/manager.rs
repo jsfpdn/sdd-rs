@@ -3,11 +3,11 @@ use bitvec::prelude::*;
 use crate::{
     btreeset,
     dot_writer::{Dot, DotWriter},
-    literal::{Literal, LiteralManager, Polarity, Variable},
+    literal::{LiteralManager, Polarity, Variable, VariableIdx},
     manager::{dimacs, model::Models, options::SddOptions},
-    sdd::{Decision, Element, Sdd, SddRef, SddType},
+    sdd::{Decision, Element, Sdd, SddId, SddRef, SddType},
     util::set_bits_indices,
-    vtree::{VTreeManager, VTreeOrder, VTreeRef},
+    vtree::{VTreeIdx, VTreeManager, VTreeOrder, VTreeRef},
 };
 
 use std::{
@@ -41,8 +41,8 @@ pub struct CutOff {}
 
 #[derive(Eq, PartialEq, Hash, Debug)]
 struct Entry {
-    fst: usize,
-    snd: usize,
+    fst: SddId,
+    snd: SddId,
     op: Operation,
 }
 
@@ -56,17 +56,17 @@ pub struct SddManager {
 
     // Unique table holding all the decision nodes.
     // More details can be found in [Algorithms and Data Structures in VLSI Design](https://link.springer.com/book/10.1007/978-3-642-58940-9).
-    unique_table: RefCell<HashMap<usize, SddRef>>,
+    unique_table: RefCell<HashMap<SddId, SddRef>>,
 
     // Caches all the computations.
-    op_cache: RefCell<HashMap<Entry, usize>>,
+    op_cache: RefCell<HashMap<Entry, SddId>>,
 
-    next_idx: RefCell<u16>,
+    next_idx: RefCell<SddId>,
 }
 
 // True and false SDDs have indicies 0 and 1 throughout the whole computation.
-pub(crate) const FALSE_SDD_IDX: u16 = 0;
-pub(crate) const TRUE_SDD_IDX: u16 = 1;
+pub(crate) const FALSE_SDD_IDX: SddId = SddId(0);
+pub(crate) const TRUE_SDD_IDX: SddId = SddId(1);
 
 impl SddManager {
     #[must_use]
@@ -83,7 +83,7 @@ impl SddManager {
             vtree_manager: RefCell::new(VTreeManager::new()),
             literal_manager: RefCell::new(LiteralManager::new()),
             op_cache: RefCell::new(HashMap::new()),
-            next_idx: RefCell::new(2), // Account for ff and tt created earlier which have indices 0 and 1.
+            next_idx: RefCell::new(SddId(2)), // Account for ff and tt created earlier which have indices 0 and 1.
             unique_table,
         }
     }
@@ -131,12 +131,12 @@ impl SddManager {
     /// # Panics
     /// Function panics if there is no such node with the corresponding id in the unique table.
     #[must_use]
-    pub(crate) fn get_node(&self, id: usize) -> Option<SddRef> {
+    pub(crate) fn get_node(&self, id: SddId) -> Option<SddRef> {
         self.unique_table.borrow().get(&id).cloned()
     }
 
     #[must_use]
-    pub(crate) fn literal_from_idx(&self, literal: u16, polarity: Polarity) -> SddRef {
+    pub(crate) fn literal_from_idx(&self, literal: VariableIdx, polarity: Polarity) -> SddRef {
         let (sdd, created) = self.literal_manager.borrow().new_literal_from_idx(
             literal,
             *self.next_idx.borrow(),
@@ -151,7 +151,7 @@ impl SddManager {
         sdd
     }
 
-    pub(crate) fn get_nodes_normalized_for(&self, vtree_idx: u16) -> Vec<(usize, SddRef)> {
+    pub(crate) fn get_nodes_normalized_for(&self, vtree_idx: VTreeIdx) -> Vec<(SddId, SddRef)> {
         self.unique_table
             .borrow()
             .iter()
@@ -160,7 +160,7 @@ impl SddManager {
             .collect()
     }
 
-    pub(crate) fn remove_node(&self, id: usize) -> std::result::Result<(), ()> {
+    pub(crate) fn remove_node(&self, id: SddId) -> std::result::Result<(), ()> {
         match self.unique_table.borrow_mut().remove(&id) {
             Some(..) => Ok(()),
             None => Err(()),
@@ -188,12 +188,12 @@ impl SddManager {
     }
 
     pub fn tautology(&self) -> SddRef {
-        self.get_node(1)
+        self.get_node(TRUE_SDD_IDX)
             .expect("True SDD node must be present in the unique table at all times")
     }
 
     pub fn contradiction(&self) -> SddRef {
-        self.get_node(0)
+        self.get_node(FALSE_SDD_IDX)
             .expect("False SDD node must be present in the unique table at all times")
     }
 
@@ -388,7 +388,7 @@ impl SddManager {
             if let SddType::Literal(ref literal) = sdd_type {
                 let mut model = bitvec![usize, LocalBits; 0; self.literal_manager.borrow().len()];
                 model.set(
-                    literal.var_label().index() as usize,
+                    literal.var_label().index().0 as usize,
                     literal.polarity() == Polarity::Positive,
                 );
                 bitvecs.push(model);
@@ -566,7 +566,7 @@ impl SddManager {
             VTreeOrder::RightSubOfLeft => self._apply_right_sub_of_left(fst, snd, op),
         };
 
-        let sdd = self.new_sdd(Sdd::unique_d(elements, lca.borrow().get_index(), self));
+        let sdd = self.new_sdd(Sdd::unique_d(elements, lca.borrow().get_index()));
         sdd.canonicalize(self);
         // TODO: canonicalize is not working properly => infinite loop since it's not changing.
 
@@ -748,7 +748,7 @@ impl SddManager {
         self.unique_table.borrow_mut().insert(sdd.id(), sdd.clone());
     }
 
-    fn cache_operation(&self, fst: usize, snd: usize, op: Operation, res_id: usize) {
+    fn cache_operation(&self, fst: SddId, snd: SddId, op: Operation, res_id: SddId) {
         self.op_cache
             .borrow_mut()
             .insert(Entry { fst, snd, op }, res_id);
@@ -778,7 +778,7 @@ impl SddManager {
             let unbound_variable = unbound_variables.get(0).unwrap();
             for i in 0..num_models {
                 let mut new_model = models.get(i).unwrap().clone();
-                new_model.set(unbound_variable.index() as usize, true);
+                new_model.set(unbound_variable.index().0 as usize, true);
                 models.push(new_model);
             }
 
@@ -794,7 +794,7 @@ impl SddManager {
             for i in 0..num_models {
                 let mut new_model = models.get(i).unwrap().clone();
                 for variable_to_set in &variables_to_set {
-                    new_model.set(variable_to_set.index() as usize, true);
+                    new_model.set(variable_to_set.index().0 as usize, true);
                 }
                 models.push(new_model);
             }
@@ -808,8 +808,8 @@ impl SddManager {
             manager.literal_manager.borrow().exists(variable)
         }
 
-        fn next_variable_idx(manager: &SddManager) -> usize {
-            manager.literal_manager.borrow().len()
+        fn next_variable_idx(manager: &SddManager) -> u32 {
+            manager.literal_manager.borrow().len() as u32
         }
 
         let alphabet = String::from_utf8((b'A'..=b'Z').collect()).unwrap();
@@ -821,7 +821,7 @@ impl SddManager {
 
             let next_idx = next_variable_idx(self);
             let var_repr = format!("{}_{generation}", alphabet.get(idx..idx + 1).unwrap());
-            let variable = Variable::new(&var_repr, next_idx as u16);
+            let variable = Variable::new(&var_repr, next_idx);
             if !variable_exists(self, &variable) {
                 // "Take advantage" of the `literal` method which correctly inserts the variable
                 // and adjusts the vtree.
@@ -849,8 +849,8 @@ impl SddManager {
     pub(crate) fn new_sdd_from_type(
         &self,
         sdd_type: SddType,
-        vtree_idx: u16,
-        negation: Option<usize>,
+        vtree_idx: VTreeIdx,
+        negation: Option<SddId>,
     ) -> SddRef {
         let sdd = SddRef::new(Sdd::new(
             sdd_type,
@@ -878,7 +878,7 @@ impl SddManager {
 
     fn move_idx(&self) {
         let mut idx = self.next_idx.borrow_mut();
-        *idx += 1;
+        *idx += SddId(1);
     }
 }
 
@@ -888,7 +888,7 @@ mod test {
 
     use super::{SddManager, SddOptions};
     use crate::{
-        literal::{Literal, Polarity},
+        literal::{Literal, Polarity, VariableIdx},
         manager::model::Model,
         vtree::test::right_child,
     };
@@ -1013,11 +1013,11 @@ mod test {
 
         // Resulting SDD must be normalized w.r.t. vtree with index 3.
         let a_and_d = manager.conjoin(&lit_a, &lit_d);
-        assert_eq!(a_and_d.vtree_idx(), 3);
+        assert_eq!(a_and_d.vtree_idx().0, 3);
 
         // Resulting SDD must be normalized w.r.t. vtree with index 3.
         let a_and_d__and_b = manager.conjoin(&a_and_d, &lit_b);
-        assert_eq!(a_and_d__and_b.vtree_idx(), 3);
+        assert_eq!(a_and_d__and_b.vtree_idx().0, 3);
     }
 
     #[test]
@@ -1070,7 +1070,7 @@ mod test {
             vec![Model::new_from_literals(vec![Literal::new(
                 Polarity::Positive,
                 "a",
-                0
+                VariableIdx(0)
             )])]
         );
 
@@ -1087,28 +1087,28 @@ mod test {
         let a_and_b = manager.conjoin(&lit_a, &lit_b);
         let models = vec![
             Model::new_from_literals(vec![
-                Literal::new(Polarity::Positive, "a", 0),
-                Literal::new(Polarity::Positive, "b", 1),
-                Literal::new(Polarity::Negative, "c", 2),
-                Literal::new(Polarity::Negative, "d", 3),
+                Literal::new(Polarity::Positive, "a", VariableIdx(0)),
+                Literal::new(Polarity::Positive, "b", VariableIdx(1)),
+                Literal::new(Polarity::Negative, "c", VariableIdx(2)),
+                Literal::new(Polarity::Negative, "d", VariableIdx(3)),
             ]),
             Model::new_from_literals(vec![
-                Literal::new(Polarity::Positive, "a", 0),
-                Literal::new(Polarity::Positive, "b", 1),
-                Literal::new(Polarity::Positive, "c", 2),
-                Literal::new(Polarity::Negative, "d", 3),
+                Literal::new(Polarity::Positive, "a", VariableIdx(0)),
+                Literal::new(Polarity::Positive, "b", VariableIdx(1)),
+                Literal::new(Polarity::Positive, "c", VariableIdx(2)),
+                Literal::new(Polarity::Negative, "d", VariableIdx(3)),
             ]),
             Model::new_from_literals(vec![
-                Literal::new(Polarity::Positive, "a", 0),
-                Literal::new(Polarity::Positive, "b", 1),
-                Literal::new(Polarity::Negative, "c", 2),
-                Literal::new(Polarity::Positive, "d", 3),
+                Literal::new(Polarity::Positive, "a", VariableIdx(0)),
+                Literal::new(Polarity::Positive, "b", VariableIdx(1)),
+                Literal::new(Polarity::Negative, "c", VariableIdx(2)),
+                Literal::new(Polarity::Positive, "d", VariableIdx(3)),
             ]),
             Model::new_from_literals(vec![
-                Literal::new(Polarity::Positive, "a", 0),
-                Literal::new(Polarity::Positive, "b", 1),
-                Literal::new(Polarity::Positive, "c", 2),
-                Literal::new(Polarity::Positive, "d", 3),
+                Literal::new(Polarity::Positive, "a", VariableIdx(0)),
+                Literal::new(Polarity::Positive, "b", VariableIdx(1)),
+                Literal::new(Polarity::Positive, "c", VariableIdx(2)),
+                Literal::new(Polarity::Positive, "d", VariableIdx(3)),
             ]),
         ];
 
@@ -1117,16 +1117,16 @@ mod test {
         let a_and_b_and_c = manager.conjoin(&a_and_b, &lit_c);
         let models = vec![
             Model::new_from_literals(vec![
-                Literal::new(Polarity::Positive, "a", 0),
-                Literal::new(Polarity::Positive, "b", 1),
-                Literal::new(Polarity::Positive, "c", 2),
-                Literal::new(Polarity::Negative, "d", 3),
+                Literal::new(Polarity::Positive, "a", VariableIdx(0)),
+                Literal::new(Polarity::Positive, "b", VariableIdx(1)),
+                Literal::new(Polarity::Positive, "c", VariableIdx(2)),
+                Literal::new(Polarity::Negative, "d", VariableIdx(3)),
             ]),
             Model::new_from_literals(vec![
-                Literal::new(Polarity::Positive, "a", 0),
-                Literal::new(Polarity::Positive, "b", 1),
-                Literal::new(Polarity::Positive, "c", 2),
-                Literal::new(Polarity::Positive, "d", 3),
+                Literal::new(Polarity::Positive, "a", VariableIdx(0)),
+                Literal::new(Polarity::Positive, "b", VariableIdx(1)),
+                Literal::new(Polarity::Positive, "c", VariableIdx(2)),
+                Literal::new(Polarity::Positive, "d", VariableIdx(3)),
             ]),
         ];
 
@@ -1137,10 +1137,10 @@ mod test {
 
         let a_and_b_and_c_and_d = manager.conjoin(&a_and_b_and_c, &lit_d);
         let models = vec![Model::new_from_literals(vec![
-            Literal::new(Polarity::Positive, "a", 0),
-            Literal::new(Polarity::Positive, "b", 1),
-            Literal::new(Polarity::Positive, "c", 2),
-            Literal::new(Polarity::Positive, "d", 3),
+            Literal::new(Polarity::Positive, "a", VariableIdx(0)),
+            Literal::new(Polarity::Positive, "b", VariableIdx(1)),
+            Literal::new(Polarity::Positive, "c", VariableIdx(2)),
+            Literal::new(Polarity::Positive, "d", VariableIdx(3)),
         ])];
         assert_eq!(
             manager.model_enumeration(&a_and_b_and_c_and_d).all_models(),

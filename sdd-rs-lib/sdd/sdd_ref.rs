@@ -1,6 +1,8 @@
 use crate::manager::SddManager;
 use crate::sdd::Sdd;
+use crate::sdd::SddId;
 use crate::sdd::SddType;
+use crate::vtree::VTreeIdx;
 
 use bitvec::prelude::*;
 use std::cell::RefCell;
@@ -11,15 +13,14 @@ pub struct SddRef(pub(crate) Rc<RefCell<Sdd>>);
 
 impl SddRef {
     pub(crate) fn new(sdd: Sdd) -> Self {
-        // TODO: Check that this gets called only from manager while maintaining the index.
         SddRef(Rc::new(RefCell::new(sdd)))
     }
 
-    pub fn vtree_idx(&self) -> u16 {
+    pub fn vtree_idx(&self) -> VTreeIdx {
         self.0.borrow().vtree_idx
     }
 
-    pub fn id(&self) -> usize {
+    pub fn id(&self) -> SddId {
         self.0.borrow().id()
     }
 

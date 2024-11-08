@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{collections::BTreeSet, hash::Hash};
+use std::{collections::BTreeSet, fmt::Display, ops::AddAssign};
 
 use bitvec::vec::BitVec;
 
@@ -9,8 +9,23 @@ use crate::{
     literal::Literal,
     manager::{SddManager, FALSE_SDD_IDX, TRUE_SDD_IDX},
     sdd::{Decision, Element, SddRef},
-    vtree::VTreeRef,
+    vtree::{VTreeIdx, VTreeRef},
 };
+
+#[derive(Eq, PartialEq, Hash, Debug, PartialOrd, Ord, Clone, Copy)]
+pub struct SddId(pub u32);
+
+impl Display for SddId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SddIdx({})", self.0)
+    }
+}
+
+impl AddAssign for SddId {
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 += rhs.0
+    }
+}
 
 /// Given the following vtree rooted at `x`:
 /// ```ignore
@@ -52,7 +67,7 @@ pub(crate) enum RightDependence {
     BC,
 }
 
-#[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord, Debug)]
+#[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Debug)]
 pub(crate) enum SddType {
     True,
     False,
@@ -61,11 +76,6 @@ pub(crate) enum SddType {
 }
 
 impl SddType {
-    #[must_use]
-    pub fn id(&self) -> usize {
-        fxhash::hash(self)
-    }
-
     pub(crate) fn name(&self) -> &str {
         match self {
             SddType::False => "false",
@@ -84,12 +94,12 @@ impl SddType {
 }
 
 // TODO: Sdd should become public only within the crate.
-#[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord)]
+#[derive(PartialEq, Eq, Clone, PartialOrd, Ord)]
 pub struct Sdd {
-    pub(crate) sdd_idx: u16,
+    pub(crate) sdd_idx: SddId,
     pub(crate) sdd_type: SddType,
-    pub(crate) vtree_idx: u16,
-    pub(crate) negation: Option<usize>,
+    pub(crate) vtree_idx: VTreeIdx,
+    pub(crate) negation: Option<SddId>,
     pub(crate) model_count: Option<u64>,
     pub(crate) models: Option<Vec<BitVec>>,
 }
@@ -116,7 +126,8 @@ impl Dot for Sdd {
                     elem.draw(writer, manager);
                     writer.add_edge(Edge::Simple(idx, fxhash::hash(&elem)));
                 }
-                let node_type = NodeType::Circle(self.vtree_idx, Some(self.id()));
+                let node_type =
+                    NodeType::Circle(self.vtree_idx.0 as u16, Some(self.id().0 as usize));
                 writer.add_node(idx, node_type);
             }
         };
@@ -127,9 +138,9 @@ impl Sdd {
     #[must_use]
     pub(crate) fn new(
         sdd_type: SddType,
-        sdd_idx: u16,
-        vtree_idx: u16,
-        negation: Option<usize>,
+        sdd_idx: SddId,
+        vtree_idx: VTreeIdx,
+        negation: Option<SddId>,
     ) -> Sdd {
         let (model_count, models) = match sdd_type.clone() {
             SddType::False => (Some(0), None),
@@ -150,18 +161,17 @@ impl Sdd {
 
     #[must_use]
     pub(crate) fn new_true() -> Sdd {
-        Self::new(SddType::True, TRUE_SDD_IDX, 0, None)
+        Self::new(SddType::True, TRUE_SDD_IDX, VTreeIdx(0), None)
     }
 
     #[must_use]
     pub(crate) fn new_false() -> Sdd {
-        Self::new(SddType::False, FALSE_SDD_IDX, 0, None)
+        Self::new(SddType::False, FALSE_SDD_IDX, VTreeIdx(0), None)
     }
 
     #[must_use]
-    pub fn id(&self) -> usize {
-        // TODO: change the type to u{16,32,64}.
-        self.sdd_idx as usize
+    pub fn id(&self) -> SddId {
+        self.sdd_idx
     }
 
     /// Check whether the SDD represent a true constant.
@@ -213,20 +223,20 @@ impl Sdd {
         match self.sdd_type {
             SddType::True => Decision {
                 elements: btreeset!(Element {
-                    prime: TRUE_SDD_IDX as usize,
-                    sub: TRUE_SDD_IDX as usize,
+                    prime: TRUE_SDD_IDX,
+                    sub: TRUE_SDD_IDX,
                 }),
             },
             SddType::False => Decision {
                 elements: btreeset!(Element {
-                    prime: TRUE_SDD_IDX as usize,
-                    sub: FALSE_SDD_IDX as usize,
+                    prime: TRUE_SDD_IDX,
+                    sub: FALSE_SDD_IDX,
                 }),
             },
             SddType::Literal(_) => Decision {
                 elements: btreeset!(Element {
                     prime: self.id(),
-                    sub: FALSE_SDD_IDX as usize,
+                    sub: FALSE_SDD_IDX,
                 }),
             },
             SddType::Decision(ref dec) => dec.clone(),
@@ -332,11 +342,7 @@ impl Sdd {
 
     /// Compute "uniqueD" SDD as described in Algorithm 1 in
     /// [SDD: A New Canonical Representation of Propositional Knowledge Bases](https://ai.dmi.unibas.ch/research/reading_group/darwiche-ijcai2011.pdf).
-    pub(crate) fn unique_d<'b>(
-        gamma: BTreeSet<Element>,
-        vtree_idx: u16,
-        manager: &SddManager,
-    ) -> Sdd {
+    pub(crate) fn unique_d<'b>(gamma: BTreeSet<Element>, vtree_idx: VTreeIdx) -> Sdd {
         // gamma == {(T, T)}?
         if gamma.eq(&btreeset![Element {
             prime: Sdd::new_true().id(),
@@ -355,7 +361,7 @@ impl Sdd {
 
         Sdd::new(
             SddType::Decision(Decision { elements: gamma }),
-            0, // TODO: Double check this in the caller that we are setting this properly.
+            SddId(0),
             vtree_idx,
             None,
         )

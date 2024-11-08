@@ -5,7 +5,7 @@ use crate::{
 
 use std::collections::{BTreeSet, HashSet};
 
-use super::SddType;
+use super::{SddId, SddType};
 
 #[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord, Debug)]
 pub(crate) struct Decision {
@@ -25,7 +25,7 @@ impl Decision {
     /// * the decision node contains something else than boxed elements.
     #[must_use]
     pub(crate) fn is_trimmed(&self, manager: &SddManager) -> bool {
-        let mut primes: HashSet<usize> = HashSet::new();
+        let mut primes: HashSet<SddId> = HashSet::new();
 
         if self.elements.len() >= 3 {
             return true;
@@ -69,7 +69,7 @@ impl Decision {
     /// * the decision node contains something else than boxed elements.
     #[must_use]
     pub(super) fn is_compressed(&self, manager: &SddManager) -> bool {
-        let mut subs: HashSet<usize> = HashSet::new();
+        let mut subs: HashSet<SddId> = HashSet::new();
         for element in &self.elements {
             let (_, sub) = element.get_prime_sub(manager);
             if subs.contains(&sub.id()) {
