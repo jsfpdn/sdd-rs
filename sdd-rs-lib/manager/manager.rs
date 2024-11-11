@@ -1,11 +1,15 @@
 use crate::{
     btreeset,
     dot_writer::{Dot, DotWriter},
-    literal::{LiteralManager, Polarity, Variable, VariableIdx},
+    literal::{Literal, LiteralManager, Polarity, Variable, VariableIdx},
     manager::{dimacs, model::Models, options::SddOptions},
     sdd::{Decision, Element, Sdd, SddId, SddRef, SddType},
     util::set_bits_indices,
-    vtree::{VTreeIdx, VTreeManager, VTreeOrder, VTreeRef},
+    vtree::{
+        rotate_partition_left, rotate_partition_right, split_nodes_for_left_rotate,
+        split_nodes_for_right_rotate, split_nodes_for_swap, swap_partition, LeftRotateSplit,
+        RightRotateSplit, VTreeIdx, VTreeManager, VTreeOrder, VTreeRef,
+    },
 };
 use bitvec::prelude::*;
 use std::{
@@ -126,11 +130,19 @@ impl SddManager {
         Ok(sdd)
     }
 
+    pub(crate) fn try_get_node(&self, id: SddId) -> Option<SddRef> {
+        self.unique_table.borrow().get(&id).cloned()
+    }
+
     /// # Panics
     /// Function panics if there is no such node with the corresponding id in the unique table.
     #[must_use]
-    pub(crate) fn get_node(&self, id: SddId) -> Option<SddRef> {
-        self.unique_table.borrow().get(&id).cloned()
+    pub(crate) fn get_node(&self, id: SddId) -> SddRef {
+        self.unique_table
+            .borrow()
+            .get(&id)
+            .expect(format!("SDD {id} is not in the unique_table").as_str())
+            .clone()
     }
 
     #[must_use]
@@ -186,12 +198,12 @@ impl SddManager {
     }
 
     pub fn tautology(&self) -> SddRef {
-        self.get_node(TRUE_SDD_IDX)
+        self.try_get_node(TRUE_SDD_IDX)
             .expect("True SDD node must be present in the unique table at all times")
     }
 
     pub fn contradiction(&self) -> SddRef {
-        self.get_node(FALSE_SDD_IDX)
+        self.try_get_node(FALSE_SDD_IDX)
             .expect("False SDD node must be present in the unique table at all times")
     }
 
@@ -322,6 +334,7 @@ impl SddManager {
             .borrow()
             .get_vtree(sdd.vtree_idx())
             .unwrap()
+            .0
             .borrow()
             .get_variables()
             .len();
@@ -403,8 +416,8 @@ impl SddManager {
             let all_variables = self.get_variables(&sdd);
             for Element { prime, sub } in &decision.elements {
                 let mut models = Vec::new();
-                let prime = self.get_node(*prime).unwrap();
-                let sub = self.get_node(*sub).unwrap();
+                let prime = self.get_node(*prime);
+                let sub = self.get_node(*sub);
 
                 if prime.is_false() || sub.is_false() {
                     continue;
@@ -474,8 +487,8 @@ impl SddManager {
             let all_variables = self.get_variables(&sdd).len();
 
             for Element { prime, sub } in &decision.elements {
-                let prime = self.get_node(*prime).unwrap();
-                let sub = self.get_node(*sub).unwrap();
+                let prime = self.get_node(*prime);
+                let sub = self.get_node(*sub);
 
                 let model_count = get_models_count(&prime) * get_models_count(&sub);
 
@@ -546,10 +559,7 @@ impl SddManager {
             snd: snd.id(),
             op: op.clone(),
         }) {
-            return self
-                .get_node(*result_id)
-                .expect("Node is missing in the unique_table!")
-                .clone();
+            return self.get_node(*result_id);
         }
 
         let (lca, order) = self
@@ -564,7 +574,7 @@ impl SddManager {
             VTreeOrder::RightSubOfLeft => self._apply_right_sub_of_left(fst, snd, op),
         };
 
-        let sdd = self.new_sdd(Sdd::unique_d(elements, lca.borrow().get_index()));
+        let sdd = self.new_sdd(Sdd::unique_d(elements, lca.index()));
         sdd.canonicalize(self);
         // TODO: canonicalize is not working properly => infinite loop since it's not changing.
 
@@ -594,13 +604,13 @@ impl SddManager {
                 sub: snd_sub,
             } in snd.0.borrow().expand().elements.iter()
             {
-                let fst_prime = self.get_node(*fst_prime).unwrap();
-                let snd_prime = self.get_node(*snd_prime).unwrap();
+                let fst_prime = self.get_node(*fst_prime);
+                let snd_prime = self.get_node(*snd_prime);
                 let res_prime = self.conjoin(&fst_prime, &snd_prime);
 
                 if !res_prime.is_false() {
-                    let fst_sub = &self.get_node(*fst_sub).unwrap();
-                    let snd_sub = &self.get_node(*snd_sub).unwrap();
+                    let fst_sub = &self.get_node(*fst_sub);
+                    let snd_sub = &self.get_node(*snd_sub);
                     let res_sub = match op {
                         Operation::Conjoin => self.disjoin(fst_sub, snd_sub),
                         Operation::Disjoin => self.conjoin(fst_sub, snd_sub),
@@ -687,7 +697,7 @@ impl SddManager {
             sub: snd_sub,
         } in snd_elements
         {
-            let snd_prime = &self.get_node(snd_prime).unwrap();
+            let snd_prime = &self.get_node(snd_prime);
             let new_prime = self.conjoin(&snd_prime, new_node);
             if !new_prime.is_false() {
                 elements.insert(Element {
@@ -726,7 +736,7 @@ impl SddManager {
             sub: fst_sub_idx,
         } in fst_elements
         {
-            let fst_sub = self.get_node(fst_sub_idx).unwrap();
+            let fst_sub = self.get_node(fst_sub_idx);
             let new_sub = match op {
                 Operation::Conjoin => self.conjoin(&fst_sub, snd),
                 Operation::Disjoin => self.disjoin(&fst_sub, snd),
@@ -761,6 +771,7 @@ impl SddManager {
             .borrow()
             .get_vtree(sdd.vtree_idx())
             .unwrap()
+            .0
             .borrow()
             .get_variables()
     }
@@ -832,16 +843,121 @@ impl SddManager {
         }
     }
 
-    pub(crate) fn root(&self) -> Option<VTreeRef> {
+    pub fn root(&self) -> Option<VTreeRef> {
         self.vtree_manager.borrow().root.clone()
     }
 
-    pub(crate) fn rotate_vtree_left(&self, vtree: &VTreeRef) {
-        self.vtree_manager.borrow_mut().rotate_left(vtree)
+    /// Rotate the vtree [`x`] to the left and adjust SDDs accordingly.
+    ///
+    /// ```ignore
+    ///      w                x
+    ///     / \              / \
+    ///    a   x     ~>     w   c
+    ///       / \          / \
+    ///      b   c        a   b
+    /// ```
+    ///
+    /// This is a low-level operation working directly on a vtree. See
+    /// [`SddManager::minimization`] for a more sophisticated way of finding better vtrees.
+    ///
+    /// Children hanged at `w` must be split accordingly, depending on the vtrees
+    /// they are normalized for:
+    /// * `w(a, bc)` must be rotated and moved to `x` (~> `x(ab, c)`)
+    /// * `w(a, c)` must be moved to `x` (~> `x(a, c)`)
+    /// * `w(a, b)` stay at `w`
+    pub fn rotate_left(&self, x: &VTreeRef) {
+        let w =
+            x.0.borrow()
+                .get_parent()
+                .expect("invalid fragment: `x` does not have a parent");
+
+        // TODO: Check that caches are correct (unique_table, op_cache, model_count and models).
+        let LeftRotateSplit { bc_vec, c_vec } = split_nodes_for_left_rotate(&w, x, self);
+
+        self.vtree_manager.borrow_mut().rotate_left(x);
+
+        for bc in &bc_vec {
+            bc.set_vtree_idx(x.index());
+            bc.replace_contents(SddType::Decision(Decision {
+                elements: rotate_partition_left(bc, x, self).elements,
+            }));
+            self.insert_node(bc);
+        }
+
+        // TODO: Make sure this is actually needed.
+        self.invalidate_cached_models();
     }
 
-    pub(crate) fn rotate_vtree_right(&self, vtree: &VTreeRef) {
-        self.vtree_manager.borrow_mut().rotate_right(vtree)
+    /// Rotate the vtree [`x`] to the right and adjust SDDs accordingly.
+    ///
+    ///
+    /// ```ignore
+    ///       x                w
+    ///      / \              / \
+    ///     w   c     ~>     a   x
+    ///    / \                  / \
+    ///   a   b                b   c
+    /// ```
+    ///
+    /// This is a low-level operation working directly on a vtree. See
+    /// [`SddManager::minimization`] for a more sophisticated way of finding better vtrees.
+    ///
+    /// Children hanged at `w` must be split accordingly, depending on the vtrees
+    /// they are normalized for:
+    /// * `x(ab, c)` must be rotated and moved to `w` (~> `w(a, bc)`)
+    /// * `x(a, c)` must be moved to `w` (~> `x(a, c)`)
+    /// * `x(a, b)` stay at `x`
+    pub fn rotate_right(&self, x: &VTreeRef) {
+        // TODO: Double check all the vtree occurances.
+        let w = x.left_child();
+
+        // TODO: Check that caches are correct (unique_table, op_cache, model_count and models).
+        let RightRotateSplit { ab_vec, a_vec } = split_nodes_for_right_rotate(&x, &w, self);
+
+        self.vtree_manager.borrow_mut().rotate_right(x);
+
+        for ab in &ab_vec {
+            ab.set_vtree_idx(w.index());
+            ab.replace_contents(SddType::Decision(Decision {
+                elements: rotate_partition_right(ab, &w, self).elements,
+            }));
+            self.insert_node(ab);
+        }
+
+        // TODO: Make sure this is actually needed.
+        self.invalidate_cached_models();
+    }
+
+    /// Swap children of the given vtree [`x`] and adjust SDDs accordingly.
+    ///
+    /// ```ignore
+    ///     x          x
+    ///    / \   ~>   / \
+    ///   a   b      b   a
+    /// ```
+    ///
+    /// This is a low-level operation working directly on a vtree. See
+    /// [`SddManager::minimization`] for a more sophisticated way of finding better vtrees.
+    pub fn swap(&self, x: &VTreeRef) {
+        let split = split_nodes_for_swap(x, self);
+
+        self.vtree_manager.borrow_mut().swap(x);
+
+        for sdd in &split {
+            sdd.replace_contents(SddType::Decision(Decision {
+                elements: swap_partition(sdd, x, self).elements,
+            }));
+            self.insert_node(sdd);
+        }
+
+        // TODO: Make sure this is actually needed.
+        self.invalidate_cached_models();
+    }
+
+    fn invalidate_cached_models(&self) {
+        for (_, sdd) in self.unique_table.borrow().iter() {
+            sdd.0.borrow_mut().invalidate_cache();
+        }
     }
 
     pub(crate) fn new_sdd_from_type(
@@ -888,6 +1004,7 @@ mod test {
     use crate::{
         literal::{Literal, Polarity, VariableIdx},
         manager::model::Model,
+        util::{quick_draw, quick_draw_all, quick_draw_vtree},
         vtree::test::right_child,
     };
     use pretty_assertions::assert_eq;
@@ -1148,5 +1265,106 @@ mod test {
         let not_a = manager.literal("a", Polarity::Negative);
         let ff = manager.conjoin(&not_a, &a_and_b_and_c_and_d);
         assert_eq!(manager.model_enumeration(&ff).all_models(), vec![]);
+    }
+
+    #[test]
+    fn left_rotation() {
+        let manager = SddManager::new(SddOptions::default());
+
+        let lit_a = manager.literal("a", Polarity::Positive);
+        let lit_b = manager.literal("b", Polarity::Positive);
+        let lit_c = manager.literal("c", Polarity::Positive);
+        let lit_d = manager.literal("d", Polarity::Positive);
+        //           3
+        //         /   \
+        //        1     5
+        //      / |     | \
+        //     0  2     4  6
+        //     A  B     C  D
+
+        // Rotate the right child of root to the left to make the tree balanced as in the diagram above.
+        let root = manager.root().unwrap();
+        manager
+            .vtree_manager
+            .borrow_mut()
+            .rotate_left(&root.right_child());
+
+        let a_and_d = manager.conjoin(&lit_a, &lit_d);
+        let a_and_d_and_b = manager.conjoin(&a_and_d, &lit_b);
+        let a_and_d_and_b_and_c = manager.conjoin(&a_and_d_and_b, &lit_c);
+        let models_before = manager.model_enumeration(&a_and_d_and_b_and_c);
+
+        manager.rotate_left(&manager.root().unwrap().right_child());
+
+        let models_after = manager.model_enumeration(&a_and_d_and_b_and_c);
+        assert_eq!(models_before, models_after);
+    }
+
+    #[test]
+    fn right_rotation() {
+        let manager = SddManager::new(SddOptions::default());
+
+        let lit_a = manager.literal("a", Polarity::Positive);
+        let lit_b = manager.literal("b", Polarity::Positive);
+        let lit_c = manager.literal("c", Polarity::Positive);
+        let lit_d = manager.literal("d", Polarity::Positive);
+        //           3
+        //         /   \
+        //        1     5
+        //      / |     | \
+        //     0  2     4  6
+        //     A  B     C  D
+
+        // Rotate the right child of root to the left to make the tree balanced as in the diagram above.
+        let root = manager.root().unwrap();
+        manager
+            .vtree_manager
+            .borrow_mut()
+            .rotate_left(&root.right_child());
+
+        let a_and_d = manager.conjoin(&lit_a, &lit_d);
+        let a_and_d_and_b = manager.conjoin(&a_and_d, &lit_b);
+        let a_and_d_and_b_and_c = manager.conjoin(&a_and_d_and_b, &lit_c);
+        let models_before = manager.model_enumeration(&a_and_d_and_b_and_c);
+
+        manager.rotate_right(&manager.root().unwrap());
+
+        let models_after = manager.model_enumeration(&a_and_d_and_b_and_c);
+        assert_eq!(models_before, models_after);
+    }
+
+    #[test]
+    fn swap() {
+        let manager = SddManager::new(SddOptions::default());
+
+        let lit_a = manager.literal("a", Polarity::Positive);
+        let lit_b = manager.literal("b", Polarity::Positive);
+        let lit_c = manager.literal("c", Polarity::Positive);
+        let lit_d = manager.literal("d", Polarity::Positive);
+        //           3
+        //         /   \
+        //        1     5
+        //      / |     | \
+        //     0  2     4  6
+        //     A  B     C  D
+
+        // Rotate the right child of root to the left to make the tree balanced as in the diagram above.
+        let root = manager.root().unwrap();
+        manager
+            .vtree_manager
+            .borrow_mut()
+            .rotate_left(&root.right_child());
+
+        let a_and_d = manager.conjoin(&lit_a, &lit_d);
+        let a_and_d_and_b = manager.conjoin(&a_and_d, &lit_b);
+        let a_and_d_and_b_and_c = manager.conjoin(&a_and_d_and_b, &lit_c);
+        let models_before = manager.model_enumeration(&a_and_d_and_b_and_c);
+        quick_draw(&manager, &a_and_d_and_b_and_c, "before_sdd");
+
+        manager.swap(&manager.root().unwrap());
+
+        let models_after = manager.model_enumeration(&a_and_d_and_b_and_c);
+        assert_eq!(models_before, models_after);
+        quick_draw(&manager, &a_and_d_and_b_and_c, "after_sdd");
     }
 }

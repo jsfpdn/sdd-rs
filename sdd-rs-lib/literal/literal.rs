@@ -1,6 +1,7 @@
+use derive_more::derive::From;
 use std::{convert::From, fmt::Display};
 
-#[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Debug, Copy, Hash)]
+#[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Debug, Copy, Hash, From)]
 pub(crate) struct VariableIdx(pub(crate) u32);
 
 impl From<u16> for VariableIdx {

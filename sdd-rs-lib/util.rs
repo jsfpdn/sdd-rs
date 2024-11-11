@@ -1,3 +1,6 @@
+use crate::dot_writer::{Dot, DotWriter};
+use crate::manager::options::SddOptions;
+use crate::vtree::VTreeManager;
 use crate::{manager::SddManager, sdd::SddRef};
 use std::fs::File;
 use std::io::BufWriter;
@@ -50,6 +53,15 @@ pub(crate) fn quick_draw_all(manager: &SddManager, path: &str) {
     manager
         .draw_all_sdds(&mut b as &mut dyn std::io::Write)
         .unwrap();
+}
+
+#[allow(unused)]
+pub(crate) fn quick_draw_vtree(manager: &VTreeManager, path: &str) {
+    let f = File::create(path).unwrap();
+    let mut b = BufWriter::new(f);
+    let mut dot_writer = DotWriter::new(String::from("vtree"), false);
+    manager.draw(&mut dot_writer, &SddManager::new(SddOptions::default()));
+    dot_writer.write(&mut b as &mut dyn std::io::Write).unwrap()
 }
 
 #[cfg(test)]

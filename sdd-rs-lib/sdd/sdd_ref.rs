@@ -49,7 +49,7 @@ impl SddRef {
     /// Check whether [`self`] equals to the negated [`other`].
     ///
     /// This operation may create more SDDs in the unique table.
-    pub fn eq_negated(&self, other: &SddRef, manager: &SddManager) -> bool {
+    pub(crate) fn eq_negated(&self, other: &SddRef, manager: &SddManager) -> bool {
         // TODO: This may cause panic w.r.t. borrowing here and later when negating.
         let fst_sdd_type = self.0.borrow().sdd_type.clone();
         let snd_sdd_type = other.0.borrow().sdd_type.clone();
@@ -70,9 +70,7 @@ impl SddRef {
     /// the value is just returned.
     pub(crate) fn negate(&self, manager: &SddManager) -> SddRef {
         if let Some(negated_sdd_id) = self.0.borrow().negation {
-            return manager
-                .get_node(negated_sdd_id)
-                .expect("Negation has been already computed and the SDD must therefore exist");
+            return manager.get_node(negated_sdd_id);
         }
 
         let negation = self.0.borrow_mut().negate(manager);
@@ -123,5 +121,13 @@ impl SddRef {
     /// * the decision node contains something else than boxed elements.
     pub fn is_compressed(&self, manager: &SddManager) -> bool {
         self.0.borrow().is_compressed(manager)
+    }
+
+    pub(crate) fn replace_contents(&self, other: SddType) {
+        self.0.borrow_mut().sdd_type = other;
+    }
+
+    pub(crate) fn set_vtree_idx(&self, idx: VTreeIdx) {
+        self.0.borrow_mut().vtree_idx = idx;
     }
 }

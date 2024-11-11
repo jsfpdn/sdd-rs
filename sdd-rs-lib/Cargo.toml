@@ -14,6 +14,8 @@ path = "lib.rs"
 bitvec = "1.0.1"
 fxhash = "0.2.1"
 tracing = "0.1"
+derive_more = { version = "1", features = ["from", "add", "add_assign"] }
+thiserror = "2"
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"

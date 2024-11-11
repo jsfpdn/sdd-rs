@@ -2,6 +2,7 @@ use crate::literal::{Literal, Polarity, Variable};
 use bitvec::prelude::*;
 use std::fmt::Display;
 
+#[derive(Debug, PartialEq)]
 pub struct Models {
     models: Vec<BitVec>,
     variables: Vec<Variable>,

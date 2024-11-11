@@ -77,11 +77,7 @@ impl LiteralManager {
 
         // SddRef has not been constructed yet, we need to create it now and add it to the HashMap.
         let literal = Literal::new_with_label(polarity, variable.clone());
-        let vtree_idx = vtree_manager
-            .get_variable_vtree(&variable)
-            .unwrap()
-            .borrow()
-            .get_index();
+        let vtree_idx = vtree_manager.get_variable_vtree(&variable).unwrap().index();
 
         (self.create_sdd_ref(literal, next_sdd_idx, vtree_idx), true)
     }

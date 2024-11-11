@@ -1,6 +1,6 @@
 use super::{SddId, SddType};
 use crate::{
-    manager::SddManager,
+    manager::{SddManager, FALSE_SDD_IDX, TRUE_SDD_IDX},
     sdd::{element::Element, Sdd, SddRef},
 };
 use std::collections::{BTreeSet, HashSet};
@@ -88,11 +88,8 @@ impl Decision {
         let elements: Vec<&Element> = self.elements.iter().collect();
         if self.elements.len() == 1 {
             let el = elements.get(0).unwrap();
-            if el.prime == Sdd::new_true().id() {
-                match manager.get_node(el.sub) {
-                    Some(sdd) => return Some(sdd),
-                    None => panic!("el.sub must be present in unique_table"),
-                }
+            if el.prime.is_true() {
+                return manager.try_get_node(el.sub);
             }
         }
 
@@ -102,14 +99,14 @@ impl Decision {
 
             let el_1_prime;
             let el_2_prime;
-            if el_1.sub == Sdd::new_true().id() && el_2.sub == Sdd::new_false().id() {
+            if el_1.sub.is_true() && el_2.sub.is_false() {
                 // Check for {(_, true), (_, false)}.
-                el_1_prime = manager.get_node(el_1.prime).unwrap();
-                el_2_prime = manager.get_node(el_2.prime).unwrap();
-            } else if el_2.sub == Sdd::new_true().id() && el_1.sub == Sdd::new_false().id() {
+                el_1_prime = manager.get_node(el_1.prime);
+                el_2_prime = manager.get_node(el_2.prime);
+            } else if el_2.sub.is_true() && el_1.sub.is_false() {
                 // Check for {(_, false), (_, true)}.
-                el_1_prime = manager.get_node(el_2.prime).unwrap();
-                el_2_prime = manager.get_node(el_1.prime).unwrap();
+                el_1_prime = manager.get_node(el_2.prime);
+                el_2_prime = manager.get_node(el_1.prime);
             } else {
                 return None;
             }
@@ -142,8 +139,8 @@ impl Decision {
                 }
 
                 // The subs are equal, we can compress the elements together.
-                let fst_prime = manager.get_node(fst.prime).unwrap();
-                let snd_prime = manager.get_node(snd.prime).unwrap();
+                let fst_prime = manager.get_node(fst.prime);
+                let snd_prime = manager.get_node(snd.prime);
                 let new_prime = manager.disjoin(&fst_prime, &snd_prime);
 
                 fst = Element {
@@ -191,22 +188,14 @@ impl Decision {
     pub(super) fn subs(&self, manager: &SddManager) -> Vec<SddRef> {
         self.elements
             .iter()
-            .map(|Element { sub, .. }| {
-                manager
-                    .get_node(*sub)
-                    .expect(&format!("sub {sub} not present in the unique table"))
-            })
+            .map(|Element { sub, .. }| manager.get_node(*sub))
             .collect()
     }
 
     pub(super) fn primes(&self, manager: &SddManager) -> Vec<SddRef> {
         self.elements
             .iter()
-            .map(|Element { prime, .. }| {
-                manager
-                    .get_node(*prime)
-                    .expect(&format!("prime {prime} not present in the unique table"))
-            })
+            .map(|Element { prime, .. }| manager.get_node(*prime))
             .collect()
     }
 }

@@ -23,22 +23,7 @@ impl Element {
     }
 
     pub(crate) fn get_prime_sub<'a>(&self, manager: &'a SddManager) -> (SddRef, SddRef) {
-        (
-            manager.get_node(self.prime).expect(
-                format!(
-                    "element_prime with id {} not present in unique_table",
-                    self.prime
-                )
-                .as_str(),
-            ),
-            manager.get_node(self.sub).expect(
-                format!(
-                    "element_sub with id {} not present in unique_table",
-                    self.sub
-                )
-                .as_str(),
-            ),
-        )
+        (manager.get_node(self.prime), manager.get_node(self.sub))
     }
 }
 
@@ -56,24 +41,14 @@ impl Dot for Element {
         if let Sdd {
             sdd_type: SddType::Decision(node),
             ..
-        } = manager
-            .get_node(self.prime)
-            .expect("element_prime not present in unique_table")
-            .0
-            .borrow()
-            .to_owned()
+        } = manager.get_node(self.prime).0.borrow().to_owned()
         {
             writer.add_edge(Edge::Prime(idx, fxhash::hash(&node)));
         }
         if let Sdd {
             sdd_type: SddType::Decision(node),
             ..
-        } = manager
-            .get_node(self.sub)
-            .expect("element_sub not present in unique_table")
-            .0
-            .borrow()
-            .to_owned()
+        } = manager.get_node(self.sub).0.borrow().to_owned()
         {
             writer.add_edge(Edge::Sub(idx, fxhash::hash(&node)));
         };

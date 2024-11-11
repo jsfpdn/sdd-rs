@@ -1,10 +1,10 @@
 use crate::{
     literal::Literal,
-    manager::SddManager,
-    sdd::{Decision, Element, LeftDependence, RightDependence, SddRef, SddType},
+    manager::{SddManager, FALSE_SDD_IDX, TRUE_SDD_IDX},
+    sdd::{Decision, Element, SddRef, SddType},
     vtree::{Node, VTreeRef},
 };
-use std::collections::BTreeSet;
+use std::collections::{self, BTreeSet};
 
 pub(crate) enum Direction {
     Forward,
@@ -88,13 +88,55 @@ pub(crate) struct Fragment {
     linearity: Linearity,
 }
 
+/// Given the following vtree rooted at `x`:
+/// ```ignore
+///        x
+///      /   \
+///     w     c
+///   /   \
+///  a     b
+/// ```
+/// an SDD normalized for `x` must depend on some variable in sub-vtree `c`
+/// and also on some variable in sub-vtree `a`, `b`, or both.
+#[derive(Debug, PartialEq, Eq)]
+#[allow(unused)]
+pub(crate) enum LeftDependence {
+    /// SDD normalized for `x` depends only on some variable in sub-vtree `a`, not `b`.
+    A,
+    /// SDD normalized for `x` depends only on some variable in sub-vtree `b`, not `a`.
+    B,
+    /// SDD normalized for `x` depends on some variables in both sub-vtrees `a` and `b`.
+    AB,
+}
+
+/// Given the following vtree rooted at `w`:
+/// ```ignore
+///      w
+///    /   \
+///   a     x
+///       /   \
+///      b     c
+/// ```
+/// an SDD normalized for `w` must depend on some variable in sub-vtree `a`
+/// and also on some variable in sub-vtree `b`, `c`, or both.
+#[derive(Debug, PartialEq, Eq)]
+#[allow(unused)]
+pub(crate) enum RightDependence {
+    /// SDD normalized for `x` depends only on some variable in sub-vtree `b`, not `c`.
+    B,
+    /// SDD normalized for `x` depends only on some variable in sub-vtree `c`, not `b`.
+    C,
+    /// SDD normalized for `x` depends on some variables in both sub-vtrees `b` and `c`.
+    BC,
+}
+
 impl Fragment {
     // TODO: implement iterator over fragment states.
     // TODO: think about limits & rolling back states.
     pub(crate) fn new(root: VTreeRef, child: VTreeRef) -> Self {
         let linearity;
         {
-            let root = root.borrow();
+            let root = root.0.borrow();
             if let Node::Internal(lc, rc) = &root.node {
                 if *lc == child {
                     linearity = Linearity::Left;
@@ -118,185 +160,28 @@ impl Fragment {
             mode: Mode::Initial,
         }
     }
-
-    fn next(&mut self, direction: &Direction) {
-        assert!(self.state <= 11);
-        assert!(
-            self.mode.can_transition(Mode::Next),
-            "cannot transition from {:?} to {:?}",
-            self.mode,
-            Mode::Next,
-        );
-
-        // self.mode == Mode::Initial => construct_fragment_shadows
-        let next_move = self.next_move();
-        // make_vtree_move(next_mode, self.current_root, self.current_child, manager)
-        //      success => update_state(...)
-        //      failure => status = 0
-        //
-        // crucial:
-        //      vtree_operations/op_left_rotate.c
-        //      vtree_operations/op_right_rotate.c
-        //      vtree_operations/op_swap.c (seems easiest?)
-        unimplemented!()
-    }
-
-    fn goto(&mut self) {
-        unimplemented!()
-    }
-    fn rewind(&mut self) {
-        unimplemented!()
-    }
-
-    fn next_move(&self) -> Move {
-        // sdd_vtree_rotate_left();
-        // or sdd_vtree_rotate_right(), depending on the direction
-        unimplemented!()
-    }
-
-    pub(crate) fn find_best_state(&mut self) {
-        // iterate over all 12 states, find the best one and return it
-        unimplemented!()
-    }
-
-    fn vtree_move(&mut self, next_move: &Move, manager: &SddManager) {
-        match next_move {
-            Move::SwapChild => self.swap_child(manager),
-            Move::RightRotateRoot => self.right_rotate_root(manager),
-            Move::LeftRotateChild => self.left_rotate_child(manager),
-        }
-    }
-
-    fn swap_child(&mut self, manager: &SddManager) {}
-
-    fn right_rotate_root(&mut self, manager: &SddManager) {}
-
-    fn left_rotate_child(&mut self, manager: &SddManager) {}
 }
 
-// TODO: How does rotation appear from outside?
-// Does it invalidate everything? This seems the easiest. This would mean invalidating
-// every SDD normalized for vtree reachable for the vtree we are rotating/swapping.
-// => How does Sam represent OBDDs? Does he invalidate something or go the extra mile
-//    when dynamically manipulate OBDDs under user's hands? (how does CUDD do it?)
-//
-// If it does not invalidate anything, we have to keep it in check somehow.
-// How? Sdd could turn into Ref<Rc<Sdd>> but that would not work due to mutability.
-// How does Sam do this with OBDDs? I suppose he manipulates OBDDs.
-// => How does Sam compute id's of OBDDs? (how does CUDD do it?)
-//
-// SDD tainting. Also, by adjusting SDD normalized for a given vtree, not only everything below changes,
-// but also everything above changes - we have to keep pointers (or indices?) to parents
-// to be able to traverse up, change the elements (since the IDs of children have changed)
-// but this will cause the id of the parent to change => recurse.
-// (this problem could be explicitly mentioned in the thesis when describing the design if we choose
-// to maintain parent pointers in SDDs).
-// => Does Sam keep parent pointers in OBDDs? (Does CUDD keep them?)
-
-// let a: SddRef = manager.literal("A", positive);
-// let b: SddRef = manager.literal("B", positive);
-// let a_and_b: SddRef = manager.conjoin(a, b);
-//
-//
-// pub type SddRef = Rc<RefCell<SddRefInterned>>;
-//
-// struct SddRefInterned {
-//    parent: usize,
-//    sdd: Sdd
-// }
-//
-// impl SddRefInterned {
-//     fn id(&self) -> usize { self.sdd.id() }
-// }
-//
-//
-//
-
-struct LeftRotateSplit {
-    bc_vec: Vec<SddRef>,
-    c_vec: Vec<SddRef>,
+pub(crate) struct LeftRotateSplit {
+    pub(crate) bc_vec: Vec<SddRef>,
+    pub(crate) c_vec: Vec<SddRef>,
 }
 
-struct RightRotateSplit {
-    ab_vec: Vec<SddRef>,
-    a_vec: Vec<SddRef>,
-}
-
-/// Rotate the vtree `x` to the left and adjust SDDs accordingly.
-///
-/// ```ignore
-///      w               x
-///     / \             / \
-///    a   x     ~>    w   c
-///       / \         / \
-///      b   c       a   b
-/// ```
-///
-/// Children hanged at `w` must be split accordingly, depending on the vtrees
-/// they are normalized for:
-/// * `w(a, bc)` must be rotated and moved to `x` (~> `x(ab, c)`)
-/// * `w(a, c)` must be moved to `x` (~> `x(a, c)`)
-/// * `w(a, b)` stay at `w`
-///
-/// This is done by the [`split_nodes_for_left_rotate`] function.
-fn sdd_vtree_rotate_left(x: &VTreeRef, manager: &SddManager) {
-    // TODO: Move this to the SDDManager and make it public.
-    let w = x
-        .borrow()
-        .get_parent()
-        .expect("invalid fragment: `x` does not have a parent");
-
-    let LeftRotateSplit { bc_vec, c_vec } = split_nodes_for_left_rotate(&w, x, manager);
-
-    manager.rotate_vtree_left(x);
-
-    for bc in &bc_vec {
-        let elements = rotate_partition_left(bc, x, manager).elements;
-        let new_node = manager.new_sdd_from_type(
-            SddType::Decision(Decision { elements }),
-            x.borrow().get_index(),
-            None,
-        );
-
-        replace_node(bc, &new_node, manager);
-    }
-
-    unimplemented!()
-    // TODO: Insert elements back into the unique_table (mimic finalize_vtree_op)
-    // TODO: Garbage collection at the new root `x`.
-}
-
-fn sdd_vtree_rotate_right() {
-    // TODO: Move this to the SDDManager and make it public.
-    unimplemented!()
-
-    // TODO: Insert elements back into the unique_table
-    // TODO: Garbage collection
-}
-
-fn swap(fst: &Literal, snd: &Literal, manager: &SddManager) {
-    // TODO: Move this to the SDDManager and make it public.
-    // This is the same as sdd_vtree_rotate_{left, right}.
-    unimplemented!()
-}
-
-fn replace_node(old: &SddRef, new: &SddRef, manager: &SddManager) {
-    // TODO: Somehow replace bc with new.
-    // This means recursively going up the SDD graph to the root and updating all
-    // SDDs that have been "tainted"?
-    unimplemented!()
+pub(crate) struct RightRotateSplit {
+    pub(crate) ab_vec: Vec<SddRef>,
+    pub(crate) a_vec: Vec<SddRef>,
 }
 
 /// Split SDDs in preparation for left rotation. See
 /// [`sdd_vtree_rotate_left`] for more information.
 ///
 /// This function removes split nodes from the unique table.
-fn split_nodes_for_left_rotate(
+pub(crate) fn split_nodes_for_left_rotate(
     w: &VTreeRef,
     x: &VTreeRef,
     manager: &SddManager,
 ) -> LeftRotateSplit {
-    let w_idx = w.borrow().get_index();
+    let w_idx = w.index();
 
     // Collect all the SDDs which are normalized for `w`.
     let normalized_sdds = manager
@@ -313,7 +198,7 @@ fn split_nodes_for_left_rotate(
             continue;
         }
 
-        let sdd = manager.get_node(*id).unwrap();
+        let sdd = manager.get_node(*id);
         let res = manager.remove_node(*id);
         assert!(res.is_ok(), "unique_table should've contained the SDD");
 
@@ -327,15 +212,13 @@ fn split_nodes_for_left_rotate(
     LeftRotateSplit { c_vec, bc_vec }
 }
 
-fn split_nodes_for_right_rotate(
+pub(crate) fn split_nodes_for_right_rotate(
     x: &VTreeRef,
     w: &VTreeRef,
     manager: &SddManager,
 ) -> RightRotateSplit {
-    let x_idx = x.borrow().get_index();
-
     let normalized_sdds = manager
-        .get_nodes_normalized_for(x_idx)
+        .get_nodes_normalized_for(x.index())
         .iter()
         .map(|(id, sdd)| (sdd.0.borrow().dependence_on_left_vtree(w, manager), *id))
         .collect::<Vec<_>>();
@@ -348,7 +231,7 @@ fn split_nodes_for_right_rotate(
             continue;
         }
 
-        let sdd = manager.get_node(*id).unwrap();
+        let sdd = manager.get_node(*id);
         let res = manager.remove_node(*id);
         assert!(res.is_ok(), "unique_table should've contained the SDD");
 
@@ -362,21 +245,20 @@ fn split_nodes_for_right_rotate(
     RightRotateSplit { a_vec, ab_vec }
 }
 
-fn split_nodes_for_swap() {
-    unimplemented!()
+pub(crate) fn split_nodes_for_swap(v: &VTreeRef, manager: &SddManager) -> Vec<SddRef> {
+    let normalized_sdds = manager.get_nodes_normalized_for(v.index());
+
+    normalized_sdds
+        .iter()
+        .for_each(|(id, _)| manager.remove_node(*id).unwrap());
+
+    normalized_sdds.iter().map(|(_, sdd)| sdd.clone()).collect()
 }
 
 /// Rotate partitions to the left.
 #[must_use]
-fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddManager) -> Decision {
+pub(crate) fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddManager) -> Decision {
     // This function assumes that `x` has been already rotated and `w` is it's left child.
-    let w = match x.borrow().node.clone() {
-        Node::Internal(.., left_child) => left_child,
-        Node::Leaf(..) => panic!("x must be an internal node, not a leaf"),
-    };
-
-    let x_idx = x.borrow().get_index();
-
     let SddType::Decision(ref decision) = node.0.borrow().sdd_type else {
         panic!("node must be a decision node");
     };
@@ -385,7 +267,7 @@ fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddManager) -> D
     for element in &decision.elements {
         let (a, bc) = element.get_prime_sub(manager);
 
-        if bc.is_constant() || bc.vtree_idx() > x_idx {
+        if bc.is_constant() || bc.vtree_idx() > x.index() {
             elements.insert(Element {
                 prime: a.id(),
                 sub: bc.id(),
@@ -393,32 +275,121 @@ fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddManager) -> D
             continue;
         }
 
-        if bc.vtree_idx() == x_idx {
+        if bc.vtree_idx() == x.index() {
             let SddType::Decision(ref bc_decision) = bc.0.borrow().sdd_type else {
                 panic!("node must be a decision node");
             };
 
             for bc_element in &bc_decision.elements {
                 let (b, c) = bc_element.get_prime_sub(manager);
-                // let ab = sdd_conjoin_lr(a, b, w, manager);
-                // declare element (ab, c) for x
+                // TODO: Once conjoin is able to do vtree search on it's own, turn it off in here.
+                // TODO: we could improve this since we already know LCA, which is x's left child.
+                let ab = manager.conjoin(&a, &b);
+                elements.insert(Element {
+                    prime: ab.id(),
+                    sub: c.id(),
+                });
             }
 
             continue;
         }
-        // bc is normalized for a vtree in b
 
-        // TODO: Implement sdd_conjoin_lr
-        // let ab = sdd_conjoin_lr(a, bc, w, manager);
-        // declare element (ab, True) for x
-        // let bc_neg = sdd_negate(bc, manager);
-        // let ab = sdd_conjoin_lr(a, bc_neg, w, manager);
-        //
-        // declare_element (ab, False, x);
+        // last case: bc is normalized for vtree in b
+        // Create element (a && bc, True).
+        elements.insert(Element {
+            prime: manager.conjoin(&a, &bc).id(),
+            sub: TRUE_SDD_IDX,
+        });
+
+        // Create element (a && !bc, False).
+        elements.insert(Element {
+            prime: manager.conjoin(&a, &manager.negate(&bc)).id(),
+            sub: FALSE_SDD_IDX,
+        });
     }
 
     Decision { elements }.canonicalize(manager)
 }
 
 /// Rotate partitions to the right.
-fn rotate_partition_right() {}
+#[allow(unused)]
+pub(crate) fn rotate_partition_right(
+    node: &SddRef,
+    w: &VTreeRef,
+    manager: &SddManager,
+) -> Decision {
+    let x = w.right_child();
+    let SddType::Decision(ref decision) = node.0.borrow().sdd_type else {
+        panic!("node must be a decision node");
+    };
+
+    let mut elements = BTreeSet::new();
+    for element in &decision.elements {
+        let (ab, c) = element.get_prime_sub(manager);
+
+        if ab.vtree_idx() >= x.inorder_first() && ab.vtree_idx() <= x.inorder_last() {
+            elements.insert(Element {
+                prime: TRUE_SDD_IDX,
+                sub: manager.conjoin(&ab, &c).id(),
+            });
+
+            continue;
+        }
+
+        if ab.vtree_idx() == w.index() {
+            let SddType::Decision(ref ab_decision) = ab.0.borrow().sdd_type else {
+                panic!("node must be a decision node");
+            };
+
+            for ab_element in &ab_decision.elements {
+                let (a, b) = ab_element.get_prime_sub(manager);
+                let bc = manager.conjoin(&b, &c);
+                elements.insert(Element {
+                    prime: a.id(),
+                    sub: bc.id(),
+                });
+            }
+
+            continue;
+        }
+
+        elements.insert(Element {
+            prime: ab.id(),
+            sub: c.id(),
+        });
+
+        elements.insert(Element {
+            prime: manager.negate(&ab).id(),
+            sub: FALSE_SDD_IDX,
+        });
+    }
+
+    Decision { elements }.canonicalize(manager)
+}
+
+pub(crate) fn swap_partition(node: &SddRef, v: &VTreeRef, manager: &SddManager) -> Decision {
+    let SddType::Decision(ref decision) = node.0.borrow().sdd_type else {
+        panic!("node must be a decision node");
+    };
+
+    let mut elements = BTreeSet::new();
+    for element in &decision.elements {
+        let (a, b) = element.get_prime_sub(manager);
+        if !b.is_false() {
+            elements.insert(Element {
+                prime: b.id(),
+                sub: a.id(),
+            });
+        }
+
+        let neg_b = manager.negate(&b);
+        if !neg_b.is_false() {
+            elements.insert(Element {
+                prime: neg_b.id(),
+                sub: FALSE_SDD_IDX,
+            });
+        }
+    }
+
+    Decision { elements }.canonicalize(manager)
+}

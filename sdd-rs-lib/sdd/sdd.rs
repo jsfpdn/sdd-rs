@@ -1,6 +1,7 @@
 use bitvec::vec::BitVec;
 use core::fmt;
-use std::{collections::BTreeSet, fmt::Display, ops::AddAssign};
+use derive_more::derive::AddAssign;
+use std::{collections::BTreeSet, fmt::Display};
 
 use crate::{
     btreeset,
@@ -8,10 +9,10 @@ use crate::{
     literal::Literal,
     manager::{SddManager, FALSE_SDD_IDX, TRUE_SDD_IDX},
     sdd::{Decision, Element, SddRef},
-    vtree::{VTreeIdx, VTreeRef},
+    vtree::{LeftDependence, RightDependence, VTreeIdx, VTreeRef},
 };
 
-#[derive(Eq, PartialEq, Hash, Debug, PartialOrd, Ord, Clone, Copy)]
+#[derive(Eq, PartialEq, Hash, Debug, PartialOrd, Ord, Clone, Copy, AddAssign)]
 pub struct SddId(pub u32);
 
 impl Display for SddId {
@@ -20,50 +21,14 @@ impl Display for SddId {
     }
 }
 
-impl AddAssign for SddId {
-    fn add_assign(&mut self, rhs: Self) {
-        self.0 += rhs.0
+impl SddId {
+    pub(crate) fn is_true(&self) -> bool {
+        *self == TRUE_SDD_IDX
     }
-}
 
-/// Given the following vtree rooted at `x`:
-/// ```ignore
-///        x
-///      /   \
-///     w     c
-///   /   \
-///  a     b
-/// ```
-/// an SDD normalized for `x` must depend on some variable in sub-vtree `c`
-/// and also on some variable in sub-vtree `a`, `b`, or both.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum LeftDependence {
-    /// SDD normalized for `x` depends only on some variable in sub-vtree `a`, not `b`.
-    A,
-    /// SDD normalized for `x` depends only on some variable in sub-vtree `b`, not `a`.
-    B,
-    /// SDD normalized for `x` depends on some variables in both sub-vtrees `a` and `b`.
-    AB,
-}
-
-/// Given the following vtree rooted at `w`:
-/// ```ignore
-///      w
-///    /   \
-///   a     x
-///       /   \
-///      b     c
-/// ```
-/// an SDD normalized for `w` must depend on some variable in sub-vtree `a`
-/// and also on some variable in sub-vtree `b`, `c`, or both.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum RightDependence {
-    /// SDD normalized for `x` depends only on some variable in sub-vtree `b`, not `c`.
-    B,
-    /// SDD normalized for `x` depends only on some variable in sub-vtree `c`, not `b`.
-    C,
-    /// SDD normalized for `x` depends on some variables in both sub-vtrees `b` and `c`.
-    BC,
+    pub(crate) fn is_false(&self) -> bool {
+        *self == FALSE_SDD_IDX
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Debug)]
@@ -247,7 +212,7 @@ impl Sdd {
         if let SddType::Decision(ref dec) = self.sdd_type {
             let mut elements = BTreeSet::new();
             for Element { prime, sub } in &dec.elements {
-                let sub = manager.get_node(*sub).unwrap().negate(manager);
+                let sub = manager.get_node(*sub).negate(manager);
 
                 elements.insert(Element {
                     prime: *prime,
@@ -275,18 +240,6 @@ impl Sdd {
             SddType::Decision(..) => {
                 panic!("cannot happen - bug in the if expression's condition")
             }
-        }
-    }
-
-    /// Check whether [`self`] equals to negated [`other`].
-    pub(crate) fn eq_negated(&self, other: &Sdd, manager: &SddManager) -> bool {
-        match (self.sdd_type.clone(), other.sdd_type.clone()) {
-            (SddType::True, SddType::False) | (SddType::False, SddType::True) => true,
-            (SddType::Literal(fst), SddType::Literal(snd)) => fst.eq_negated(&snd),
-            (SddType::Decision(..), SddType::Decision(..)) => {
-                self.clone().negate(manager).id() == other.id()
-            }
-            (_, _) => false,
         }
     }
 
@@ -376,13 +329,12 @@ impl Sdd {
     }
 
     #[must_use]
+    #[allow(unused)]
     pub(crate) fn dependence_on_left_vtree(
         &self,
         w: &VTreeRef,
         manager: &SddManager,
     ) -> LeftDependence {
-        assert_eq!(self.vtree_idx, w.borrow().get_index());
-
         let SddType::Decision(ref decision) = self.sdd_type else {
             panic!("cannot get dependence on anything other than decision node");
         };
@@ -393,7 +345,7 @@ impl Sdd {
 
         let mut depends_on_a = false;
         let mut depends_on_b = false;
-        let w_idx = w.borrow().get_index();
+        let w_idx = w.index();
 
         for prime in &primes {
             if prime.vtree_idx() == w_idx {
@@ -419,12 +371,13 @@ impl Sdd {
     }
 
     #[must_use]
+    #[allow(unused)]
     pub(crate) fn dependence_on_right_vtree(
         &self,
         x: &VTreeRef,
         manager: &SddManager,
     ) -> RightDependence {
-        assert_eq!(self.vtree_idx, x.borrow().get_index());
+        // assert_eq!(self.vtree_idx, x.index());
 
         let SddType::Decision(ref decision) = self.sdd_type else {
             panic!("cannot get dependence on anything other than decision node");
@@ -439,7 +392,7 @@ impl Sdd {
 
         let mut depends_on_b = false;
         let mut depends_on_c = false;
-        let x_idx = x.borrow().get_index();
+        let x_idx = x.index();
 
         for sub in &subs {
             if sub.vtree_idx() == x_idx {
@@ -463,13 +416,18 @@ impl Sdd {
 
         RightDependence::C
     }
+
+    pub(crate) fn invalidate_cache(&mut self) {
+        self.models = None;
+        self.model_count = None;
+    }
 }
 
 #[cfg(test)]
 mod test {
     use crate::literal::Polarity;
     use crate::manager::{options::SddOptions, SddManager};
-    use crate::sdd::LeftDependence;
+    use crate::vtree::LeftDependence;
 
     #[test]
     fn vtree_dependence() {
@@ -496,7 +454,7 @@ mod test {
         let root = manager.root().unwrap();
 
         // `c && d && a` must be normalized for root.
-        assert_eq!(c_and_d_and_a.vtree_idx(), root.borrow().get_index());
+        assert_eq!(c_and_d_and_a.vtree_idx(), root.index());
 
         let dep = c_and_d_and_a
             .0
