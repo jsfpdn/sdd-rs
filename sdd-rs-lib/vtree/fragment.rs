@@ -1,11 +1,11 @@
 use crate::{
-    literal::Literal,
     manager::{SddManager, FALSE_SDD_IDX, TRUE_SDD_IDX},
     sdd::{Decision, Element, SddRef, SddType},
     vtree::{Node, VTreeRef},
 };
-use std::collections::{self, BTreeSet};
+use std::{collections::BTreeSet, rc::Rc};
 
+#[derive(PartialEq, Debug)]
 pub(crate) enum Direction {
     Forward,
     Backward,
@@ -18,6 +18,7 @@ enum Mode {
     Goto,
 }
 
+#[derive(Copy, Clone, Debug)]
 enum Move {
     LeftRotateChild,
     RightRotateRoot,
@@ -58,6 +59,7 @@ const MOVES_RIGHT_LINEAR: [Move; 12] = [
     Move::SwapChild,
 ];
 
+#[derive(Debug)]
 enum Linearity {
     Left,
     Right,
@@ -86,6 +88,8 @@ pub(crate) struct Fragment {
     state: usize,
     mode: Mode,
     linearity: Linearity,
+
+    moves: [Move; 12],
 }
 
 /// Given the following vtree rooted at `x`:
@@ -133,22 +137,17 @@ pub(crate) enum RightDependence {
 impl Fragment {
     // TODO: implement iterator over fragment states.
     // TODO: think about limits & rolling back states.
+    #[must_use]
     pub(crate) fn new(root: VTreeRef, child: VTreeRef) -> Self {
-        let linearity;
-        {
-            let root = root.0.borrow();
-            if let Node::Internal(lc, rc) = &root.node {
-                if *lc == child {
-                    linearity = Linearity::Left;
-                } else if *rc == child {
-                    linearity = Linearity::Right;
-                } else {
-                    panic!("'child' must be direct child of 'root'")
-                }
-            } else {
-                panic!("'root' must be a leaf")
+        let (linearity, moves) = match root.0.borrow().node.clone() {
+            Node::Internal(lc, _) if Rc::ptr_eq(&lc.0, &child.0) => {
+                (Linearity::Left, MOVES_LEFT_LINEAR)
             }
-        }
+            Node::Internal(_, rc) if Rc::ptr_eq(&rc.0, &child.0) => {
+                (Linearity::Right, MOVES_RIGHT_LINEAR)
+            }
+            _ => panic!("root and child cannot form a fragment"),
+        };
 
         Fragment {
             root: root.clone(),
@@ -158,7 +157,78 @@ impl Fragment {
             linearity,
             state: 0,
             mode: Mode::Initial,
+            moves,
         }
+    }
+
+    fn next(&mut self, direction: &Direction, manager: &SddManager) {
+        assert!(self.state <= 11);
+        assert!(
+            self.mode.can_transition(Mode::Next),
+            "cannot transition from {:?} to {:?}",
+            self.mode,
+            Mode::Next,
+        );
+
+        let next_move = self.next_move(direction);
+
+        match next_move {
+            Move::LeftRotateChild => {
+                assert!(Rc::ptr_eq(
+                    &self.current_child.0,
+                    &self.current_root.right_child().0
+                ));
+                manager.rotate_left(&self.current_child);
+                self.swap();
+            }
+            Move::RightRotateRoot => {
+                assert!(Rc::ptr_eq(
+                    &self.current_child.0,
+                    &self.current_root.left_child().0
+                ));
+                manager.rotate_right(&self.root);
+                self.swap();
+            }
+            Move::SwapChild => {
+                assert!(Rc::ptr_eq(
+                    &self.current_root.0,
+                    &self.current_child.parent().unwrap().0
+                ));
+                manager.swap(&self.current_child);
+            }
+        }
+    }
+
+    fn next_move(&mut self, direction: &Direction) -> Move {
+        let state = self.get_and_move_state(direction);
+        self.moves[state]
+    }
+
+    fn get_and_move_state(&mut self, direction: &Direction) -> usize {
+        let state = self.state;
+        if *direction == Direction::Forward {
+            if state == 11 {
+                self.state = 0;
+            } else {
+                self.state += 1;
+            }
+        } else {
+            if state == 0 {
+                self.state = 11;
+            } else {
+                self.state -= 1;
+            }
+        }
+
+        state
+    }
+
+    fn swap(&mut self) {
+        let tmp = self.current_root.clone();
+        self.current_root = self.current_child.clone();
+        self.current_child = tmp;
+        // let old_x = x.0.replace(y.0.borrow().clone());
+        // y.0.replace(old_x);
     }
 }
 
@@ -392,4 +462,52 @@ pub(crate) fn swap_partition(node: &SddRef, v: &VTreeRef, manager: &SddManager) 
     }
 
     Decision { elements }.canonicalize(manager)
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{
+        literal::Polarity,
+        manager::{options::SddOptions, SddManager},
+    };
+
+    use super::{Direction, Fragment};
+
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn fragment() {
+        // We should be able to create minimal right-linear fragment and visit all the
+        // possible states while going forward.
+        let manager = SddManager::new(SddOptions::default());
+
+        let lit_a = manager.literal("a", Polarity::Positive);
+        let lit_b = manager.literal("b", Polarity::Positive);
+        let lit_c = manager.literal("c", Polarity::Positive);
+
+        //           1
+        //         /   \
+        //        A     3
+        //            /   \
+        //           B     C
+
+        let a_and_b = manager.conjoin(&lit_a, &lit_b);
+        let a_and_b_or_c = manager.disjoin(&a_and_b, &lit_c);
+        let models = manager.model_enumeration(&a_and_b_or_c);
+
+        let root = manager.root().unwrap();
+        let rc = root.right_child();
+        let mut fragment = Fragment::new(root, rc);
+
+        for i in 0..12 {
+            let next_move = fragment.moves[fragment.state];
+            fragment.next(&Direction::Forward, &manager);
+
+            assert_eq!(
+                models,
+                manager.model_enumeration(&a_and_b_or_c),
+                "{i}-th state failed while doing {next_move:?}",
+            );
+        }
+    }
 }

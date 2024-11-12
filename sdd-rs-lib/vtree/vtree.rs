@@ -26,7 +26,7 @@ impl Display for VTreeIdx {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub struct VTree {
     parent: Option<VTreeRef>,
     // Index according to the inorder traversal of the VTree. Can change when manipulating the tree in any way,

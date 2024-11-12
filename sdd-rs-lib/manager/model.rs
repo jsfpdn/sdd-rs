@@ -47,6 +47,8 @@ pub struct Model {
 impl Model {
     #[allow(unused)]
     pub(crate) fn new_from_literals(literals: Vec<Literal>) -> Self {
+        let mut literals = literals.clone();
+        literals.sort();
         Model { literals }
     }
 

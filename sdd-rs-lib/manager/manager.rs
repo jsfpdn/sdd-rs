@@ -1,7 +1,7 @@
 use crate::{
     btreeset,
     dot_writer::{Dot, DotWriter},
-    literal::{Literal, LiteralManager, Polarity, Variable, VariableIdx},
+    literal::{LiteralManager, Polarity, Variable, VariableIdx},
     manager::{dimacs, model::Models, options::SddOptions},
     sdd::{Decision, Element, Sdd, SddId, SddRef, SddType},
     util::set_bits_indices,
@@ -15,8 +15,9 @@ use bitvec::prelude::*;
 use std::{
     cell::RefCell,
     collections::{BTreeSet, HashMap},
-    ops::BitOr,
+    ops::{Add, BitOr},
 };
+use tracing::warn;
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug, Copy)]
 enum Operation {
@@ -41,11 +42,17 @@ pub enum TargetVTreeHeuristic {}
 // TODO: Builder pattern with bon?
 pub struct CutOff {}
 
-#[derive(Eq, PartialEq, Hash, Debug)]
+#[derive(Eq, PartialEq, Hash, Debug, Clone)]
 struct Entry {
     fst: SddId,
     snd: SddId,
     op: Operation,
+}
+
+impl Entry {
+    fn contains_id(&self, id: SddId) -> bool {
+        self.fst == id || self.snd == id
+    }
 }
 
 #[allow(clippy::module_name_repetitions)]
@@ -171,6 +178,19 @@ impl SddManager {
     }
 
     pub(crate) fn remove_node(&self, id: SddId) -> std::result::Result<(), ()> {
+        let entries: Vec<_> = {
+            self.op_cache
+                .borrow()
+                .iter()
+                .filter(|(entry, res)| entry.contains_id(id) || **res == id)
+                .map(|(entry, res)| (entry.clone(), res.clone()))
+                .collect()
+        };
+
+        entries
+            .iter()
+            .for_each(|(entry, _)| _ = self.op_cache.borrow_mut().remove(&entry).unwrap());
+
         match self.unique_table.borrow_mut().remove(&id) {
             Some(..) => Ok(()),
             None => Err(()),
@@ -382,6 +402,35 @@ impl SddManager {
         // }
         // TODO: Verify whether the vtree is X-constrained?
         unimplemented!()
+    }
+
+    /// Get the size of the SDD which is the number of elements reachable from it.
+    pub fn size(&self, sdd: &SddRef) -> usize {
+        fn traverse_and_count(manager: &SddManager, sdd: &SddRef, seen: &mut Vec<SddId>) -> usize {
+            if seen.contains(&sdd.id()) {
+                return 0;
+            }
+
+            match sdd.0.borrow().sdd_type {
+                SddType::Decision(Decision { ref elements }) => {
+                    seen.push(sdd.id());
+
+                    elements.len()
+                        + elements
+                            .iter()
+                            .map(|element| element.get_prime_sub(manager))
+                            .map(|(prime, sub)| {
+                                traverse_and_count(manager, &prime, seen)
+                                    + traverse_and_count(manager, &sub, seen)
+                            })
+                            .fold(0, |acc, num| acc + num)
+                }
+                _ => 0,
+            }
+        }
+
+        let mut seen: Vec<SddId> = Vec::new();
+        traverse_and_count(&self, sdd, &mut seen)
     }
 
     fn _model_enumeration(&self, sdd: &SddRef, bitvecs: &mut Vec<BitVec>) {
@@ -1004,7 +1053,6 @@ mod test {
     use crate::{
         literal::{Literal, Polarity, VariableIdx},
         manager::model::Model,
-        util::{quick_draw, quick_draw_all, quick_draw_vtree},
         vtree::test::right_child,
     };
     use pretty_assertions::assert_eq;
@@ -1358,13 +1406,13 @@ mod test {
         let a_and_d = manager.conjoin(&lit_a, &lit_d);
         let a_and_d_and_b = manager.conjoin(&a_and_d, &lit_b);
         let a_and_d_and_b_and_c = manager.conjoin(&a_and_d_and_b, &lit_c);
+        assert_eq!(manager.size(&a_and_d_and_b_and_c), 6);
+
         let models_before = manager.model_enumeration(&a_and_d_and_b_and_c);
-        quick_draw(&manager, &a_and_d_and_b_and_c, "before_sdd");
 
         manager.swap(&manager.root().unwrap());
 
         let models_after = manager.model_enumeration(&a_and_d_and_b_and_c);
         assert_eq!(models_before, models_after);
-        quick_draw(&manager, &a_and_d_and_b_and_c, "after_sdd");
     }
 }
