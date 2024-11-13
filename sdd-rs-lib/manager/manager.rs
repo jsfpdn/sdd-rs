@@ -15,9 +15,8 @@ use bitvec::prelude::*;
 use std::{
     cell::RefCell,
     collections::{BTreeSet, HashMap},
-    ops::{Add, BitOr},
+    ops::BitOr,
 };
-use tracing::warn;
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug, Copy)]
 enum Operation {
@@ -148,7 +147,7 @@ impl SddManager {
         self.unique_table
             .borrow()
             .get(&id)
-            .expect(format!("SDD {id} is not in the unique_table").as_str())
+            .unwrap_or_else(|| panic!("SDD {id} is not in the unique_table"))
             .clone()
     }
 
@@ -183,13 +182,13 @@ impl SddManager {
                 .borrow()
                 .iter()
                 .filter(|(entry, res)| entry.contains_id(id) || **res == id)
-                .map(|(entry, res)| (entry.clone(), res.clone()))
+                .map(|(entry, res)| (entry.clone(), *res))
                 .collect()
         };
 
         entries
             .iter()
-            .for_each(|(entry, _)| _ = self.op_cache.borrow_mut().remove(&entry).unwrap());
+            .for_each(|(entry, _)| _ = self.op_cache.borrow_mut().remove(entry).unwrap());
 
         match self.unique_table.borrow_mut().remove(&id) {
             Some(..) => Ok(()),
@@ -318,13 +317,13 @@ impl SddManager {
             return self.tautology();
         }
 
-        if fst.eq_negated(&snd, self) {
+        if fst.eq_negated(snd, self) {
             return self.contradiction();
         }
 
         // Relies on the fact that A <=> B is equivalent (!A && !B) || (A && B).
         let fst_con = self.conjoin(&fst.negate(self), &snd.negate(self));
-        let snd_con = self.conjoin(&fst, &snd);
+        let snd_con = self.conjoin(fst, snd);
         self.disjoin(&fst_con, &snd_con)
     }
 
@@ -335,7 +334,7 @@ impl SddManager {
 
         let all_variables: BTreeSet<_> = self.literal_manager.borrow().all_variables();
         let unbound_variables: Vec<_> = all_variables
-            .difference(&self.get_variables(&sdd))
+            .difference(&self.get_variables(sdd))
             .cloned()
             .collect();
         self.expand_models(&mut models, &unbound_variables);
@@ -423,14 +422,14 @@ impl SddManager {
                                 traverse_and_count(manager, &prime, seen)
                                     + traverse_and_count(manager, &sub, seen)
                             })
-                            .fold(0, |acc, num| acc + num)
+                            .sum::<usize>()
                 }
                 _ => 0,
             }
         }
 
         let mut seen: Vec<SddId> = Vec::new();
-        traverse_and_count(&self, sdd, &mut seen)
+        traverse_and_count(self, sdd, &mut seen)
     }
 
     fn _model_enumeration(&self, sdd: &SddRef, bitvecs: &mut Vec<BitVec>) {
@@ -462,7 +461,7 @@ impl SddManager {
                 );
             };
 
-            let all_variables = self.get_variables(&sdd);
+            let all_variables = self.get_variables(sdd);
             for Element { prime, sub } in &decision.elements {
                 let mut models = Vec::new();
                 let prime = self.get_node(*prime);
@@ -508,7 +507,7 @@ impl SddManager {
         }
         bitvecs.append(&mut all_models);
 
-        sdd.cache_models(&bitvecs);
+        sdd.cache_models(bitvecs);
     }
 
     /// Count number of models for this SDD.
@@ -533,7 +532,7 @@ impl SddManager {
                 }
             };
 
-            let all_variables = self.get_variables(&sdd).len();
+            let all_variables = self.get_variables(sdd).len();
 
             for Element { prime, sub } in &decision.elements {
                 let prime = self.get_node(*prime);
@@ -556,7 +555,7 @@ impl SddManager {
         total_models
     }
 
-    pub fn draw_all_sdds<'b>(&self, writer: &mut dyn std::io::Write) -> Result<(), String> {
+    pub fn draw_all_sdds(&self, writer: &mut dyn std::io::Write) -> Result<(), String> {
         let mut dot_writer = DotWriter::new(String::from("sdd"), true);
         for node in self.unique_table.borrow().values() {
             node.0.borrow().draw(&mut dot_writer, self);
@@ -568,8 +567,7 @@ impl SddManager {
         let mut dot_writer = DotWriter::new(String::from("sdd"), true);
 
         let mut sdds = vec![sdd.clone()];
-        while !sdds.is_empty() {
-            let sdd = sdds.pop().unwrap();
+        while let Some(sdd) = sdds.pop() {
             sdd.0.borrow().draw(&mut dot_writer, self);
 
             if let SddType::Decision(Decision { ref elements }) = sdd.0.borrow().sdd_type {
@@ -588,7 +586,7 @@ impl SddManager {
 
     /// # Errors
     /// Returns an error if TBD.
-    pub fn draw_vtree_graph<'b>(&self, writer: &mut dyn std::io::Write) -> Result<(), String> {
+    pub fn draw_vtree_graph(&self, writer: &mut dyn std::io::Write) -> Result<(), String> {
         let mut dot_writer = DotWriter::new(String::from("vtree"), false);
         self.vtree_manager.borrow().draw(&mut dot_writer, self);
         dot_writer.write(writer)
@@ -606,7 +604,7 @@ impl SddManager {
         if let Some(result_id) = self.op_cache.borrow().get(&Entry {
             fst: fst.id(),
             snd: snd.id(),
-            op: op.clone(),
+            op,
         }) {
             return self.get_node(*result_id);
         }
@@ -728,12 +726,12 @@ impl SddManager {
             &fst.clone().negate(self)
         };
 
-        let snd_elements = snd.0.borrow().sdd_type.elements().expect(
-            format!(
+        let snd_elements = snd.0.borrow().sdd_type.elements().unwrap_or_else(||
+            panic!(
                 "snd of _apply_left_sub_of_right must be a decision node but was instead {} (id {})",
                 snd.0.borrow().sdd_type.name(),
                 snd.id(),
-            ).as_str()
+            )
         );
 
         let mut elements = btreeset!(Element {
@@ -746,7 +744,7 @@ impl SddManager {
             sub: snd_sub,
         } in snd_elements
         {
-            let snd_prime = &self.get_node(snd_prime);
+            let snd_prime = self.get_node(snd_prime);
             let new_prime = self.conjoin(&snd_prime, new_node);
             if !new_prime.is_false() {
                 elements.insert(Element {
@@ -769,13 +767,12 @@ impl SddManager {
         assert!(!fst.is_constant());
         assert!(!snd.is_constant());
 
-        let fst_elements = fst.0.borrow().sdd_type.elements().expect(
-            format!(
+        let fst_elements = fst.0.borrow().sdd_type.elements().unwrap_or_else(||
+            panic!(
                 "fst of _apply_right_sub_of_left must be a decision node but was instead {} (id {})",
                 fst.0.borrow().sdd_type.name(),
                 fst.id(),
             )
-            .as_str(),
         );
 
         let mut elements = BTreeSet::new();
@@ -827,13 +824,13 @@ impl SddManager {
 
     /// Expand [`models`] with all the possible instantiations of [`unbound _variables`].
     fn expand_models(&self, models: &mut Vec<BitVec>, unbound_variables: &[Variable]) {
-        if unbound_variables.len() == 0 {
+        if unbound_variables.is_empty() {
             return;
         }
 
         let num_models = models.len();
         if unbound_variables.len() == 1 {
-            let unbound_variable = unbound_variables.get(0).unwrap();
+            let unbound_variable = unbound_variables.first().unwrap();
             for i in 0..num_models {
                 let mut new_model = models.get(i).unwrap().clone();
                 new_model.set(unbound_variable.index().0 as usize, true);
@@ -961,7 +958,7 @@ impl SddManager {
         let w = x.left_child();
 
         // TODO: Check that caches are correct (unique_table, op_cache, model_count and models).
-        let RightRotateSplit { ab_vec, a_vec } = split_nodes_for_right_rotate(&x, &w, self);
+        let RightRotateSplit { ab_vec, a_vec } = split_nodes_for_right_rotate(x, &w, self);
 
         self.vtree_manager.borrow_mut().rotate_right(x);
 
@@ -1053,7 +1050,6 @@ mod test {
     use crate::{
         literal::{Literal, Polarity, VariableIdx},
         manager::model::Model,
-        vtree::test::right_child,
     };
     use pretty_assertions::assert_eq;
 
@@ -1172,7 +1168,7 @@ mod test {
         manager
             .vtree_manager
             .borrow_mut()
-            .rotate_left(&right_child(&root));
+            .rotate_left(&root.right_child());
 
         // Resulting SDD must be normalized w.r.t. vtree with index 3.
         let a_and_d = manager.conjoin(&lit_a, &lit_d);
@@ -1197,7 +1193,7 @@ mod test {
         manager
             .vtree_manager
             .borrow_mut()
-            .rotate_left(&right_child(&root));
+            .rotate_left(&root.right_child());
 
         let a_and_d = manager.conjoin(&lit_a, &lit_d);
         assert_eq!(manager.model_count(&a_and_d), 4);
@@ -1245,7 +1241,7 @@ mod test {
         manager
             .vtree_manager
             .borrow_mut()
-            .rotate_left(&right_child(&root));
+            .rotate_left(&root.right_child());
 
         let a_and_b = manager.conjoin(&lit_a, &lit_b);
         let models = vec![

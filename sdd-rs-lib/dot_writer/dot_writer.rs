@@ -1,7 +1,7 @@
 use crate::manager::SddManager;
 
 pub trait Dot {
-    fn draw<'a>(&self, writer: &mut DotWriter, manager: &SddManager);
+    fn draw(&self, writer: &mut DotWriter, manager: &SddManager);
 }
 
 pub enum Edge {

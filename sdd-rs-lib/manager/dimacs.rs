@@ -55,7 +55,6 @@ impl<'a> DimacsReader<'a> {
         }
     }
 
-    #[must_use]
     pub(crate) fn parse_preamble(&mut self) -> Result<Preamble, String> {
         if self.state != DimacsReaderState::Initialized {
             return Err(String::from("preamble already parsed"));
@@ -75,12 +74,11 @@ impl<'a> DimacsReader<'a> {
 
         let mut problem = String::new();
         match self.reader.read_line(&mut problem) {
-            Ok(..) => self.parse_problem_line(&problem.trim()),
+            Ok(..) => self.parse_problem_line(problem.trim()),
             Err(err) => Err(format!("could not parse problem line: {err}")),
         }
     }
 
-    #[must_use]
     pub(crate) fn parse_next_clause(&mut self) -> Result<Option<Clause>, String> {
         assert!(self.state != DimacsReaderState::Initialized);
 
@@ -96,14 +94,13 @@ impl<'a> DimacsReader<'a> {
                     Ok(None)
                 } else {
                     self.state = DimacsReaderState::ParsingClauses;
-                    self.parse_clause_line(&clause).map(|clause| Some(clause))
+                    self.parse_clause_line(&clause).map(Some)
                 }
             }
-            Err(err) => return Err(format!("could not parse clause: {err}")),
+            Err(err) => Err(format!("could not parse clause: {err}")),
         }
     }
 
-    #[must_use]
     fn parse_problem_line(&mut self, line: &str) -> Result<Preamble, String> {
         let items: Vec<_> = line.split(" ").collect();
         if items.len() != 4 {
@@ -112,7 +109,7 @@ impl<'a> DimacsReader<'a> {
             ));
         }
 
-        if *items.get(0).unwrap() != "p" {
+        if *items.first().unwrap() != "p" {
             return Err(String::from("first field of problem line must be 'p'"));
         }
 
@@ -134,12 +131,10 @@ impl<'a> DimacsReader<'a> {
         Ok(Preamble { clauses, variables })
     }
 
-    #[must_use]
     fn parse_clause_line(&mut self, line: &[u8]) -> Result<Clause, String> {
         let literals: Vec<_> = line
             .split(|num| *num == b' ' || *num == b'\n')
-            .into_iter()
-            .filter(|variable| *variable != [b'0'] && *variable != [])
+            .filter(|variable| *variable != [b'0'] && !variable.is_empty())
             .map(|variable| {
                 let string = String::from_utf8_lossy(variable);
                 match string.trim().parse::<i64>() {
@@ -157,7 +152,7 @@ impl<'a> DimacsReader<'a> {
         for literal in &literals {
             match literal {
                 Ok((polarity, idx)) => {
-                    clause.var_label_indices.push(idx.abs() as u16);
+                    clause.var_label_indices.push(idx.unsigned_abs() as u16);
                     clause.var_label_polarities.push(*polarity);
                 }
                 Err(err) => return Err(format!("could not parse clause: {err}")),

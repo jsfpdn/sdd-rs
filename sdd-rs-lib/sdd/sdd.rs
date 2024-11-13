@@ -83,7 +83,7 @@ impl Dot for Sdd {
         match self.sdd_type.clone() {
             // Do not render literals and constants as they do not provide any
             // value and only take up space.
-            SddType::True | SddType::False | SddType::Literal(..) => return,
+            SddType::True | SddType::False | SddType::Literal(..) => (),
             SddType::Decision(node) => {
                 let idx = fxhash::hash(&node);
                 for elem in node.elements.iter() {
@@ -294,7 +294,7 @@ impl Sdd {
 
     /// Compute "uniqueD" SDD as described in Algorithm 1 in
     /// [SDD: A New Canonical Representation of Propositional Knowledge Bases](https://ai.dmi.unibas.ch/research/reading_group/darwiche-ijcai2011.pdf).
-    pub(crate) fn unique_d<'b>(gamma: BTreeSet<Element>, vtree_idx: VTreeIdx) -> Sdd {
+    pub(crate) fn unique_d(gamma: BTreeSet<Element>, vtree_idx: VTreeIdx) -> Sdd {
         // gamma == {(T, T)}?
         if gamma.eq(&btreeset![Element {
             prime: Sdd::new_true().id(),
@@ -339,7 +339,7 @@ impl Sdd {
             panic!("cannot get dependence on anything other than decision node");
         };
 
-        let primes: Vec<_> = decision.primes(&manager).iter().cloned().collect();
+        let primes = decision.primes(manager).to_vec();
         // No need to filter out constants from collected primes since they cannot
         // occur as primes of elements.
 
@@ -384,7 +384,7 @@ impl Sdd {
         };
 
         let subs: Vec<_> = decision
-            .subs(&manager)
+            .subs(manager)
             .iter()
             .filter(|sub| !sub.is_constant())
             .cloned()

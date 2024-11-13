@@ -12,7 +12,7 @@ use std::{
 };
 
 #[derive(Clone, PartialEq)]
-pub(super) enum Node {
+pub(crate) enum Node {
     Leaf(Variable),
     Internal(VTreeRef, VTreeRef),
 }
@@ -317,8 +317,8 @@ impl VTreeManager {
             match vtree.0.borrow().node {
                 Node::Leaf(ref label) => order.push((label.clone(), idx)),
                 Node::Internal(ref lc, ref rc) => {
-                    dfs(&lc, order);
-                    dfs(&rc, order);
+                    dfs(lc, order);
+                    dfs(rc, order);
                 }
             }
         }
@@ -406,11 +406,11 @@ impl VTreeManager {
         let b = w.right_child();
         let parent = x.parent();
 
-        x.set_parent(Some(&w).clone());
+        x.set_parent(Some(&w));
         x.set_left_child(&b);
-        b.set_parent(Some(&x));
+        b.set_parent(Some(x));
 
-        w.set_right_child(&x);
+        w.set_right_child(x);
         w.set_parent(parent.as_ref());
 
         if let Some(ref parent) = parent {
@@ -466,10 +466,7 @@ impl VTreeManager {
 
     pub(crate) fn get_vtree(&self, index: VTreeIdx) -> Option<VTreeRef> {
         // TODO: This will get obsolete once VTrees are stored in a single hashmap.
-        let Some(mut current) = self.root.clone() else {
-            return None;
-        };
-
+        let mut current = self.root.clone()?;
         loop {
             let current_index = current.index();
             if current_index == index {
@@ -500,10 +497,10 @@ impl VTreeManager {
 
         let fst = self
             .get_vtree(fst_idx)
-            .expect(format!("vtree with index {} does not exist", fst_idx).as_str());
+            .unwrap_or_else(|| panic!("vtree with index {fst_idx} does not exist"));
         let snd = self
             .get_vtree(snd_idx)
-            .expect(format!("vtree with index {} does not exist", snd_idx).as_str());
+            .unwrap_or_else(|| panic!("vtree with index {snd_idx} does not exist"));
 
         if fst_idx == snd_idx {
             return (fst.clone(), VTreeOrder::Equal);

@@ -16,7 +16,7 @@ impl From<usize> for VariableIdx {
     }
 }
 
-#[derive(Eq, PartialEq, Debug, Clone, Ord, Hash)]
+#[derive(Eq, PartialEq, Debug, Clone, Hash)]
 pub(crate) struct Variable {
     label: String,
     idx: VariableIdx,
@@ -44,6 +44,12 @@ impl Variable {
 impl PartialOrd for Variable {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.idx.cmp(&other.idx))
+    }
+}
+
+impl Ord for Variable {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.idx.cmp(&other.idx)
     }
 }
 

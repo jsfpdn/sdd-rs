@@ -119,15 +119,11 @@ impl LiteralManager {
     }
 
     fn find_by_label(&self, label: &str) -> Option<(Variable, LiteralVariants)> {
-        match self
-            .literals
+        self.literals
             .borrow()
             .iter()
             .find(|(variable, _)| variable.label() == label)
-        {
-            Some((variable, variants)) => Some((variable.clone(), variants.clone())),
-            None => None,
-        }
+            .map(|(variable, variants)| (variable.clone(), variants.clone()))
     }
 
     fn create_sdd_ref(&self, literal: Literal, sdd_idx: SddId, vtree_idx: VTreeIdx) -> SddRef {

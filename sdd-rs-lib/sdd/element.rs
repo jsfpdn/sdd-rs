@@ -22,7 +22,7 @@ impl Element {
         prime.is_compressed(manager) && sub.is_compressed(manager)
     }
 
-    pub(crate) fn get_prime_sub<'a>(&self, manager: &'a SddManager) -> (SddRef, SddRef) {
+    pub(crate) fn get_prime_sub(&self, manager: &SddManager) -> (SddRef, SddRef) {
         (manager.get_node(self.prime), manager.get_node(self.sub))
     }
 }

@@ -3,6 +3,7 @@ use crate::{
     sdd::{Decision, Element, SddRef, SddType},
     vtree::{Node, VTreeRef},
 };
+
 use std::{collections::BTreeSet, rc::Rc};
 
 #[derive(PartialEq, Debug)]
@@ -212,12 +213,10 @@ impl Fragment {
             } else {
                 self.state += 1;
             }
+        } else if state == 0 {
+            self.state = 11;
         } else {
-            if state == 0 {
-                self.state = 11;
-            } else {
-                self.state -= 1;
-            }
+            self.state -= 1;
         }
 
         state

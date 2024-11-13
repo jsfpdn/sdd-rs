@@ -83,7 +83,7 @@ impl Display for Model {
             "{{{}}}",
             self.literals
                 .iter()
-                .map(|literal| lit_repr(literal))
+                .map(lit_repr)
                 .collect::<Vec<String>>()
                 .join(", ")
         )

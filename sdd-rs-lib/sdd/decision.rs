@@ -1,7 +1,7 @@
 use super::{SddId, SddType};
 use crate::{
-    manager::{SddManager, FALSE_SDD_IDX, TRUE_SDD_IDX},
-    sdd::{element::Element, Sdd, SddRef},
+    manager::SddManager,
+    sdd::{element::Element, SddRef},
 };
 use std::collections::{BTreeSet, HashSet};
 
@@ -87,14 +87,14 @@ impl Decision {
     pub(super) fn trim(&self, manager: &SddManager) -> Option<SddRef> {
         let elements: Vec<&Element> = self.elements.iter().collect();
         if self.elements.len() == 1 {
-            let el = elements.get(0).unwrap();
+            let el = elements.first().unwrap();
             if el.prime.is_true() {
                 return manager.try_get_node(el.sub);
             }
         }
 
         if self.elements.len() == 2 {
-            let el_1 = elements.get(0).unwrap();
+            let el_1 = elements.first().unwrap();
             let el_2 = elements.get(1).unwrap();
 
             let el_1_prime;
