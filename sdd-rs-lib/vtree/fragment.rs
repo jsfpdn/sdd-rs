@@ -375,6 +375,7 @@ pub(crate) fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddMa
         });
     }
 
+    println!("elements: {elements:?}");
     Decision {
         elements: elements.clone(),
     }
@@ -395,19 +396,17 @@ pub(crate) fn rotate_partition_right(
 
     let mut elements = BTreeSet::new();
     for element in &decision.elements {
+        let mut current_elements = BTreeSet::new();
+
         let (ab, c) = element.get_prime_sub(manager);
         assert!(!ab.is_constant());
 
         if ab.vtree_idx() >= x.inorder_first() && ab.vtree_idx() <= x.inorder_last() {
-            elements.insert(Element {
+            current_elements.insert(Element {
                 prime: TRUE_SDD_IDX,
                 sub: manager._conjoin_rotations(&ab, &c, &x).id(),
             });
-
-            continue;
-        }
-
-        if ab.vtree_idx() == w.index() {
+        } else if ab.vtree_idx() == w.index() {
             let SddType::Decision(ref ab_decision) = ab.0.borrow().sdd_type else {
                 panic!("node must be a decision node");
             };
@@ -415,24 +414,24 @@ pub(crate) fn rotate_partition_right(
             for ab_element in &ab_decision.elements {
                 let (a, b) = ab_element.get_prime_sub(manager);
                 let bc = manager._conjoin_rotations(&b, &c, &x);
-                elements.insert(Element {
+                current_elements.insert(Element {
                     prime: a.id(),
                     sub: bc.id(),
                 });
             }
+        } else {
+            current_elements.insert(Element {
+                prime: ab.id(),
+                sub: c.id(),
+            });
 
-            continue;
+            current_elements.insert(Element {
+                prime: ab.negate(manager).id(),
+                sub: FALSE_SDD_IDX,
+            });
         }
 
-        elements.insert(Element {
-            prime: ab.id(),
-            sub: c.id(),
-        });
-
-        elements.insert(Element {
-            prime: ab.negate(manager).id(),
-            sub: FALSE_SDD_IDX,
-        });
+        elements = cartesian_product(elements.clone(), current_elements.clone(), manager);
     }
 
     Decision { elements }.canonicalize(manager)
@@ -463,7 +462,7 @@ pub(crate) fn swap_partition(node: &SddRef, v: &VTreeRef, manager: &SddManager) 
             });
         }
 
-        elements = cartesian_product(current_elements.clone(), elements.clone(), manager);
+        elements = cartesian_product(current_elements, elements, manager);
     }
 
     Decision { elements }.canonicalize(manager)
@@ -541,12 +540,9 @@ mod test {
 
         for i in 0..11 {
             let next_move = fragment.moves[fragment.state];
-            println!(
-                "\n ... minimizing (state {} ~> {}, {next_move:?})",
-                i,
-                i + 1
-            );
+            // println!("\n... minimizing (state {} ~> {}, {next_move:?})", i, i + 1);
             fragment.next(&Direction::Forward, &manager);
+
             assert_eq!(
                 models,
                 manager.model_enumeration(&a_and_b_or_c),

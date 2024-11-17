@@ -695,8 +695,8 @@ impl SddManager {
                     let fst_sub = &self.get_node(*fst_sub);
                     let snd_sub = &self.get_node(*snd_sub);
                     let res_sub = match op {
-                        Operation::Conjoin => self.disjoin(fst_sub, snd_sub),
-                        Operation::Disjoin => self.conjoin(fst_sub, snd_sub),
+                        Operation::Conjoin => self.conjoin(fst_sub, snd_sub),
+                        Operation::Disjoin => self.disjoin(fst_sub, snd_sub),
                     };
 
                     if res_sub.is_true() && res_prime.is_true() {
@@ -890,7 +890,6 @@ impl SddManager {
 
         elements
     }
-    // TODO: expose operations manipulating the vtree.
 
     pub(crate) fn insert_node(&self, sdd: &SddRef) {
         self.unique_table.borrow_mut().insert(sdd.id(), sdd.clone());
@@ -1112,9 +1111,37 @@ impl SddManager {
             sdd.set_vtree_idx(x.index());
             self.insert_node(sdd);
         }
+        // TODO: This takes a little bit more work as more complicated
+        // cases such as manager::test::swap fails due to nodes above
+        // literals are normalized against the wrong vtrees. Either
+        // find the bug or set the correct vtree index "manually" as
+        // we currently do with literals.
+        self.fix_literal_vtrees();
 
         // TODO: Make sure this is actually needed.
         self.invalidate_cached_models();
+    }
+
+    fn fix_literal_vtrees(&self) {
+        for (_, sdd) in self.unique_table.borrow().iter() {
+            let mut sdd = sdd.0.borrow_mut();
+            if !sdd.is_literal() {
+                continue;
+            }
+
+            match sdd.sdd_type.clone() {
+                SddType::Literal(literal) => {
+                    let vtree = self
+                        .vtree_manager
+                        .borrow()
+                        .get_variable_vtree(&literal.var_label())
+                        .unwrap();
+
+                    sdd.vtree_idx = vtree.index();
+                }
+                _ => {}
+            }
+        }
     }
 
     fn invalidate_cached_models(&self) {
@@ -1167,7 +1194,6 @@ mod test {
     use crate::{
         literal::{Literal, Polarity, VariableIdx},
         manager::model::Model,
-        util::quick_draw,
     };
     use pretty_assertions::assert_eq;
 
