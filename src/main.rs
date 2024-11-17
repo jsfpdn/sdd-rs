@@ -2,10 +2,11 @@ use std::fs::File;
 use std::io::{BufWriter, Error};
 
 use clap::Parser;
+use tracing_subscriber::prelude::*;
 
 use sddrs::manager::{
     options::{InitialVTree, SddOptions},
-    SddManager,
+    CutOff, SddManager, TargetVTreeHeuristic,
 };
 
 #[derive(Parser, Debug)]
@@ -45,6 +46,10 @@ struct Cli {
 fn main() -> Result<(), std::io::Error> {
     let cli = Cli::parse();
 
+    let fmt_layer = tracing_subscriber::fmt::Layer::default();
+    let subscriber = tracing_subscriber::registry().with(fmt_layer);
+    tracing::subscriber::set_global_default(subscriber).unwrap();
+
     let options = SddOptions::default()
         .set_initial_vtree(InitialVTree::Balanced)
         .to_owned();
@@ -70,6 +75,8 @@ fn main() -> Result<(), std::io::Error> {
             sdd
         }
     };
+
+    manager.minimize(CutOff::TBD, TargetVTreeHeuristic::TBD, &sdd);
 
     let _ = write_to_file(
         cli.sdd_dot_path.as_deref(),

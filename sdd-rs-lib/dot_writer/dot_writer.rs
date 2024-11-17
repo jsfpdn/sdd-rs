@@ -87,8 +87,12 @@ impl DotWriter {
     /// # Errors
     /// Function returns an error if the writing to a file or flushing fails.
     pub fn write(&self, writer: &mut dyn std::io::Write) -> Result<(), String> {
-        write!(writer, "digraph {} {{\n  overlap=false", self.graph_name)
-            .map_err(|err| err.to_string())?;
+        write!(
+            writer,
+            "digraph {} {{\n  overlap=false\n  ordering=out",
+            self.graph_name
+        )
+        .map_err(|err| err.to_string())?;
 
         for (node, node_type) in &self.nodes {
             write!(

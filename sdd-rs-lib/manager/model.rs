@@ -10,6 +10,8 @@ pub struct Models {
 
 impl Models {
     pub(crate) fn new(models: Vec<BitVec>, variables: Vec<Variable>) -> Self {
+        let mut models = models.clone();
+        models.sort();
         Models { models, variables }
     }
 

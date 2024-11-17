@@ -147,6 +147,7 @@ impl Decision {
                     prime: new_prime.id(),
                     sub: fst.sub,
                 };
+                elements[i] = fst;
 
                 // Remove element at the `j`-th position from the vector of elements.
                 // This means decreasing the `last_el_idx` and not moving the `j` index

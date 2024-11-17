@@ -7,16 +7,18 @@ use crate::{
     util::set_bits_indices,
     vtree::{
         rotate_partition_left, rotate_partition_right, split_nodes_for_left_rotate,
-        split_nodes_for_right_rotate, split_nodes_for_swap, swap_partition, LeftRotateSplit,
-        RightRotateSplit, VTreeIdx, VTreeManager, VTreeOrder, VTreeRef,
+        split_nodes_for_right_rotate, split_nodes_for_swap, swap_partition, Direction, Fragment,
+        LeftRotateSplit, RightRotateSplit, VTreeIdx, VTreeManager, VTreeOrder, VTreeRef,
     },
 };
 use bitvec::prelude::*;
 use std::{
     cell::RefCell,
     collections::{BTreeSet, HashMap},
+    env::consts::ARCH,
     ops::BitOr,
 };
+use tracing::instrument;
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug, Copy)]
 enum Operation {
@@ -26,20 +28,24 @@ enum Operation {
 
 impl Operation {
     /// Get the absorbing element with respect to the Boolean operation.
-    fn zero(&self) -> Sdd {
+    fn zero(&self) -> SddId {
         match self {
-            Operation::Conjoin => Sdd::new_false(),
-            Operation::Disjoin => Sdd::new_true(),
+            Operation::Conjoin => FALSE_SDD_IDX,
+            Operation::Disjoin => TRUE_SDD_IDX,
         }
     }
 }
 
 #[derive(Eq, PartialEq, Hash, Debug)]
 // TODO: Builder pattern with bon?
-pub enum TargetVTreeHeuristic {}
+pub enum TargetVTreeHeuristic {
+    TBD,
+}
 
 // TODO: Builder pattern with bon?
-pub struct CutOff {}
+pub enum CutOff {
+    TBD,
+}
 
 #[derive(Eq, PartialEq, Hash, Debug, Clone)]
 struct Entry {
@@ -82,6 +88,9 @@ impl SddManager {
         let mut unique_table = RefCell::new(HashMap::new());
         let ff = SddRef::new(Sdd::new_false());
         let tt = SddRef::new(Sdd::new_true());
+
+        assert_eq!(tt.id(), TRUE_SDD_IDX);
+        assert_eq!(ff.id(), FALSE_SDD_IDX);
 
         unique_table.get_mut().insert(tt.id(), tt);
         unique_table.get_mut().insert(ff.id(), ff);
@@ -164,6 +173,7 @@ impl SddManager {
             self.move_idx();
         }
 
+        self.insert_node(&sdd);
         sdd
     }
 
@@ -177,6 +187,7 @@ impl SddManager {
     }
 
     pub(crate) fn remove_node(&self, id: SddId) -> std::result::Result<(), ()> {
+        tracing::debug!(id = id.0, "removing node from cache");
         let entries: Vec<_> = {
             self.op_cache
                 .borrow()
@@ -199,7 +210,7 @@ impl SddManager {
     pub fn literal(&self, literal: &str, polarity: Polarity) -> SddRef {
         // TODO: Adding new variable should either invalidate cached model counts
         // in existing SDDs or recompute them.
-        // warn!("should invalidate cached model counts");
+        tracing::warn!("should invalidate cached model counts");
 
         let (literal, created) = self.literal_manager.borrow().new_literal(
             literal,
@@ -227,7 +238,9 @@ impl SddManager {
     }
 
     #[must_use]
+    #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     pub fn conjoin(&self, fst: &SddRef, snd: &SddRef) -> SddRef {
+        tracing::debug!(fst_id = fst.id().0, snd_id = snd.id().0);
         if fst == snd {
             return fst.clone();
         }
@@ -256,7 +269,9 @@ impl SddManager {
     }
 
     #[must_use]
+    #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     pub fn disjoin(&self, fst: &SddRef, snd: &SddRef) -> SddRef {
+        tracing::debug!(fst_id = fst.id().0, snd_id = snd.id().0);
         if fst == snd {
             return fst.clone();
         }
@@ -285,12 +300,16 @@ impl SddManager {
     }
 
     #[must_use]
+    #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     pub fn negate(&self, fst: &SddRef) -> SddRef {
+        tracing::debug!(fst_id = fst.id().0);
         fst.clone().negate(self)
     }
 
     #[must_use]
+    #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     pub fn imply(&self, fst: &SddRef, snd: &SddRef) -> SddRef {
+        tracing::debug!(fst_id = fst.id().0, snd_id = snd.id().0);
         if fst == snd && fst.is_true() {
             return snd.clone();
         }
@@ -312,7 +331,9 @@ impl SddManager {
     }
 
     #[must_use]
+    #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     pub fn equiv(&self, fst: &SddRef, snd: &SddRef) -> SddRef {
+        tracing::debug!(fst_id = fst.id().0, snd_id = snd.id().0);
         if fst == snd {
             return self.tautology();
         }
@@ -370,37 +391,41 @@ impl SddManager {
     //             this would get automatically called.
     //        1bb) initialize manager with Minimize::Automatically and we would minimize during
     //             apply, when computing partitions (this seems the hardest)
-    pub fn minimize(&self, cut_off: CutOff, vtree_heuristic: TargetVTreeHeuristic) {
-        // TODO: Inputs:
-        // - strategy to identify next vtree to minimize (and do local search on): TargetVTreeHeuristic
-        // - strategy to limit number of passes done: CutOff
+    #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
+    pub fn minimize(
+        &self,
+        cut_off: CutOff,
+        vtree_heuristic: TargetVTreeHeuristic,
+        reference_sdd: &SddRef,
+    ) {
+        // TODO: Remove reference SDD.
+        // TODO: Assert that the fragment can be even built.
+        // TODO: Strategy for finding better fragment - RandomLeftLinear, RandomRightLinear, Random, original, Custom(VTreeIdx)
         let root = self.vtree_manager.borrow().root.clone().unwrap();
+        // Currently, we're constructing just right-linear fragments.
+        let rc = root.right_child();
 
-        // root == leaf?
-        // TODO: garbage collection
-        //
-        // TODO: identify sub-vtree to minimize (heuristic, search.c::274):
-        //       It looks like they find some subtree that has some nice properties,
-        //       create fragment of it and look through all the states there.
-        //
-        // init_size = # of live SDD nodes that are normalized for the heuristically found vtree
-        // out_size = (# of all live SDD nodes) - init_size
-        // TODO: threshold
-        // TODO: iterations
-        // TODO: reduction - percentage of reduction in size
-        //
-        // Minimization done in multiple passes
-        // loop {
-        //       let prev_size = ...;
-        //       TODO: local_search_pass - this seems like the main part
-        //       let subtree = local_search_pass(subtree);
-        //       let curr_size = ...;
-        //       let reduction = size_reduction(prev_size, curr_size);
-        //       let subtree = find_new_subtree(...); // what to optimize in the next pass
-        //       TODO: Properly abstract away stop limits (time, number of passes, total_size, reduction...?)
-        // }
-        // TODO: Verify whether the vtree is X-constrained?
-        unimplemented!()
+        let mut fragment = Fragment::new(root, rc);
+
+        // TODO: Remove sanity checks.
+        let models = self.model_enumeration(reference_sdd);
+        tracing::debug!(
+            sdd_id = reference_sdd.id().0,
+            size = self.size(reference_sdd)
+        );
+
+        for i in 0..12 {
+            // TODO: Cut off after number of moves, after some time, or if we manage to make the SDD better
+            // (=> decrease the number of nodes in the manager).
+            fragment.next(&Direction::Forward, self);
+            tracing::debug!(
+                iteration = i,
+                sdd_id = reference_sdd.id().0,
+                size = self.size(reference_sdd)
+            );
+            // TODO: Improve the assertion by doing the first model_enumeration in debug as well.
+            debug_assert_eq!(models, self.model_enumeration(reference_sdd));
+        }
     }
 
     /// Get the size of the SDD which is the number of elements reachable from it.
@@ -432,10 +457,17 @@ impl SddManager {
         traverse_and_count(self, sdd, &mut seen)
     }
 
+    #[instrument(skip_all, level = tracing::Level::DEBUG)]
     fn _model_enumeration(&self, sdd: &SddRef, bitvecs: &mut Vec<BitVec>) {
+        tracing::debug!(sdd_id = sdd.id().0);
         // Return the cached value if it already exists.
         if let Some(ref mut models) = sdd.models() {
+            tracing::debug!("has {} cached models", models.len());
             bitvecs.append(models);
+            return;
+        }
+
+        if sdd.is_constant() {
             return;
         }
 
@@ -594,7 +626,9 @@ impl SddManager {
 
     /// Apply operation on the two Sdds.
     #[must_use]
+    #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     fn apply(&self, fst: &SddRef, snd: &SddRef, op: Operation) -> SddRef {
+        tracing::debug!(fst_id = fst.id().0, snd_id = snd.id().0, ?op, "apply");
         let (fst, snd) = if fst.vtree_idx() < snd.vtree_idx() {
             (fst, snd)
         } else {
@@ -606,6 +640,7 @@ impl SddManager {
             snd: snd.id(),
             op,
         }) {
+            tracing::debug!(fst_id = fst.id().0, snd_id = snd.id().0, ?op, "cached");
             return self.get_node(*result_id);
         }
 
@@ -621,7 +656,7 @@ impl SddManager {
             VTreeOrder::RightSubOfLeft => self._apply_right_sub_of_left(fst, snd, op),
         };
 
-        let sdd = self.new_sdd(Sdd::unique_d(elements, lca.index()));
+        let sdd = Sdd::unique_d(elements.clone(), lca.index(), self);
         sdd.canonicalize(self);
         // TODO: canonicalize is not working properly => infinite loop since it's not changing.
 
@@ -635,7 +670,9 @@ impl SddManager {
         sdd
     }
 
+    #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     fn _apply_eq(&self, fst: &SddRef, snd: &SddRef, op: Operation) -> BTreeSet<Element> {
+        tracing::debug!(fst_id = fst.id().0, snd_id = snd.id().0, ?op, "apply_eq");
         assert_eq!(fst.vtree_idx(), snd.vtree_idx());
         assert!(!fst.is_constant());
         assert!(!snd.is_constant());
@@ -680,7 +717,9 @@ impl SddManager {
         elements
     }
 
+    #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     fn _apply_ineq(&self, fst: &SddRef, snd: &SddRef, op: Operation) -> BTreeSet<Element> {
+        tracing::debug!(fst_id = fst.id().0, snd_id = snd.id().0, ?op, "apply_ineq");
         assert!(fst.vtree_idx() < snd.vtree_idx());
         assert!(!fst.is_constant());
         assert!(!snd.is_constant());
@@ -710,12 +749,61 @@ impl SddManager {
         )
     }
 
+    #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
+    pub(crate) fn _conjoin_rotations(&self, fst: &SddRef, snd: &SddRef, lca: &VTreeRef) -> SddRef {
+        if fst.is_false() || snd.is_false() {
+            return self.contradiction();
+        }
+
+        if fst.is_true() {
+            return snd.clone();
+        }
+
+        if snd.is_true() {
+            return fst.clone();
+        }
+
+        if let Some(result_id) = self.op_cache.borrow().get(&Entry {
+            fst: fst.id(),
+            snd: snd.id(),
+            op: Operation::Conjoin,
+        }) {
+            return self.get_node(*result_id);
+        }
+
+        let elements = btreeset!(
+            Element {
+                prime: fst.id(),
+                sub: snd.id(),
+            },
+            Element {
+                prime: self.negate(&fst).id(),
+                sub: FALSE_SDD_IDX
+            }
+        );
+
+        let sdd = Sdd::unique_d(elements, lca.index(), self);
+        sdd.canonicalize(self);
+
+        self.insert_node(&sdd);
+        self.cache_operation(fst.id(), snd.id(), Operation::Conjoin, sdd.id());
+
+        sdd
+    }
+
+    #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     fn _apply_left_sub_of_right(
         &self,
         fst: &SddRef,
         snd: &SddRef,
         op: Operation,
     ) -> BTreeSet<Element> {
+        tracing::debug!(
+            fst_id = fst.id().0,
+            snd_id = snd.id().0,
+            ?op,
+            "apply_left_sub_of_right"
+        );
         assert!(fst.vtree_idx() < snd.vtree_idx());
         assert!(!fst.is_constant());
         assert!(!snd.is_constant());
@@ -735,8 +823,8 @@ impl SddManager {
         );
 
         let mut elements = btreeset!(Element {
-            prime: new_node.clone().negate(self).id(),
-            sub: op.zero().id(),
+            prime: self.negate(new_node).id(),
+            sub: op.zero(),
         });
 
         for Element {
@@ -757,12 +845,19 @@ impl SddManager {
         elements
     }
 
+    #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     fn _apply_right_sub_of_left(
         &self,
         fst: &SddRef,
         snd: &SddRef,
         op: Operation,
     ) -> BTreeSet<Element> {
+        tracing::debug!(
+            fst_id = fst.id().0,
+            snd_id = snd.id().0,
+            ?op,
+            "apply_right_sub_of_left"
+        );
         assert!(fst.vtree_idx() < snd.vtree_idx());
         assert!(!fst.is_constant());
         assert!(!snd.is_constant());
@@ -802,6 +897,7 @@ impl SddManager {
         self.unique_table.borrow_mut().insert(sdd.id(), sdd.clone());
     }
 
+    #[instrument]
     fn cache_operation(&self, fst: SddId, snd: SddId, op: Operation, res_id: SddId) {
         self.op_cache
             .borrow_mut()
@@ -911,27 +1007,43 @@ impl SddManager {
     /// * `w(a, bc)` must be rotated and moved to `x` (~> `x(ab, c)`)
     /// * `w(a, c)` must be moved to `x` (~> `x(a, c)`)
     /// * `w(a, b)` stay at `w`
+    #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     pub fn rotate_left(&self, x: &VTreeRef) {
         let w =
             x.0.borrow()
                 .get_parent()
                 .expect("invalid fragment: `x` does not have a parent");
 
+        self.vtree_manager.borrow_mut().rotate_left(x);
+
         // TODO: Check that caches are correct (unique_table, op_cache, model_count and models).
         let LeftRotateSplit { bc_vec, c_vec } = split_nodes_for_left_rotate(&w, x, self);
 
-        self.vtree_manager.borrow_mut().rotate_left(x);
-
         for bc in &bc_vec {
             bc.set_vtree_idx(x.index());
-            bc.replace_contents(SddType::Decision(Decision {
+            let decision = SddType::Decision(Decision {
                 elements: rotate_partition_left(bc, x, self).elements,
-            }));
+            });
+
+            bc.replace_contents(decision);
             self.insert_node(bc);
         }
 
+        self.finalize_vtree_op(&bc_vec, &c_vec, &x);
+
         // TODO: Make sure this is actually needed.
         self.invalidate_cached_models();
+    }
+
+    fn finalize_vtree_op(&self, replaced: &[SddRef], moved: &[SddRef], vtree: &VTreeRef) {
+        for sdd in replaced {
+            self.insert_node(&sdd);
+        }
+
+        for sdd in moved {
+            sdd.set_vtree_idx(vtree.index());
+            self.insert_node(&sdd);
+        }
     }
 
     /// Rotate the vtree [`x`] to the right and adjust SDDs accordingly.
@@ -953,22 +1065,26 @@ impl SddManager {
     /// * `x(ab, c)` must be rotated and moved to `w` (~> `w(a, bc)`)
     /// * `x(a, c)` must be moved to `w` (~> `x(a, c)`)
     /// * `x(a, b)` stay at `x`
+    #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     pub fn rotate_right(&self, x: &VTreeRef) {
         // TODO: Double check all the vtree occurances.
+        // TODO: Double check computing the cartesian product.
         let w = x.left_child();
+
+        self.vtree_manager.borrow_mut().rotate_right(x);
 
         // TODO: Check that caches are correct (unique_table, op_cache, model_count and models).
         let RightRotateSplit { ab_vec, a_vec } = split_nodes_for_right_rotate(x, &w, self);
 
-        self.vtree_manager.borrow_mut().rotate_right(x);
-
         for ab in &ab_vec {
-            ab.set_vtree_idx(w.index());
             ab.replace_contents(SddType::Decision(Decision {
                 elements: rotate_partition_right(ab, &w, self).elements,
             }));
+            ab.set_vtree_idx(w.index());
             self.insert_node(ab);
         }
+
+        self.finalize_vtree_op(&ab_vec, &a_vec, &w);
 
         // TODO: Make sure this is actually needed.
         self.invalidate_cached_models();
@@ -984,6 +1100,7 @@ impl SddManager {
     ///
     /// This is a low-level operation working directly on a vtree. See
     /// [`SddManager::minimization`] for a more sophisticated way of finding better vtrees.
+    #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     pub fn swap(&self, x: &VTreeRef) {
         let split = split_nodes_for_swap(x, self);
 
@@ -993,6 +1110,7 @@ impl SddManager {
             sdd.replace_contents(SddType::Decision(Decision {
                 elements: swap_partition(sdd, x, self).elements,
             }));
+            sdd.set_vtree_idx(x.index());
             self.insert_node(sdd);
         }
 
@@ -1050,6 +1168,7 @@ mod test {
     use crate::{
         literal::{Literal, Polarity, VariableIdx},
         manager::model::Model,
+        util::quick_draw,
     };
     use pretty_assertions::assert_eq;
 
@@ -1254,14 +1373,14 @@ mod test {
             Model::new_from_literals(vec![
                 Literal::new(Polarity::Positive, "a", VariableIdx(0)),
                 Literal::new(Polarity::Positive, "b", VariableIdx(1)),
-                Literal::new(Polarity::Positive, "c", VariableIdx(2)),
-                Literal::new(Polarity::Negative, "d", VariableIdx(3)),
+                Literal::new(Polarity::Negative, "c", VariableIdx(2)),
+                Literal::new(Polarity::Positive, "d", VariableIdx(3)),
             ]),
             Model::new_from_literals(vec![
                 Literal::new(Polarity::Positive, "a", VariableIdx(0)),
                 Literal::new(Polarity::Positive, "b", VariableIdx(1)),
-                Literal::new(Polarity::Negative, "c", VariableIdx(2)),
-                Literal::new(Polarity::Positive, "d", VariableIdx(3)),
+                Literal::new(Polarity::Positive, "c", VariableIdx(2)),
+                Literal::new(Polarity::Negative, "d", VariableIdx(3)),
             ]),
             Model::new_from_literals(vec![
                 Literal::new(Polarity::Positive, "a", VariableIdx(0)),
@@ -1402,7 +1521,7 @@ mod test {
         let a_and_d = manager.conjoin(&lit_a, &lit_d);
         let a_and_d_and_b = manager.conjoin(&a_and_d, &lit_b);
         let a_and_d_and_b_and_c = manager.conjoin(&a_and_d_and_b, &lit_c);
-        assert_eq!(manager.size(&a_and_d_and_b_and_c), 6);
+        assert_eq!(manager.size(&a_and_d_and_b_and_c), 8);
 
         let models_before = manager.model_enumeration(&a_and_d_and_b_and_c);
 

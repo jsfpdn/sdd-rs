@@ -13,7 +13,7 @@ path = "lib.rs"
 [dependencies]
 bitvec = "1.0.1"
 fxhash = "0.2.1"
-tracing = "0.1"
+tracing = { version = "0.1", features = ["attributes"] }
 derive_more = { version = "1", features = ["from", "add", "add_assign"] }
 thiserror = "2"
 

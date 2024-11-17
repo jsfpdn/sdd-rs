@@ -294,26 +294,29 @@ impl Sdd {
 
     /// Compute "uniqueD" SDD as described in Algorithm 1 in
     /// [SDD: A New Canonical Representation of Propositional Knowledge Bases](https://ai.dmi.unibas.ch/research/reading_group/darwiche-ijcai2011.pdf).
-    pub(crate) fn unique_d(gamma: BTreeSet<Element>, vtree_idx: VTreeIdx) -> Sdd {
+    pub(crate) fn unique_d(
+        gamma: BTreeSet<Element>,
+        vtree_idx: VTreeIdx,
+        manager: &SddManager,
+    ) -> SddRef {
         // gamma == {(T, T)}?
         if gamma.eq(&btreeset![Element {
-            prime: Sdd::new_true().id(),
-            sub: Sdd::new_true().id(),
+            prime: TRUE_SDD_IDX,
+            sub: TRUE_SDD_IDX,
         }]) {
-            return Sdd::new_true();
+            return manager.tautology();
         }
 
         // gamma == {(T, F)}?
         if gamma.eq(&btreeset![Element {
-            prime: Sdd::new_true().id(),
-            sub: Sdd::new_false().id(),
+            prime: TRUE_SDD_IDX,
+            sub: FALSE_SDD_IDX,
         }]) {
-            return Sdd::new_false();
+            return manager.contradiction();
         }
 
-        Sdd::new(
+        manager.new_sdd_from_type(
             SddType::Decision(Decision { elements: gamma }),
-            SddId(0),
             vtree_idx,
             None,
         )
@@ -348,6 +351,8 @@ impl Sdd {
         let w_idx = w.index();
 
         for prime in &primes {
+            assert!(!prime.is_constant());
+
             if prime.vtree_idx() == w_idx {
                 return LeftDependence::AB;
             }
@@ -363,6 +368,9 @@ impl Sdd {
             }
         }
 
+        assert!(depends_on_a || depends_on_b);
+        assert!(!(depends_on_a && depends_on_b));
+
         if depends_on_a {
             return LeftDependence::A;
         }
@@ -377,8 +385,6 @@ impl Sdd {
         x: &VTreeRef,
         manager: &SddManager,
     ) -> RightDependence {
-        // assert_eq!(self.vtree_idx, x.index());
-
         let SddType::Decision(ref decision) = self.sdd_type else {
             panic!("cannot get dependence on anything other than decision node");
         };
@@ -418,6 +424,7 @@ impl Sdd {
     }
 
     pub(crate) fn invalidate_cache(&mut self) {
+        tracing::debug!(sddId = self.id().0, "invalidating cache");
         self.models = None;
         self.model_count = None;
     }

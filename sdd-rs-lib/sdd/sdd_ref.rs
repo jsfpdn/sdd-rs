@@ -3,7 +3,10 @@ use crate::sdd::{Sdd, SddId, SddType};
 use crate::vtree::VTreeIdx;
 use bitvec::prelude::*;
 use std::cell::RefCell;
+use std::collections::BTreeSet;
 use std::rc::Rc;
+
+use super::{Decision, Element};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SddRef(pub(crate) Rc<RefCell<Sdd>>);
@@ -46,6 +49,14 @@ impl SddRef {
         self.is_constant() || self.is_literal()
     }
 
+    // TODO: Remove me.
+    pub(crate) fn get_elements(&self) -> BTreeSet<Element> {
+        match self.0.borrow().sdd_type {
+            SddType::Decision(Decision { ref elements }) => elements.clone(),
+            _ => unreachable!(),
+        }
+    }
+
     /// Check whether [`self`] equals to the negated [`other`].
     ///
     /// This operation may create more SDDs in the unique table.
@@ -69,9 +80,9 @@ impl SddRef {
     /// The computation works lazily - if the negation has been already computed,
     /// the value is just returned.
     pub(crate) fn negate(&self, manager: &SddManager) -> SddRef {
-        if let Some(negated_sdd_id) = self.0.borrow().negation {
-            return manager.get_node(negated_sdd_id);
-        }
+        // if let Some(negated_sdd_id) = self.0.borrow().negation {
+        //     return manager.get_node(negated_sdd_id);
+        // }
 
         let negation = self.0.borrow_mut().negate(manager);
         manager.insert_node(&negation);

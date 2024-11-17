@@ -1,3 +1,5 @@
+use tracing::instrument;
+
 use crate::{
     manager::{SddManager, FALSE_SDD_IDX, TRUE_SDD_IDX},
     sdd::{Decision, Element, SddRef, SddType},
@@ -79,10 +81,6 @@ impl Mode {
 // TODO: Fragment shadows
 
 pub(crate) struct Fragment {
-    // TODO: Add counts: IC, IR, Ic
-    root: VTreeRef,
-    child: VTreeRef,
-
     current_root: VTreeRef,
     current_child: VTreeRef,
 
@@ -151,10 +149,8 @@ impl Fragment {
         };
 
         Fragment {
-            root: root.clone(),
-            child: child.clone(),
-            current_root: root,
-            current_child: child,
+            current_root: root.clone(),
+            current_child: child.clone(),
             linearity,
             state: 0,
             mode: Mode::Initial,
@@ -162,7 +158,8 @@ impl Fragment {
         }
     }
 
-    fn next(&mut self, direction: &Direction, manager: &SddManager) {
+    #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
+    pub(crate) fn next(&mut self, direction: &Direction, manager: &SddManager) {
         assert!(self.state <= 11);
         assert!(
             self.mode.can_transition(Mode::Next),
@@ -172,6 +169,7 @@ impl Fragment {
         );
 
         let next_move = self.next_move(direction);
+        tracing::debug!(?next_move);
 
         match next_move {
             Move::LeftRotateChild => {
@@ -179,7 +177,7 @@ impl Fragment {
                     &self.current_child.0,
                     &self.current_root.right_child().0
                 ));
-                manager.rotate_left(&self.current_child);
+                manager.rotate_left(&self.current_child.clone());
                 self.swap();
             }
             Move::RightRotateRoot => {
@@ -187,7 +185,7 @@ impl Fragment {
                     &self.current_child.0,
                     &self.current_root.left_child().0
                 ));
-                manager.rotate_right(&self.root);
+                manager.rotate_right(&self.current_root);
                 self.swap();
             }
             Move::SwapChild => {
@@ -250,11 +248,9 @@ pub(crate) fn split_nodes_for_left_rotate(
     x: &VTreeRef,
     manager: &SddManager,
 ) -> LeftRotateSplit {
-    let w_idx = w.index();
-
     // Collect all the SDDs which are normalized for `w`.
     let normalized_sdds = manager
-        .get_nodes_normalized_for(w_idx)
+        .get_nodes_normalized_for(w.index())
         .iter()
         .map(|(id, sdd)| (sdd.0.borrow().dependence_on_right_vtree(x, manager), *id))
         .collect::<Vec<_>>();
@@ -327,6 +323,8 @@ pub(crate) fn split_nodes_for_swap(v: &VTreeRef, manager: &SddManager) -> Vec<Sd
 /// Rotate partitions to the left.
 #[must_use]
 pub(crate) fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddManager) -> Decision {
+    let w = x.left_child();
+
     // This function assumes that `x` has been already rotated and `w` is it's left child.
     let SddType::Decision(ref decision) = node.0.borrow().sdd_type else {
         panic!("node must be a decision node");
@@ -349,11 +347,11 @@ pub(crate) fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddMa
                 panic!("node must be a decision node");
             };
 
-            for bc_element in &bc_decision.elements {
+            for bc_element in bc_decision.elements.iter() {
                 let (b, c) = bc_element.get_prime_sub(manager);
                 // TODO: Once conjoin is able to do vtree search on it's own, turn it off in here.
                 // TODO: we could improve this since we already know LCA, which is x's left child.
-                let ab = manager.conjoin(&a, &b);
+                let ab = manager._conjoin_rotations(&a, &b, &w);
                 elements.insert(Element {
                     prime: ab.id(),
                     sub: c.id(),
@@ -366,18 +364,21 @@ pub(crate) fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddMa
         // last case: bc is normalized for vtree in b
         // Create element (a && bc, True).
         elements.insert(Element {
-            prime: manager.conjoin(&a, &bc).id(),
+            prime: manager._conjoin_rotations(&a, &bc, &w).id(),
             sub: TRUE_SDD_IDX,
         });
 
         // Create element (a && !bc, False).
         elements.insert(Element {
-            prime: manager.conjoin(&a, &manager.negate(&bc)).id(),
+            prime: manager._conjoin_rotations(&a, &bc.negate(manager), &w).id(),
             sub: FALSE_SDD_IDX,
         });
     }
 
-    Decision { elements }.canonicalize(manager)
+    Decision {
+        elements: elements.clone(),
+    }
+    .canonicalize(manager)
 }
 
 /// Rotate partitions to the right.
@@ -395,11 +396,12 @@ pub(crate) fn rotate_partition_right(
     let mut elements = BTreeSet::new();
     for element in &decision.elements {
         let (ab, c) = element.get_prime_sub(manager);
+        assert!(!ab.is_constant());
 
         if ab.vtree_idx() >= x.inorder_first() && ab.vtree_idx() <= x.inorder_last() {
             elements.insert(Element {
                 prime: TRUE_SDD_IDX,
-                sub: manager.conjoin(&ab, &c).id(),
+                sub: manager._conjoin_rotations(&ab, &c, &x).id(),
             });
 
             continue;
@@ -412,7 +414,7 @@ pub(crate) fn rotate_partition_right(
 
             for ab_element in &ab_decision.elements {
                 let (a, b) = ab_element.get_prime_sub(manager);
-                let bc = manager.conjoin(&b, &c);
+                let bc = manager._conjoin_rotations(&b, &c, &x);
                 elements.insert(Element {
                     prime: a.id(),
                     sub: bc.id(),
@@ -428,7 +430,7 @@ pub(crate) fn rotate_partition_right(
         });
 
         elements.insert(Element {
-            prime: manager.negate(&ab).id(),
+            prime: ab.negate(manager).id(),
             sub: FALSE_SDD_IDX,
         });
     }
@@ -444,6 +446,7 @@ pub(crate) fn swap_partition(node: &SddRef, v: &VTreeRef, manager: &SddManager) 
     let mut elements = BTreeSet::new();
     for element in &decision.elements {
         let (a, b) = element.get_prime_sub(manager);
+        let neg_b = manager.negate(&b);
         if !b.is_false() {
             elements.insert(Element {
                 prime: b.id(),
@@ -451,13 +454,14 @@ pub(crate) fn swap_partition(node: &SddRef, v: &VTreeRef, manager: &SddManager) 
             });
         }
 
-        let neg_b = manager.negate(&b);
         if !neg_b.is_false() {
             elements.insert(Element {
                 prime: neg_b.id(),
                 sub: FALSE_SDD_IDX,
             });
         }
+        // TODO: Compute Cartesian product of the two (or one) new elements
+        // added in this loop.
     }
 
     Decision { elements }.canonicalize(manager)
@@ -475,7 +479,7 @@ mod test {
     use pretty_assertions::assert_eq;
 
     #[test]
-    fn fragment() {
+    fn fragment_forward() {
         // We should be able to create minimal right-linear fragment and visit all the
         // possible states while going forward.
         let manager = SddManager::new(SddOptions::default());
@@ -496,16 +500,20 @@ mod test {
 
         let root = manager.root().unwrap();
         let rc = root.right_child();
-        let mut fragment = Fragment::new(root, rc);
+        let mut fragment = Fragment::new(root.clone(), rc.clone());
 
-        for i in 0..12 {
+        for i in 0..11 {
             let next_move = fragment.moves[fragment.state];
+            println!(
+                "\n ... minimizing (state {} ~> {}, {next_move:?})",
+                i,
+                i + 1
+            );
             fragment.next(&Direction::Forward, &manager);
-
             assert_eq!(
                 models,
                 manager.model_enumeration(&a_and_b_or_c),
-                "{i}-th state failed while doing {next_move:?}",
+                "{i}-th state failed after doing {next_move:?}",
             );
         }
     }
