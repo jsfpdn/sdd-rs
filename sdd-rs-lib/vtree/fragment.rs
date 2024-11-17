@@ -445,26 +445,63 @@ pub(crate) fn swap_partition(node: &SddRef, v: &VTreeRef, manager: &SddManager) 
 
     let mut elements = BTreeSet::new();
     for element in &decision.elements {
+        let mut current_elements = BTreeSet::new();
+
         let (a, b) = element.get_prime_sub(manager);
         let neg_b = manager.negate(&b);
         if !b.is_false() {
-            elements.insert(Element {
+            current_elements.insert(Element {
                 prime: b.id(),
                 sub: a.id(),
             });
         }
 
         if !neg_b.is_false() {
-            elements.insert(Element {
+            current_elements.insert(Element {
                 prime: neg_b.id(),
                 sub: FALSE_SDD_IDX,
             });
         }
-        // TODO: Compute Cartesian product of the two (or one) new elements
-        // added in this loop.
+
+        elements = cartesian_product(current_elements.clone(), elements.clone(), manager);
     }
 
     Decision { elements }.canonicalize(manager)
+}
+
+fn cartesian_product(
+    fst: BTreeSet<Element>,
+    snd: BTreeSet<Element>,
+    manager: &SddManager,
+) -> BTreeSet<Element> {
+    if fst.is_empty() {
+        return snd.clone();
+    }
+
+    if snd.is_empty() {
+        return fst.clone();
+    }
+
+    let mut out = BTreeSet::new();
+
+    for fst_element in &fst {
+        for snd_element in &snd {
+            let (fst_prime, fst_sub) = fst_element.get_prime_sub(&manager);
+            let (snd_prime, snd_sub) = snd_element.get_prime_sub(&manager);
+
+            let res_prime = manager.conjoin(&fst_prime, &snd_prime);
+            if !res_prime.is_false() {
+                let res_sub = manager.disjoin(&fst_sub, &snd_sub);
+
+                out.insert(Element {
+                    prime: res_prime.id(),
+                    sub: res_sub.id(),
+                });
+            }
+        }
+    }
+
+    out
 }
 
 #[cfg(test)]

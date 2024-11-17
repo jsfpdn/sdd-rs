@@ -15,7 +15,6 @@ use bitvec::prelude::*;
 use std::{
     cell::RefCell,
     collections::{BTreeSet, HashMap},
-    env::consts::ARCH,
     ops::BitOr,
 };
 use tracing::instrument;
