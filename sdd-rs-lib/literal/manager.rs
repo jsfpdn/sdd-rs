@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use crate::literal::{Literal, Polarity, Variable, VariableIdx};
 use crate::sdd::{Sdd, SddId, SddRef, SddType};
-use crate::vtree::{VTreeIdx, VTreeManager};
+use crate::vtree::{VTreeIdx, VTreeManager, VTreeRef};
 
 #[derive(Clone, Debug)]
 struct LiteralVariants {
@@ -77,9 +77,9 @@ impl LiteralManager {
 
         // SddRef has not been constructed yet, we need to create it now and add it to the HashMap.
         let literal = Literal::new_with_label(polarity, variable.clone());
-        let vtree_idx = vtree_manager.get_variable_vtree(&variable).unwrap().index();
+        let vtree = vtree_manager.get_variable_vtree(&variable).unwrap();
 
-        (self.create_sdd_ref(literal, next_sdd_idx, vtree_idx), true)
+        (self.create_sdd_ref(literal, next_sdd_idx, vtree), true)
     }
 
     pub(crate) fn new_literal_from_idx(
@@ -126,11 +126,11 @@ impl LiteralManager {
             .map(|(variable, variants)| (variable.clone(), variants.clone()))
     }
 
-    fn create_sdd_ref(&self, literal: Literal, sdd_idx: SddId, vtree_idx: VTreeIdx) -> SddRef {
+    fn create_sdd_ref(&self, literal: Literal, sdd_idx: SddId, vtree: VTreeRef) -> SddRef {
         let sdd = SddRef::new(Sdd::new(
             SddType::Literal(literal.clone()),
             sdd_idx,
-            vtree_idx,
+            vtree,
             None,
         ));
 

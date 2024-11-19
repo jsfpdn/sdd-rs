@@ -147,11 +147,31 @@ pub(crate) enum VTreeOrder {
     RightSubOfLeft,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct VTreeRef(pub(crate) Rc<RefCell<VTree>>);
 
+impl PartialOrd for VTreeRef {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.index().partial_cmp(&other.index())
+    }
+}
+
+impl Ord for VTreeRef {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.index().cmp(&other.index())
+    }
+}
+
+impl PartialEq for VTreeRef {
+    fn eq(&self, other: &Self) -> bool {
+        self.index() == other.index()
+    }
+}
+
+impl Eq for VTreeRef {}
+
 impl VTreeRef {
-    pub(super) fn new(parent: Option<VTreeRef>, idx: VTreeIdx, node: Node) -> Self {
+    pub(crate) fn new(parent: Option<VTreeRef>, idx: VTreeIdx, node: Node) -> Self {
         VTreeRef(Rc::new(RefCell::new(VTree::new(parent, idx, node))))
     }
 

@@ -180,7 +180,7 @@ impl SddManager {
         self.unique_table
             .borrow()
             .iter()
-            .filter(|(_, sdd)| sdd.vtree_idx() == vtree_idx)
+            .filter(|(_, sdd)| sdd.vtree().index() == vtree_idx)
             .map(|(id, sdd)| (*id, sdd.clone()))
             .collect()
     }
@@ -364,14 +364,14 @@ impl SddManager {
     pub fn model_count(&self, sdd: &SddRef) -> u64 {
         let models = self._model_count(sdd);
 
-        if self.vtree_manager.borrow().root_idx().unwrap() == sdd.vtree_idx() {
+        if self.vtree_manager.borrow().root_idx().unwrap() == sdd.vtree().index() {
             return models;
         }
 
         let sdd_variables = self
             .vtree_manager
             .borrow()
-            .get_vtree(sdd.vtree_idx())
+            .get_vtree(sdd.vtree().index())
             .unwrap()
             .0
             .borrow()
@@ -628,7 +628,7 @@ impl SddManager {
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     fn apply(&self, fst: &SddRef, snd: &SddRef, op: Operation) -> SddRef {
         tracing::debug!(fst_id = fst.id().0, snd_id = snd.id().0, ?op, "apply");
-        let (fst, snd) = if fst.vtree_idx() < snd.vtree_idx() {
+        let (fst, snd) = if fst.vtree().index() < snd.vtree().index() {
             (fst, snd)
         } else {
             (snd, fst)
@@ -646,7 +646,7 @@ impl SddManager {
         let (lca, order) = self
             .vtree_manager
             .borrow()
-            .least_common_ancestor(fst.vtree_idx(), snd.vtree_idx());
+            .least_common_ancestor(fst.vtree().index(), snd.vtree().index());
 
         let elements = match order {
             VTreeOrder::Equal => self._apply_eq(fst, snd, op),
@@ -655,7 +655,7 @@ impl SddManager {
             VTreeOrder::RightSubOfLeft => self._apply_right_sub_of_left(fst, snd, op),
         };
 
-        let sdd = Sdd::unique_d(elements.clone(), lca.index(), self);
+        let sdd = Sdd::unique_d(elements.clone(), lca, self);
         sdd.canonicalize(self);
         // TODO: canonicalize is not working properly => infinite loop since it's not changing.
 
@@ -672,7 +672,7 @@ impl SddManager {
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     fn _apply_eq(&self, fst: &SddRef, snd: &SddRef, op: Operation) -> BTreeSet<Element> {
         tracing::debug!(fst_id = fst.id().0, snd_id = snd.id().0, ?op, "apply_eq");
-        assert_eq!(fst.vtree_idx(), snd.vtree_idx());
+        assert_eq!(fst.vtree().index(), snd.vtree().index());
         assert!(!fst.is_constant());
         assert!(!snd.is_constant());
 
@@ -719,7 +719,7 @@ impl SddManager {
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     fn _apply_ineq(&self, fst: &SddRef, snd: &SddRef, op: Operation) -> BTreeSet<Element> {
         tracing::debug!(fst_id = fst.id().0, snd_id = snd.id().0, ?op, "apply_ineq");
-        assert!(fst.vtree_idx() < snd.vtree_idx());
+        assert!(fst.vtree().index() < snd.vtree().index());
         assert!(!fst.is_constant());
         assert!(!snd.is_constant());
 
@@ -781,7 +781,7 @@ impl SddManager {
             }
         );
 
-        let sdd = Sdd::unique_d(elements, lca.index(), self);
+        let sdd = Sdd::unique_d(elements, lca.clone(), self);
         sdd.canonicalize(self);
 
         self.insert_node(&sdd);
@@ -803,7 +803,7 @@ impl SddManager {
             ?op,
             "apply_left_sub_of_right"
         );
-        assert!(fst.vtree_idx() < snd.vtree_idx());
+        assert!(fst.vtree().index() < snd.vtree().index());
         assert!(!fst.is_constant());
         assert!(!snd.is_constant());
 
@@ -857,7 +857,7 @@ impl SddManager {
             ?op,
             "apply_right_sub_of_left"
         );
-        assert!(fst.vtree_idx() < snd.vtree_idx());
+        assert!(fst.vtree().index() < snd.vtree().index());
         assert!(!fst.is_constant());
         assert!(!snd.is_constant());
 
@@ -909,7 +909,7 @@ impl SddManager {
 
         self.vtree_manager
             .borrow()
-            .get_vtree(sdd.vtree_idx())
+            .get_vtree(sdd.vtree().index())
             .unwrap()
             .0
             .borrow()
@@ -1018,7 +1018,7 @@ impl SddManager {
         let LeftRotateSplit { bc_vec, c_vec } = split_nodes_for_left_rotate(&w, x, self);
 
         for bc in &bc_vec {
-            bc.set_vtree_idx(x.index());
+            bc.set_vtree(x.clone());
             let decision = SddType::Decision(Decision {
                 elements: rotate_partition_left(bc, x, self).elements,
             });
@@ -1039,7 +1039,7 @@ impl SddManager {
         }
 
         for sdd in moved {
-            sdd.set_vtree_idx(vtree.index());
+            sdd.set_vtree(vtree.clone());
             self.insert_node(&sdd);
         }
     }
@@ -1078,7 +1078,7 @@ impl SddManager {
             ab.replace_contents(SddType::Decision(Decision {
                 elements: rotate_partition_right(ab, &w, self).elements,
             }));
-            ab.set_vtree_idx(w.index());
+            ab.set_vtree(w.clone());
             self.insert_node(ab);
         }
 
@@ -1108,7 +1108,7 @@ impl SddManager {
             sdd.replace_contents(SddType::Decision(Decision {
                 elements: swap_partition(sdd, x, self).elements,
             }));
-            sdd.set_vtree_idx(x.index());
+            sdd.set_vtree(x.clone());
             self.insert_node(sdd);
         }
         // TODO: This takes a little bit more work as more complicated
@@ -1137,7 +1137,7 @@ impl SddManager {
                         .get_variable_vtree(&literal.var_label())
                         .unwrap();
 
-                    sdd.vtree_idx = vtree.index();
+                    sdd.vtree = vtree.clone();
                 }
                 _ => {}
             }
@@ -1153,15 +1153,10 @@ impl SddManager {
     pub(crate) fn new_sdd_from_type(
         &self,
         sdd_type: SddType,
-        vtree_idx: VTreeIdx,
+        vtree: VTreeRef,
         negation: Option<SddId>,
     ) -> SddRef {
-        let sdd = SddRef::new(Sdd::new(
-            sdd_type,
-            *self.next_idx.borrow(),
-            vtree_idx,
-            negation,
-        ));
+        let sdd = SddRef::new(Sdd::new(sdd_type, *self.next_idx.borrow(), vtree, negation));
         self.move_idx();
 
         self.insert_node(&sdd);
@@ -1316,11 +1311,11 @@ mod test {
 
         // Resulting SDD must be normalized w.r.t. vtree with index 3.
         let a_and_d = manager.conjoin(&lit_a, &lit_d);
-        assert_eq!(a_and_d.vtree_idx().0, 3);
+        assert_eq!(a_and_d.vtree().index().0, 3);
 
         // Resulting SDD must be normalized w.r.t. vtree with index 3.
         let a_and_d__and_b = manager.conjoin(&a_and_d, &lit_b);
-        assert_eq!(a_and_d__and_b.vtree_idx().0, 3);
+        assert_eq!(a_and_d__and_b.vtree().index().0, 3);
     }
 
     #[test]

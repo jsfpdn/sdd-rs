@@ -1,6 +1,6 @@
 use crate::manager::SddManager;
 use crate::sdd::{Sdd, SddId, SddType};
-use crate::vtree::VTreeIdx;
+use crate::vtree::VTreeRef;
 use bitvec::prelude::*;
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -16,8 +16,8 @@ impl SddRef {
         SddRef(Rc::new(RefCell::new(sdd)))
     }
 
-    pub fn vtree_idx(&self) -> VTreeIdx {
-        self.0.borrow().vtree_idx
+    pub fn vtree(&self) -> VTreeRef {
+        self.0.borrow().vtree.clone()
     }
 
     pub fn id(&self) -> SddId {
@@ -138,7 +138,7 @@ impl SddRef {
         self.0.borrow_mut().sdd_type = other;
     }
 
-    pub(crate) fn set_vtree_idx(&self, idx: VTreeIdx) {
-        self.0.borrow_mut().vtree_idx = idx;
+    pub(crate) fn set_vtree(&self, vtree: VTreeRef) {
+        self.0.borrow_mut().vtree = vtree;
     }
 }

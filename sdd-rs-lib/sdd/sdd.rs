@@ -6,10 +6,10 @@ use std::{collections::BTreeSet, fmt::Display};
 use crate::{
     btreeset,
     dot_writer::{Dot, DotWriter, Edge, NodeType},
-    literal::Literal,
+    literal::{Literal, Variable},
     manager::{SddManager, FALSE_SDD_IDX, TRUE_SDD_IDX},
     sdd::{Decision, Element, SddRef},
-    vtree::{LeftDependence, RightDependence, VTreeIdx, VTreeRef},
+    vtree::{LeftDependence, Node, RightDependence, VTreeIdx, VTreeRef},
 };
 
 #[derive(Eq, PartialEq, Hash, Debug, PartialOrd, Ord, Clone, Copy, AddAssign)]
@@ -62,7 +62,7 @@ impl SddType {
 pub struct Sdd {
     pub(crate) sdd_idx: SddId,
     pub(crate) sdd_type: SddType,
-    pub(crate) vtree_idx: VTreeIdx,
+    pub(crate) vtree: VTreeRef,
     pub(crate) negation: Option<SddId>,
     pub(crate) model_count: Option<u64>,
     pub(crate) models: Option<Vec<BitVec>>,
@@ -72,7 +72,7 @@ impl fmt::Debug for Sdd {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Sdd")
             .field("sdd_type", &self.sdd_type)
-            .field("vtree_idx", &self.vtree_idx)
+            .field("vtree_idx", &self.vtree.index())
             .field("id", &self.id())
             .finish()
     }
@@ -91,7 +91,7 @@ impl Dot for Sdd {
                     writer.add_edge(Edge::Simple(idx, fxhash::hash(&elem)));
                 }
                 let node_type =
-                    NodeType::Circle(self.vtree_idx.0 as u16, Some(self.id().0 as usize));
+                    NodeType::Circle(self.vtree.index().0 as u16, Some(self.id().0 as usize));
                 writer.add_node(idx, node_type);
             }
         };
@@ -103,7 +103,7 @@ impl Sdd {
     pub(crate) fn new(
         sdd_type: SddType,
         sdd_idx: SddId,
-        vtree_idx: VTreeIdx,
+        vtree: VTreeRef,
         negation: Option<SddId>,
     ) -> Sdd {
         let (model_count, models) = match sdd_type.clone() {
@@ -116,7 +116,7 @@ impl Sdd {
         Sdd {
             sdd_idx,
             sdd_type,
-            vtree_idx,
+            vtree,
             negation,
             model_count,
             models,
@@ -125,12 +125,22 @@ impl Sdd {
 
     #[must_use]
     pub(crate) fn new_true() -> Sdd {
-        Self::new(SddType::True, TRUE_SDD_IDX, VTreeIdx(0), None)
+        Self::new(
+            SddType::True,
+            TRUE_SDD_IDX,
+            VTreeRef::new(None, VTreeIdx(0), Node::Leaf(Variable::new("True", 0))),
+            None,
+        )
     }
 
     #[must_use]
     pub(crate) fn new_false() -> Sdd {
-        Self::new(SddType::False, FALSE_SDD_IDX, VTreeIdx(0), None)
+        Self::new(
+            SddType::False,
+            FALSE_SDD_IDX,
+            VTreeRef::new(None, VTreeIdx(0), Node::Leaf(Variable::new("True", 0))),
+            None,
+        )
     }
 
     #[must_use]
@@ -222,7 +232,7 @@ impl Sdd {
 
             let negated_sdd = manager.new_sdd_from_type(
                 SddType::Decision(Decision { elements }),
-                self.vtree_idx,
+                self.vtree.clone(),
                 Some(self.id()),
             );
 
@@ -282,7 +292,7 @@ impl Sdd {
                         Sdd::new(
                             SddType::Decision(decision.clone()),
                             self.sdd_idx,
-                            self.vtree_idx,
+                            self.vtree.clone(),
                             self.negation, // TODO: Double check this.
                         )
                     }
@@ -296,7 +306,7 @@ impl Sdd {
     /// [SDD: A New Canonical Representation of Propositional Knowledge Bases](https://ai.dmi.unibas.ch/research/reading_group/darwiche-ijcai2011.pdf).
     pub(crate) fn unique_d(
         gamma: BTreeSet<Element>,
-        vtree_idx: VTreeIdx,
+        vtree: VTreeRef,
         manager: &SddManager,
     ) -> SddRef {
         // gamma == {(T, T)}?
@@ -317,7 +327,7 @@ impl Sdd {
 
         manager.new_sdd_from_type(
             SddType::Decision(Decision { elements: gamma }),
-            vtree_idx,
+            vtree.clone(),
             None,
         )
     }
@@ -353,11 +363,11 @@ impl Sdd {
         for prime in &primes {
             assert!(!prime.is_constant());
 
-            if prime.vtree_idx() == w_idx {
+            if prime.vtree().index() == w_idx {
                 return LeftDependence::AB;
             }
 
-            if prime.vtree_idx() < w_idx {
+            if prime.vtree().index() < w_idx {
                 depends_on_a = true;
             } else {
                 depends_on_b = true;
@@ -401,11 +411,11 @@ impl Sdd {
         let x_idx = x.index();
 
         for sub in &subs {
-            if sub.vtree_idx() == x_idx {
+            if sub.vtree().index() == x_idx {
                 return RightDependence::BC;
             }
 
-            if sub.vtree_idx() < x_idx {
+            if sub.vtree().index() < x_idx {
                 depends_on_b = true;
             } else {
                 depends_on_c = true;
@@ -461,7 +471,7 @@ mod test {
         let root = manager.root().unwrap();
 
         // `c && d && a` must be normalized for root.
-        assert_eq!(c_and_d_and_a.vtree_idx(), root.index());
+        assert_eq!(c_and_d_and_a.vtree().index(), root.index());
 
         let dep = c_and_d_and_a
             .0

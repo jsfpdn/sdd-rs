@@ -334,7 +334,7 @@ pub(crate) fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddMa
     for element in &decision.elements {
         let (a, bc) = element.get_prime_sub(manager);
 
-        if bc.is_constant() || bc.vtree_idx() > x.index() {
+        if bc.is_constant() || bc.vtree().index() > x.index() {
             elements.insert(Element {
                 prime: a.id(),
                 sub: bc.id(),
@@ -342,7 +342,7 @@ pub(crate) fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddMa
             continue;
         }
 
-        if bc.vtree_idx() == x.index() {
+        if bc.vtree().index() == x.index() {
             let SddType::Decision(ref bc_decision) = bc.0.borrow().sdd_type else {
                 panic!("node must be a decision node");
             };
@@ -375,7 +375,6 @@ pub(crate) fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddMa
         });
     }
 
-    println!("elements: {elements:?}");
     Decision {
         elements: elements.clone(),
     }
@@ -401,12 +400,12 @@ pub(crate) fn rotate_partition_right(
         let (ab, c) = element.get_prime_sub(manager);
         assert!(!ab.is_constant());
 
-        if ab.vtree_idx() >= x.inorder_first() && ab.vtree_idx() <= x.inorder_last() {
+        if ab.vtree().index() >= x.inorder_first() && ab.vtree().index() <= x.inorder_last() {
             current_elements.insert(Element {
                 prime: TRUE_SDD_IDX,
                 sub: manager._conjoin_rotations(&ab, &c, &x).id(),
             });
-        } else if ab.vtree_idx() == w.index() {
+        } else if ab.vtree().index() == w.index() {
             let SddType::Decision(ref ab_decision) = ab.0.borrow().sdd_type else {
                 panic!("node must be a decision node");
             };
@@ -508,6 +507,7 @@ mod test {
     use crate::{
         literal::Polarity,
         manager::{options::SddOptions, SddManager},
+        util::quick_draw,
     };
 
     use super::{Direction, Fragment};
@@ -538,10 +538,12 @@ mod test {
         let rc = root.right_child();
         let mut fragment = Fragment::new(root.clone(), rc.clone());
 
-        for i in 0..11 {
+        quick_draw(&manager, &a_and_b_or_c, &format!("my_test_base"));
+        for i in 0..=11 {
             let next_move = fragment.moves[fragment.state];
             // println!("\n... minimizing (state {} ~> {}, {next_move:?})", i, i + 1);
             fragment.next(&Direction::Forward, &manager);
+            quick_draw(&manager, &a_and_b_or_c, &format!("my_test_{i}"));
 
             assert_eq!(
                 models,
