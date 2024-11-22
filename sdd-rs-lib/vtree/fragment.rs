@@ -62,12 +62,6 @@ const MOVES_RIGHT_LINEAR: [Move; 12] = [
     Move::SwapChild,
 ];
 
-#[derive(Debug)]
-enum Linearity {
-    Left,
-    Right,
-}
-
 impl Mode {
     fn can_transition(&self, next_state: Mode) -> bool {
         match self {
@@ -86,7 +80,6 @@ pub(crate) struct Fragment {
 
     state: usize,
     mode: Mode,
-    linearity: Linearity,
 
     moves: [Move; 12],
 }
@@ -134,24 +127,17 @@ pub(crate) enum RightDependence {
 }
 
 impl Fragment {
-    // TODO: implement iterator over fragment states.
-    // TODO: think about limits & rolling back states.
     #[must_use]
     pub(crate) fn new(root: VTreeRef, child: VTreeRef) -> Self {
-        let (linearity, moves) = match root.0.borrow().node.clone() {
-            Node::Internal(lc, _) if Rc::ptr_eq(&lc.0, &child.0) => {
-                (Linearity::Left, MOVES_LEFT_LINEAR)
-            }
-            Node::Internal(_, rc) if Rc::ptr_eq(&rc.0, &child.0) => {
-                (Linearity::Right, MOVES_RIGHT_LINEAR)
-            }
+        let moves = match root.0.borrow().node.clone() {
+            Node::Internal(lc, _) if Rc::ptr_eq(&lc.0, &child.0) => MOVES_LEFT_LINEAR,
+            Node::Internal(_, rc) if Rc::ptr_eq(&rc.0, &child.0) => MOVES_RIGHT_LINEAR,
             _ => panic!("root and child cannot form a fragment"),
         };
 
         Fragment {
             current_root: root.clone(),
             current_child: child.clone(),
-            linearity,
             state: 0,
             mode: Mode::Initial,
             moves,

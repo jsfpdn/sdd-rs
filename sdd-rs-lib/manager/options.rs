@@ -1,14 +1,33 @@
-#[derive(Debug, Clone, Copy)]
+use bon::Builder;
+use clap::ValueEnum;
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum InitialVTree {
     Balanced,
     LeftLinear,
     RightLinear,
 }
 
-#[allow(clippy::module_name_repetitions)]
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum FragmentHeuristic {
+    Random,
+    Root,
+}
+
 #[derive(Debug, Clone, Copy)]
+pub enum MinimizationCutoff {
+    None,
+    Iteration(usize),
+    Decrease(f32),
+}
+
+#[allow(clippy::module_name_repetitions)]
+#[derive(Debug, Clone, Copy, Builder)]
 pub struct SddOptions {
-    initial_vtree: InitialVTree,
+    pub initial_vtree: InitialVTree,
+    pub fragment_heuristic: FragmentHeuristic,
+    pub minimize_after: usize,
+    pub minimization_cutoff: MinimizationCutoff,
 }
 
 impl Default for SddOptions {
@@ -16,6 +35,9 @@ impl Default for SddOptions {
     fn default() -> Self {
         SddOptions {
             initial_vtree: InitialVTree::Balanced,
+            fragment_heuristic: FragmentHeuristic::Root,
+            minimize_after: 0,
+            minimization_cutoff: MinimizationCutoff::None,
         }
     }
 }

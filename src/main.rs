@@ -1,13 +1,34 @@
 use std::fs::File;
 use std::io::{BufWriter, Error};
 
-use clap::Parser;
-use tracing_subscriber::prelude::*;
+use clap::{Parser, ValueEnum};
+use sddrs::manager::options::{FragmentHeuristic, MinimizationCutoff};
 
 use sddrs::manager::{
     options::{InitialVTree, SddOptions},
-    CutOff, SddManager, TargetVTreeHeuristic,
+    SddManager,
 };
+
+#[derive(Debug, Clone, ValueEnum)]
+enum LogLevel {
+    TRACE,
+    DEBUG,
+    INFO,
+    WARN,
+    NONE,
+}
+
+impl LogLevel {
+    fn to_trace(&self) -> Option<tracing::Level> {
+        Some(match self {
+            LogLevel::TRACE => tracing::Level::TRACE,
+            LogLevel::DEBUG => tracing::Level::DEBUG,
+            LogLevel::INFO => tracing::Level::INFO,
+            LogLevel::WARN => tracing::Level::WARN,
+            LogLevel::NONE => return None,
+        })
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -15,7 +36,7 @@ struct Cli {
     // TODO: Option<String> ~> Option<std::path::Path>.
     /// Where to store the DOT graph of the compiled SDD
     #[arg(short, long, value_name = "FILE.dot")]
-    pub sdd_dot_path: Option<String>,
+    sdd_dot_path: Option<String>,
 
     /// Where to store the DOT graph of the final VTree
     #[arg(short, long, value_name = "FILE.dot")]
@@ -37,26 +58,48 @@ struct Cli {
     /// the result of the computation.
     #[arg(short, long)]
     render_all_sdds: bool,
-    // Verbosity level. See `tracing::Level` for more information.
-    // `tracing::Level::INFO` is the default.
-    // #[arg(long, value_enum)]
-    // verbosity: Option<tracing::Level>,
+
+    /// Initial vtree configuration.
+    #[arg(short, long, value_enum, default_value_t = InitialVTree::Balanced)]
+    initial_vtree: InitialVTree,
+
+    /// How to pick a fragment for minimizing.
+    #[arg(short, long, value_enum, default_value_t = FragmentHeuristic::Root)]
+    fragment_search_heuristic: FragmentHeuristic,
+
+    /// Minimize compiled SDD when done compiling.
+    #[arg(long)]
+    minimize_after_compiling: bool,
+
+    /// Invoke vtree search after every K clauses. 0 means never.
+    #[arg(long, default_value_t = 0)]
+    minimize_after_k_clauses: usize,
+
+    /// Verbosity level. See `tracing::Level` for more information.
+    #[arg(long, value_enum, default_value_t = LogLevel::WARN)]
+    verbosity: LogLevel,
+
+    /// Dump statistics.
+    dump_statistics: bool,
 }
 
 fn main() -> Result<(), std::io::Error> {
-    let cli = Cli::parse();
+    let args = Cli::parse();
 
-    let fmt_layer = tracing_subscriber::fmt::Layer::default();
-    let subscriber = tracing_subscriber::registry().with(fmt_layer);
-    tracing::subscriber::set_global_default(subscriber).unwrap();
+    if let Some(level) = args.verbosity.to_trace() {
+        tracing_subscriber::fmt().with_max_level(level).init();
+    }
 
-    let options = SddOptions::default()
-        .set_initial_vtree(InitialVTree::Balanced)
-        .to_owned();
+    let options = SddOptions::builder()
+        .initial_vtree(args.initial_vtree)
+        .fragment_heuristic(args.fragment_search_heuristic)
+        .minimize_after(args.minimize_after_k_clauses)
+        .minimization_cutoff(MinimizationCutoff::None)
+        .build();
 
     let manager = SddManager::new(options);
 
-    let mut f = File::open(cli.dimacs_path)?;
+    let mut f = File::open(args.dimacs_path)?;
     let sdd = match manager.from_dimacs(&mut f, true) {
         Err(err) => {
             return Err(Error::new(
@@ -65,23 +108,32 @@ fn main() -> Result<(), std::io::Error> {
             ));
         }
         Ok(sdd) => {
-            if cli.count_models {
+            if args.count_models {
                 println!("{}", manager.model_count(&sdd));
             }
 
-            if cli.enumerate_models {
+            if args.enumerate_models {
                 println!("{}", manager.model_enumeration(&sdd));
             }
             sdd
         }
     };
 
-    manager.minimize(CutOff::TBD, TargetVTreeHeuristic::TBD, &sdd);
+    if args.minimize_after_compiling {
+        let size_before = manager.size(&sdd);
+        manager.minimize(
+            options.minimization_cutoff,
+            options.fragment_heuristic,
+            &sdd,
+        );
+        let size_after = manager.size(&sdd);
+        println!("minimized SDD from {size_before} to {size_after} nodes");
+    }
 
     let _ = write_to_file(
-        cli.sdd_dot_path.as_deref(),
+        args.sdd_dot_path.as_deref(),
         |writer: &mut dyn std::io::Write| {
-            if cli.render_all_sdds {
+            if args.render_all_sdds {
                 manager.draw_all_sdds(writer)
             } else {
                 manager.draw_sdd(writer, &sdd)
@@ -90,7 +142,7 @@ fn main() -> Result<(), std::io::Error> {
     );
 
     let _ = write_to_file(
-        cli.vtree_dot_path.as_deref(),
+        args.vtree_dot_path.as_deref(),
         |writer: &mut dyn std::io::Write| manager.draw_vtree_graph(writer),
     );
 

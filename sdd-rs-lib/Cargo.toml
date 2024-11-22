@@ -16,6 +16,8 @@ fxhash = "0.2.1"
 tracing = { version = "0.1", features = ["attributes"] }
 derive_more = { version = "1", features = ["from", "add", "add_assign"] }
 thiserror = "2"
+clap = { version = "4.5.4", features = ["derive"] }
+bon = "3"
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"

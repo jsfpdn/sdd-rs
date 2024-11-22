@@ -19,6 +19,8 @@ use std::{
 };
 use tracing::instrument;
 
+use super::options::{FragmentHeuristic, MinimizationCutoff};
+
 #[derive(Clone, Eq, PartialEq, Hash, Debug, Copy)]
 enum Operation {
     Conjoin,
@@ -33,17 +35,6 @@ impl Operation {
             Operation::Disjoin => TRUE_SDD_IDX,
         }
     }
-}
-
-#[derive(Eq, PartialEq, Hash, Debug)]
-// TODO: Builder pattern with bon?
-pub enum TargetVTreeHeuristic {
-    TBD,
-}
-
-// TODO: Builder pattern with bon?
-pub enum CutOff {
-    TBD,
 }
 
 #[derive(Eq, PartialEq, Hash, Debug, Clone)]
@@ -131,11 +122,33 @@ impl SddManager {
 
         let mut sdd = self.tautology();
 
+        let mut i = 0;
         loop {
             match dimacs.parse_next_clause().map_err(|err| err.to_string())? {
                 None => break,
                 Some(clause) => {
                     sdd = self.conjoin(&sdd, &clause.to_sdd(self));
+                    if i != 0
+                        && self.options.minimize_after != 0
+                        && i % self.options.minimize_after == 0
+                    {
+                        tracing::info!(
+                            sdd_id = sdd.id().0,
+                            size = self.size(&sdd),
+                            "before minimizing"
+                        );
+                        self.minimize(
+                            self.options.minimization_cutoff,
+                            self.options.fragment_heuristic,
+                            &sdd,
+                        );
+                        tracing::info!(
+                            sdd_id = sdd.id().0,
+                            size = self.size(&sdd),
+                            "after minimizing"
+                        );
+                    }
+                    i += 1;
                 }
             }
         }
@@ -209,7 +222,6 @@ impl SddManager {
     pub fn literal(&self, literal: &str, polarity: Polarity) -> SddRef {
         // TODO: Adding new variable should either invalidate cached model counts
         // in existing SDDs or recompute them.
-        tracing::warn!("should invalidate cached model counts");
 
         let (literal, created) = self.literal_manager.borrow().new_literal(
             literal,
@@ -382,22 +394,13 @@ impl SddManager {
         models * 2_u64.pow(unbound as u32)
     }
 
-    // Questions:
-    // 1) do we want to trigger minimization only manually?
-    //    1a) this seems the easiest to implement if yes
-    //    1b) if not, where exactly do we want to trigger it?
-    //        1ba) initialize manager with Minimize::AfterApply and after each apply operation,
-    //             this would get automatically called.
-    //        1bb) initialize manager with Minimize::Automatically and we would minimize during
-    //             apply, when computing partitions (this seems the hardest)
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     pub fn minimize(
         &self,
-        cut_off: CutOff,
-        vtree_heuristic: TargetVTreeHeuristic,
+        cut_off: MinimizationCutoff,
+        fragment_strategy: FragmentHeuristic,
         reference_sdd: &SddRef,
     ) {
-        // TODO: Remove reference SDD.
         // TODO: Assert that the fragment can be even built.
         // TODO: Strategy for finding better fragment - RandomLeftLinear, RandomRightLinear, Random, original, Custom(VTreeIdx)
         let root = self.vtree_manager.borrow().root.clone().unwrap();
@@ -413,17 +416,69 @@ impl SddManager {
             size = self.size(reference_sdd)
         );
 
-        for i in 0..12 {
-            // TODO: Cut off after number of moves, after some time, or if we manage to make the SDD better
-            // (=> decrease the number of nodes in the manager).
+        let init_size = self.size(&reference_sdd);
+        let mut i = 0;
+        let mut best_i = 0;
+        let mut best_size = init_size;
+        for _ in 0..12 {
             fragment.next(&Direction::Forward, self);
             tracing::debug!(
                 iteration = i,
                 sdd_id = reference_sdd.id().0,
                 size = self.size(reference_sdd)
             );
+
             // TODO: Improve the assertion by doing the first model_enumeration in debug as well.
             debug_assert_eq!(models, self.model_enumeration(reference_sdd));
+
+            let curr_size = self.size(&reference_sdd);
+            println!("({i}): new size: {curr_size}");
+            if curr_size < best_size {
+                // We have found better vtree, mark the state we found it in so we can come
+                // back to it once we go through all fragment configurations.
+                println!("found new best at {i}: {best_size} ~> {curr_size}");
+                best_size = curr_size;
+                best_i = i;
+            }
+
+            if self.criteria_met(cut_off, init_size, curr_size, i) {
+                if matches!(cut_off, MinimizationCutoff::Decrease(_)) || best_i == i {
+                    // We have fulfilled the searching criteria and the current vtree configuration
+                    // makes the reference sdd sufficiently small.
+                    println!("decrease OK");
+                    return;
+                }
+                // We have fulfilled the searching criteria but we have already iterated over
+                // the best vtree configuration. We have to break out and go back to it.
+                println!("iteration OK");
+                break;
+            }
+
+            i += 1;
+        }
+
+        println!("backtracking back to {best_i}");
+        tracing::debug!("reverting from {i} to {best_i}");
+        while i > best_i {
+            fragment.next(&Direction::Backward, self);
+            i -= 1;
+            println!("({i}): new size: {}", self.size(&reference_sdd));
+        }
+    }
+
+    fn criteria_met(
+        &self,
+        cut_off: MinimizationCutoff,
+        init_size: usize,
+        curr_size: usize,
+        curr_iter: usize,
+    ) -> bool {
+        match cut_off {
+            MinimizationCutoff::Iteration(after_iter) => curr_iter >= after_iter,
+            MinimizationCutoff::Decrease(decrease) => {
+                (curr_size as f32 / init_size as f32) - decrease >= f32::EPSILON
+            }
+            MinimizationCutoff::None => false,
         }
     }
 
