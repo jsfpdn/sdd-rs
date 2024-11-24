@@ -460,6 +460,7 @@ impl SddManager {
         println!("backtracking back to {best_i}");
         tracing::debug!("reverting from {i} to {best_i}");
         while i > best_i {
+            // TODO: Fix backtracking.
             fragment.next(&Direction::Backward, self);
             i -= 1;
             println!("({i}): new size: {}", self.size(&reference_sdd));

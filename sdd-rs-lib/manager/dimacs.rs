@@ -1,3 +1,5 @@
+use std::fmt::format;
+
 use crate::literal::{Polarity, VariableIdx};
 use crate::manager::SddManager;
 use crate::sdd::SddRef;
@@ -94,7 +96,7 @@ impl<'a> DimacsReader<'a> {
                     Ok(None)
                 } else {
                     self.state = DimacsReaderState::ParsingClauses;
-                    self.parse_clause_line(&clause).map(Some)
+                    self.parse_clause_line(&clause)
                 }
             }
             Err(err) => Err(format!("could not parse clause: {err}")),
@@ -102,7 +104,10 @@ impl<'a> DimacsReader<'a> {
     }
 
     fn parse_problem_line(&mut self, line: &str) -> Result<Preamble, String> {
-        let items: Vec<_> = line.split(" ").collect();
+        let items: Vec<_> = line
+            .split(" ")
+            .filter(|element| !element.trim().is_empty())
+            .collect();
         if items.len() != 4 {
             return Err(String::from(
                 "problem line must contain exactly 4 fields: 'p cnf VARIABLES CLAUSES'",
@@ -131,18 +136,43 @@ impl<'a> DimacsReader<'a> {
         Ok(Preamble { clauses, variables })
     }
 
-    fn parse_clause_line(&mut self, line: &[u8]) -> Result<Clause, String> {
-        let literals: Vec<_> = line
+    fn parse_clause_line(&mut self, line: &[u8]) -> Result<Option<Clause>, String> {
+        let tokens: Vec<_> = line
             .split(|num| *num == b' ' || *num == b'\n')
-            .filter(|variable| *variable != [b'0'] && !variable.is_empty())
-            .map(|variable| {
-                let string = String::from_utf8_lossy(variable);
-                match string.trim().parse::<i64>() {
-                    Err(err) => Err(format!("literal '{string}' is invalid: {err}")),
-                    Ok(idx) => Ok((Polarity::from(!string.starts_with("-")), idx)),
+            .filter(|variable| !variable.is_empty())
+            .map(String::from_utf8_lossy)
+            .collect();
+
+        // Check whether this is the special (and optional) syntax for EOF.
+        if tokens.len() == 2 {
+            let fst_token = tokens.first().unwrap();
+            let snd_token = tokens.get(1).unwrap();
+
+            if fst_token == "%" {
+                if snd_token == "0" {
+                    self.state = DimacsReaderState::Finished;
+                    return Ok(None);
                 }
+
+                return Err(format!(
+                    "found '%' and next symbol should be '0' instead of '{snd_token}'"
+                ));
+            }
+        }
+
+        let literals: Vec<_> = tokens
+            .iter()
+            .filter(|token| *token != "0")
+            .map(|variable_idx| match variable_idx.trim().parse::<i64>() {
+                Err(err) => Err(format!("literal '{variable_idx}' is invalid: {err}")),
+                Ok(idx) => Ok((Polarity::from(!variable_idx.starts_with("-")), idx)),
             })
             .collect();
+
+        // We must have parsed a line that had only a '0'.
+        if literals.is_empty() {
+            return Ok(None);
+        }
 
         let mut clause = Clause {
             var_label_indices: Vec::new(),
@@ -159,7 +189,7 @@ impl<'a> DimacsReader<'a> {
             }
         }
 
-        Ok(clause)
+        Ok(Some(clause))
     }
 }
 
@@ -177,6 +207,20 @@ mod test {
     use crate::{literal::Polarity, manager::dimacs::Clause};
 
     use super::{DimacsReader, Preamble};
+
+    fn collect_clauses(dimacs: &mut DimacsReader) -> Vec<Clause> {
+        let mut clauses = Vec::new();
+
+        loop {
+            match dimacs.parse_next_clause() {
+                Ok(Some(clause)) => clauses.push(clause),
+                Ok(None) => break,
+                Err(err) => panic!("{err}"),
+            }
+        }
+
+        clauses
+    }
 
     #[test]
     fn dimacs_ok() {
@@ -197,15 +241,7 @@ p cnf 4 3
             })
         );
 
-        let mut clauses = Vec::new();
-
-        loop {
-            match dimacs.parse_next_clause() {
-                Ok(Some(clause)) => clauses.push(clause),
-                Ok(None) => break,
-                Err(err) => panic!("{err}"),
-            }
-        }
+        let clauses = collect_clauses(&mut dimacs);
 
         assert_eq!(
             clauses,
@@ -225,6 +261,129 @@ p cnf 4 3
                 Clause {
                     var_label_indices: vec![2, 3],
                     var_label_polarities: vec![Polarity::Positive, Polarity::Negative],
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn preamble_with_whitespace() {
+        let contents = "c Example CNF format file
+c
+p   cnf  4   3
+1 3 -4 0
+4 0 2
+-3 0";
+        let mut reader = BufReader::new(contents.as_bytes());
+        let mut dimacs = DimacsReader::new(&mut reader);
+
+        assert_eq!(
+            dimacs.parse_preamble(),
+            Ok(Preamble {
+                variables: 4,
+                clauses: 3
+            })
+        );
+    }
+
+    #[test]
+    fn clauses_with_whitespace() {
+        let contents = "c Example CNF format file
+c
+p cnf 4 2
+1  3  -4 0
+  4 0
+";
+        let mut reader = BufReader::new(contents.as_bytes());
+        let mut dimacs = DimacsReader::new(&mut reader);
+
+        assert_eq!(
+            dimacs.parse_preamble(),
+            Ok(Preamble {
+                variables: 4,
+                clauses: 2
+            })
+        );
+    }
+
+    #[test]
+    fn trailing_eof_syntax() {
+        // This weird format with trailing '%\n0\n' is in the SATLIB benchmarks: https://www.cs.ubc.ca/~hoos/SATLIB/benchm.html
+        let contents = "c Example CNF format file
+c
+p cnf 4 2
+1 3 -4 0
+4 0
+%
+0
+";
+        let mut reader = BufReader::new(contents.as_bytes());
+        let mut dimacs = DimacsReader::new(&mut reader);
+
+        assert_eq!(
+            dimacs.parse_preamble(),
+            Ok(Preamble {
+                variables: 4,
+                clauses: 2
+            })
+        );
+
+        let clauses = collect_clauses(&mut dimacs);
+
+        assert_eq!(
+            clauses,
+            vec![
+                Clause {
+                    var_label_indices: vec![1, 3, 4],
+                    var_label_polarities: vec![
+                        Polarity::Positive,
+                        Polarity::Positive,
+                        Polarity::Negative
+                    ],
+                },
+                Clause {
+                    var_label_indices: vec![4],
+                    var_label_polarities: vec![Polarity::Positive],
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn trailing_zeros() {
+        let contents = "c Example CNF format file
+c
+p cnf 4 2
+1 3 -4 0
+4 0
+";
+        let mut reader = BufReader::new(contents.as_bytes());
+        let mut dimacs = DimacsReader::new(&mut reader);
+
+        assert_eq!(
+            dimacs.parse_preamble(),
+            Ok(Preamble {
+                variables: 4,
+                clauses: 2
+            })
+        );
+
+        let clauses = collect_clauses(&mut dimacs);
+
+        assert_eq!(
+            clauses,
+            vec![
+                Clause {
+                    var_label_indices: vec![1, 3, 4],
+                    var_label_polarities: vec![
+                        Polarity::Positive,
+                        Polarity::Positive,
+                        Polarity::Negative
+                    ],
+                },
+                Clause {
+                    var_label_indices: vec![4],
+                    var_label_polarities: vec![Polarity::Positive],
                 },
             ]
         );

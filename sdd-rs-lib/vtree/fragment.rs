@@ -21,7 +21,7 @@ enum Mode {
     Goto,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 enum Move {
     LeftRotateChild,
     RightRotateRoot,
@@ -494,6 +494,7 @@ mod test {
         literal::Polarity,
         manager::{options::SddOptions, SddManager},
         util::quick_draw,
+        vtree::fragment::Move,
     };
 
     use super::{Direction, Fragment};
@@ -537,5 +538,55 @@ mod test {
                 "{i}-th state failed after doing {next_move:?}",
             );
         }
+    }
+
+    #[test]
+    fn move_between_states() {
+        use Direction::*;
+        use Move::*;
+        use Polarity::*;
+
+        let manager = SddManager::new(SddOptions::default());
+
+        let lit_a = manager.literal("a", Positive);
+        let lit_b = manager.literal("b", Positive);
+        let lit_c = manager.literal("c", Positive);
+
+        let root = manager.root().unwrap();
+        let rc = root.right_child();
+        let mut fragment = Fragment::new(root.clone(), rc.clone());
+
+        assert_eq!(fragment.next_move(&Forward), LeftRotateChild);
+        assert_eq!(fragment.state, 1);
+
+        assert_eq!(fragment.next_move(&Forward), SwapChild);
+        assert_eq!(fragment.state, 2);
+
+        assert_eq!(fragment.next_move(&Forward), RightRotateRoot);
+        assert_eq!(fragment.state, 3);
+
+        assert_eq!(fragment.next_move(&Forward), SwapChild);
+        assert_eq!(fragment.state, 4);
+
+        assert_eq!(fragment.next_move(&Forward), LeftRotateChild);
+        assert_eq!(fragment.state, 5);
+
+        assert_eq!(fragment.next_move(&Backward), SwapChild);
+        assert_eq!(fragment.state, 4);
+
+        assert_eq!(fragment.next_move(&Backward), RightRotateRoot);
+        assert_eq!(fragment.state, 3);
+
+        assert_eq!(fragment.next_move(&Backward), SwapChild);
+        assert_eq!(fragment.state, 2);
+
+        assert_eq!(fragment.next_move(&Backward), LeftRotateChild);
+        assert_eq!(fragment.state, 1);
+
+        assert_eq!(fragment.next_move(&Backward), SwapChild);
+        assert_eq!(fragment.state, 0);
+
+        assert_eq!(fragment.next_move(&Backward), SwapChild);
+        assert_eq!(fragment.state, 11);
     }
 }
