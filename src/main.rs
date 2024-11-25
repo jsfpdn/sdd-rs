@@ -1,10 +1,10 @@
 use std::fs::File;
 use std::io::{BufWriter, Error, Seek};
+use std::time::{Duration, Instant};
 
 use clap::{Parser, ValueEnum};
 use sddrs::manager::dimacs::{self};
 use sddrs::manager::options::{FragmentHeuristic, MinimizationCutoff, VTreeStrategy};
-
 use sddrs::manager::{options::SddOptions, SddManager};
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -58,27 +58,66 @@ struct Cli {
     render_all_sdds: bool,
 
     /// Initial vtree configuration.
-    #[arg(short, long, value_enum, default_value_t = VTreeStrategy::Balanced)]
+    #[arg(short, long, value_enum, default_value_t = VTreeStrategy::RightLinear)]
     vtree: VTreeStrategy,
 
-    /// How to pick a fragment for minimizing.
-    #[arg(short, long, value_enum, default_value_t = FragmentHeuristic::Root)]
-    fragment_search_heuristic: FragmentHeuristic,
-
-    /// Minimize compiled SDD when done compiling.
-    #[arg(long)]
+    /// Minimize compiled SDD when done compiling. An arbitrary fragment
+    /// of the vtree is picked and all 12 configurations are then
+    /// selectively tried to find the smallest compiled SDD.
+    #[arg(short, long)]
     minimize_after_compiling: bool,
 
     /// Invoke vtree search after every K clauses. 0 means never.
-    #[arg(long, default_value_t = 0)]
+    #[arg(short = 'k', long, default_value_t = 0)]
     minimize_after_k_clauses: usize,
 
     /// Verbosity level. See `tracing::Level` for more information.
     #[arg(long, value_enum, default_value_t = LogLevel::WARN)]
     verbosity: LogLevel,
 
-    /// Dump statistics.
-    dump_statistics: bool,
+    /// Print timing and size statistics.
+    #[arg(short, long)]
+    print_statistics: bool,
+}
+
+#[derive(Debug, Clone)]
+struct Statistics {
+    compilation: Option<Duration>,
+    minimization: Option<Duration>,
+
+    compiled_sdd_size: Option<usize>,
+    compiled_sdd_size_after_minimization: Option<usize>,
+    // TODO: Add GC related statistics.
+}
+
+impl Default for Statistics {
+    fn default() -> Self {
+        Self {
+            compilation: None,
+            minimization: None,
+            compiled_sdd_size: None,
+            compiled_sdd_size_after_minimization: None,
+        }
+    }
+}
+
+impl Statistics {
+    fn print(&self) {
+        println!("compilation time: {:.2?}", self.compilation.unwrap());
+        if self.minimization.is_some() {
+            println!("minimization time : {:.2?}", self.minimization.unwrap());
+            println!(
+                "SDD size (before min.): {}",
+                self.compiled_sdd_size.unwrap()
+            );
+            println!(
+                "SDD size (after min.) : {}",
+                self.compiled_sdd_size.unwrap()
+            );
+        } else {
+            println!("sdd size        : {}", self.compiled_sdd_size.unwrap());
+        }
+    }
 }
 
 fn main() -> Result<(), std::io::Error> {
@@ -101,18 +140,24 @@ fn main() -> Result<(), std::io::Error> {
 
     let options = SddOptions::builder()
         .vtree_strategy(args.vtree)
-        .fragment_heuristic(args.fragment_search_heuristic)
+        .fragment_heuristic(FragmentHeuristic::Root)
         .minimize_after(args.minimize_after_k_clauses)
         .minimization_cutoff(MinimizationCutoff::None)
         .variables(variables)
         .build();
 
     let manager = SddManager::new(options.clone());
+    let mut statistics = Statistics::default();
 
     // We have read the preamble already so we have to rewind the cursor to the beginning
     // of the file.
     f.rewind()?;
-    let sdd = match manager.from_dimacs(&mut f, true) {
+
+    let compilation_start = Instant::now();
+    let result = manager.from_dimacs(&mut f, true);
+    statistics.compilation = Some(compilation_start.elapsed());
+
+    let sdd = match result {
         Err(err) => {
             return Err(Error::new(
                 std::io::ErrorKind::Other,
@@ -131,15 +176,21 @@ fn main() -> Result<(), std::io::Error> {
         }
     };
 
+    statistics.compiled_sdd_size = Some(manager.size(&sdd));
     if args.minimize_after_compiling {
-        let size_before = manager.size(&sdd);
+        let minimization_start = Instant::now();
         manager.minimize(
             options.minimization_cutoff,
             options.fragment_heuristic,
             &sdd,
         );
-        let size_after = manager.size(&sdd);
-        println!("minimized SDD from {size_before} to {size_after} nodes");
+
+        statistics.compiled_sdd_size_after_minimization = Some(manager.size(&sdd));
+        statistics.minimization = Some(minimization_start.elapsed());
+    }
+
+    if args.print_statistics {
+        statistics.print();
     }
 
     let _ = write_to_file(

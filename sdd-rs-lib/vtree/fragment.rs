@@ -422,7 +422,7 @@ pub(crate) fn rotate_partition_right(
     Decision { elements }.canonicalize(manager)
 }
 
-pub(crate) fn swap_partition(node: &SddRef, v: &VTreeRef, manager: &SddManager) -> Decision {
+pub(crate) fn swap_partition(node: &SddRef, manager: &SddManager) -> Decision {
     let SddType::Decision(ref decision) = node.0.borrow().sdd_type else {
         panic!("node must be a decision node");
     };

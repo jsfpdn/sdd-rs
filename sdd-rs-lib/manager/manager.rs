@@ -423,7 +423,7 @@ impl SddManager {
     pub fn minimize(
         &self,
         cut_off: MinimizationCutoff,
-        fragment_strategy: FragmentHeuristic,
+        _fragment_strategy: FragmentHeuristic,
         reference_sdd: &SddRef,
     ) {
         // TODO: Assert that the fragment can be even built.
@@ -1187,7 +1187,7 @@ impl SddManager {
 
         for sdd in &split {
             sdd.replace_contents(SddType::Decision(Decision {
-                elements: swap_partition(sdd, x, self).elements,
+                elements: swap_partition(sdd, self).elements,
             }));
             sdd.set_vtree(x.clone());
             self.insert_node(sdd);
@@ -1241,18 +1241,6 @@ impl SddManager {
         self.move_idx();
 
         self.insert_node(&sdd);
-        sdd
-    }
-
-    pub(crate) fn new_sdd(&self, sdd: Sdd) -> SddRef {
-        let mut sdd = sdd.clone();
-        sdd.sdd_idx = *self.next_idx.borrow();
-
-        let sdd = SddRef::new(sdd);
-        self.insert_node(&sdd);
-
-        self.move_idx();
-
         sdd
     }
 

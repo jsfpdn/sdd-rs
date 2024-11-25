@@ -3,10 +3,7 @@ use crate::sdd::{Sdd, SddId, SddType};
 use crate::vtree::VTreeRef;
 use bitvec::prelude::*;
 use std::cell::RefCell;
-use std::collections::BTreeSet;
 use std::rc::Rc;
-
-use super::{Decision, Element};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SddRef(pub(crate) Rc<RefCell<Sdd>>);
@@ -47,14 +44,6 @@ impl SddRef {
     /// Check whether the SDD represents either a constant or literal.
     pub fn is_constant_or_literal(&self) -> bool {
         self.is_constant() || self.is_literal()
-    }
-
-    // TODO: Remove me.
-    pub(crate) fn get_elements(&self) -> BTreeSet<Element> {
-        match self.0.borrow().sdd_type {
-            SddType::Decision(Decision { ref elements }) => elements.clone(),
-            _ => unreachable!(),
-        }
     }
 
     /// Check whether [`self`] equals to the negated [`other`].

@@ -94,15 +94,14 @@ impl<'a> DimacsReader<'a> {
                     Ok(None)
                 } else {
                     self.state = DimacsReaderState::ParsingClauses;
-                    let mut clause = clause.trim().to_owned();
+                    let clause = clause.trim().to_owned();
                     if clause == "%" {
-                        let _ = self.reader.read_line(&mut clause);
-                        if clause == "0" {
+                        let mut zero = String::new();
+                        let _ = self.reader.read_line(&mut zero);
+                        if zero.trim() == "0" {
                             return Ok(None);
                         }
-                        return Err(format!(
-                            "expected '0' after '%' but found '{clause}' instead"
-                        ));
+                        return Err(format!("expected '0' after '%' but found '{zero}' instead"));
                     }
 
                     self.parse_clause_line(clause)
