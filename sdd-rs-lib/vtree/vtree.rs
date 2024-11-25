@@ -310,8 +310,8 @@ impl VTreeManager {
             // the parent back to the vector.
             assert!(nodes.len() >= 2);
 
-            let rc = nodes.pop_front().unwrap();
             let lc = nodes.pop_front().unwrap();
+            let rc = nodes.pop_front().unwrap();
 
             let parent = VTreeRef::new(None, VTreeIdx(0), Node::Internal(lc.clone(), rc.clone()));
             lc.set_parent(Some(&parent));
