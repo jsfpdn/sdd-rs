@@ -58,7 +58,7 @@ struct Cli {
     render_all_sdds: bool,
 
     /// Initial vtree configuration.
-    #[arg(short, long, value_enum, default_value_t = VTreeStrategy::RightLinear)]
+    #[arg(long, value_enum, default_value_t = VTreeStrategy::RightLinear)]
     vtree: VTreeStrategy,
 
     /// Minimize compiled SDD when done compiling. An arbitrary fragment
@@ -84,6 +84,7 @@ struct Cli {
 struct Statistics {
     compilation: Option<Duration>,
     minimization: Option<Duration>,
+    model_count_time: Option<Duration>,
 
     compiled_sdd_size: Option<usize>,
     compiled_sdd_size_after_minimization: Option<usize>,
@@ -95,6 +96,7 @@ impl Default for Statistics {
         Self {
             compilation: None,
             minimization: None,
+            model_count_time: None,
             compiled_sdd_size: None,
             compiled_sdd_size_after_minimization: None,
         }
@@ -104,6 +106,10 @@ impl Default for Statistics {
 impl Statistics {
     fn print(&self) {
         println!("compilation time: {:.2?}", self.compilation.unwrap());
+        if let Some(model_count_time) = self.model_count_time {
+            println!("model count time: {:.2?}", model_count_time);
+        }
+
         if self.minimization.is_some() {
             println!("minimization time : {:.2?}", self.minimization.unwrap());
             println!(
@@ -166,7 +172,10 @@ fn main() -> Result<(), std::io::Error> {
         }
         Ok(sdd) => {
             if args.count_models {
-                println!("{}", manager.model_count(&sdd));
+                let model_count_start = Instant::now();
+                let model_count = manager.model_count(&sdd);
+                statistics.model_count_time = Some(model_count_start.elapsed());
+                println!("{model_count}");
             }
 
             if args.enumerate_models {

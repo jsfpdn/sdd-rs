@@ -1,15 +1,3 @@
-[package]
-name = "sdd-rs"
-version = "0.1.0"
-edition = "2021"
-authors = ["josef podany"]
-repository = "https://github.com/jsfpdn/sdd-rs"
-description = "Bottom-up sentential decision diagram compiler binary."
-
 [workspace]
-
-[dependencies]
-tracing-subscriber = "0.3"
-tracing = "0.1"
-clap = { version = "4.5.4", features = ["derive"] }
-sdd-rs-lib = { path = "sdd-rs-lib" }
+members = ["bin", "benchmarks", "sdd-rs-lib"]
+resolver = "2"

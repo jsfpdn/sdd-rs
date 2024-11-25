@@ -1,5 +1,5 @@
 [package]
-name = "sdd-rs-lib"
+name = "sddrs"
 version = "0.1.0"
 edition = "2021"
 authors = ["josef podany"]
