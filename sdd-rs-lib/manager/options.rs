@@ -2,7 +2,7 @@ use bon::Builder;
 use clap::ValueEnum;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
-pub enum InitialVTree {
+pub enum VTreeStrategy {
     Balanced,
     LeftLinear,
     RightLinear,
@@ -22,34 +22,24 @@ pub enum MinimizationCutoff {
 }
 
 #[allow(clippy::module_name_repetitions)]
-#[derive(Debug, Clone, Copy, Builder)]
+#[derive(Debug, Clone, Builder)]
 pub struct SddOptions {
-    pub initial_vtree: InitialVTree,
+    pub vtree_strategy: VTreeStrategy,
     pub fragment_heuristic: FragmentHeuristic,
     pub minimize_after: usize,
     pub minimization_cutoff: MinimizationCutoff,
+    pub variables: Vec<String>,
 }
 
 impl Default for SddOptions {
     #[must_use]
     fn default() -> Self {
         SddOptions {
-            initial_vtree: InitialVTree::Balanced,
+            vtree_strategy: VTreeStrategy::Balanced,
             fragment_heuristic: FragmentHeuristic::Root,
             minimize_after: 0,
             minimization_cutoff: MinimizationCutoff::None,
+            variables: Vec::new(),
         }
-    }
-}
-
-impl SddOptions {
-    #[must_use]
-    pub fn new() -> SddOptions {
-        SddOptions::default()
-    }
-
-    pub fn set_initial_vtree(&mut self, initial_vtree: InitialVTree) -> &mut Self {
-        self.initial_vtree = initial_vtree;
-        self
     }
 }

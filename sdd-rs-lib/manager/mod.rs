@@ -1,6 +1,6 @@
-mod dimacs;
 mod manager;
 
+pub mod dimacs;
 pub mod model;
 pub mod options;
 

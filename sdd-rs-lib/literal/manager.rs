@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use crate::literal::{Literal, Polarity, Variable, VariableIdx};
 use crate::sdd::{Sdd, SddId, SddRef, SddType};
-use crate::vtree::{VTreeIdx, VTreeManager, VTreeRef};
+use crate::vtree::{VTreeManager, VTreeRef};
 
 #[derive(Clone, Debug)]
 struct LiteralVariants {
@@ -59,27 +59,29 @@ impl LiteralManager {
         next_sdd_idx: SddId,
         vtree_manager: &mut VTreeManager,
     ) -> (SddRef, bool) {
-        let variable = match self.find_by_label(label) {
-            None => {
-                let variable = Variable::new(label, self.literals.borrow().len() as u32);
-                vtree_manager.add_variable(&variable);
-                variable
-            }
-            Some((variable, variants)) => {
-                // Either positive or negative literal has been already constructed,
-                // if it was, return it.
-                if let Some(sdd) = variants.get(polarity) {
-                    return (sdd, false);
-                }
-                variable
-            }
-        };
+        // TODO: Do not create a new literal but retrieve it only instead.
+        unimplemented!();
+        // let variable = match self.find_by_label(label) {
+        //     None => {
+        //         let variable = Variable::new(label, self.literals.borrow().len() as u32);
+        //         vtree_manager.add_variable(&variable);
+        //         variable
+        //     }
+        //     Some((variable, variants)) => {
+        //         // Either positive or negative literal has been already constructed,
+        //         // if it was, return it.
+        //         if let Some(sdd) = variants.get(polarity) {
+        //             return (sdd, false);
+        //         }
+        //         variable
+        //     }
+        // };
 
-        // SddRef has not been constructed yet, we need to create it now and add it to the HashMap.
-        let literal = Literal::new_with_label(polarity, variable.clone());
-        let vtree = vtree_manager.get_variable_vtree(&variable).unwrap();
+        // // SddRef has not been constructed yet, we need to create it now and add it to the HashMap.
+        // let literal = Literal::new_with_label(polarity, variable.clone());
+        // let vtree = vtree_manager.get_variable_vtree(&variable).unwrap();
 
-        (self.create_sdd_ref(literal, next_sdd_idx, vtree), true)
+        // (self.create_sdd_ref(literal, next_sdd_idx, vtree), true)
     }
 
     pub(crate) fn new_literal_from_idx(

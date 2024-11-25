@@ -1,13 +1,11 @@
 use std::fs::File;
-use std::io::{BufWriter, Error};
+use std::io::{BufWriter, Error, Seek};
 
 use clap::{Parser, ValueEnum};
-use sddrs::manager::options::{FragmentHeuristic, MinimizationCutoff};
+use sddrs::manager::dimacs::{self};
+use sddrs::manager::options::{FragmentHeuristic, MinimizationCutoff, VTreeStrategy};
 
-use sddrs::manager::{
-    options::{InitialVTree, SddOptions},
-    SddManager,
-};
+use sddrs::manager::{options::SddOptions, SddManager};
 
 #[derive(Debug, Clone, ValueEnum)]
 enum LogLevel {
@@ -60,8 +58,8 @@ struct Cli {
     render_all_sdds: bool,
 
     /// Initial vtree configuration.
-    #[arg(short, long, value_enum, default_value_t = InitialVTree::Balanced)]
-    initial_vtree: InitialVTree,
+    #[arg(short, long, value_enum, default_value_t = VTreeStrategy::Balanced)]
+    vtree: VTreeStrategy,
 
     /// How to pick a fragment for minimizing.
     #[arg(short, long, value_enum, default_value_t = FragmentHeuristic::Root)]
@@ -90,21 +88,35 @@ fn main() -> Result<(), std::io::Error> {
         tracing_subscriber::fmt().with_max_level(level).init();
     }
 
+    let mut f = File::open(args.dimacs_path)?;
+    let variables = match get_variables(&mut f) {
+        Ok(variables) => variables,
+        Err(err) => {
+            return Err(Error::new(
+                std::io::ErrorKind::Other,
+                format!("could not construct variables for DIMACS file : {err}"),
+            ))
+        }
+    };
+
     let options = SddOptions::builder()
-        .initial_vtree(args.initial_vtree)
+        .vtree_strategy(args.vtree)
         .fragment_heuristic(args.fragment_search_heuristic)
         .minimize_after(args.minimize_after_k_clauses)
         .minimization_cutoff(MinimizationCutoff::None)
+        .variables(variables)
         .build();
 
-    let manager = SddManager::new(options);
+    let manager = SddManager::new(options.clone());
 
-    let mut f = File::open(args.dimacs_path)?;
+    // We have read the preamble already so we have to rewind the cursor to the beginning
+    // of the file.
+    f.rewind()?;
     let sdd = match manager.from_dimacs(&mut f, true) {
         Err(err) => {
             return Err(Error::new(
                 std::io::ErrorKind::Other,
-                format!("could not construct SDD from the DIMACS file: {}", err),
+                format!("could not construct SDD from the DIMACS file: {err}"),
             ));
         }
         Ok(sdd) => {
@@ -160,4 +172,14 @@ fn write_to_file(
     };
 
     Ok(())
+}
+
+fn get_variables(reader: &mut dyn std::io::Read) -> Result<Vec<String>, String> {
+    let mut buffer = std::io::BufReader::new(reader);
+    let mut dimacs = dimacs::DimacsReader::new(&mut buffer);
+    let preamble = dimacs.parse_preamble()?;
+
+    Ok((1..=preamble.variables)
+        .map(|idx| idx.to_string())
+        .collect())
 }

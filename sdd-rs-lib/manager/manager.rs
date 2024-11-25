@@ -85,9 +85,13 @@ impl SddManager {
         unique_table.get_mut().insert(tt.id(), tt);
         unique_table.get_mut().insert(ff.id(), ff);
 
+        for variable in options.variables.iter() {
+            // TODO: Add the variables.
+        }
+
         SddManager {
-            options,
-            vtree_manager: RefCell::new(VTreeManager::new()),
+            options: options.clone(),
+            vtree_manager: RefCell::new(VTreeManager::new(options.vtree_strategy, &vec![])), // TODO: Fix me.
             literal_manager: RefCell::new(LiteralManager::new()),
             op_cache: RefCell::new(HashMap::new()),
             next_idx: RefCell::new(SddId(2)), // Account for ff and tt created earlier which have indices 0 and 1.

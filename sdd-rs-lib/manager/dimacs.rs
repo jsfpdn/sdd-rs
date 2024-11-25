@@ -1,13 +1,11 @@
-use std::fmt::format;
-
 use crate::literal::{Polarity, VariableIdx};
 use crate::manager::SddManager;
 use crate::sdd::SddRef;
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct Preamble {
-    pub(crate) clauses: usize,
-    pub(crate) variables: usize,
+pub struct Preamble {
+    pub clauses: usize,
+    pub variables: usize,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -43,21 +41,21 @@ enum DimacsReaderState {
     Finished,
 }
 
-pub(crate) struct DimacsReader<'a> {
+pub struct DimacsReader<'a> {
     reader: &'a mut dyn std::io::BufRead,
     state: DimacsReaderState,
 }
 
 impl<'a> DimacsReader<'a> {
     #[must_use]
-    pub(crate) fn new(reader: &'a mut dyn std::io::BufRead) -> Self {
+    pub fn new(reader: &'a mut dyn std::io::BufRead) -> Self {
         DimacsReader {
             state: DimacsReaderState::Initialized,
             reader,
         }
     }
 
-    pub(crate) fn parse_preamble(&mut self) -> Result<Preamble, String> {
+    pub fn parse_preamble(&mut self) -> Result<Preamble, String> {
         if self.state != DimacsReaderState::Initialized {
             return Err(String::from("preamble already parsed"));
         }
