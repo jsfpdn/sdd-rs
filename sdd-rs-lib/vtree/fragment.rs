@@ -492,8 +492,10 @@ fn cartesian_product(
 mod test {
     use crate::{
         literal::Polarity,
-        manager::{options::SddOptions, SddManager},
-        util::quick_draw,
+        manager::{
+            options::{vars, SddOptions, VTreeStrategy},
+            SddManager,
+        },
         vtree::fragment::Move,
     };
 
@@ -505,7 +507,11 @@ mod test {
     fn fragment_forward() {
         // We should be able to create minimal right-linear fragment and visit all the
         // possible states while going forward.
-        let manager = SddManager::new(SddOptions::default());
+        let options = SddOptions::builder()
+            .vtree_strategy(VTreeStrategy::Balanced)
+            .variables(vars(vec!["a", "b", "c"]))
+            .build();
+        let manager = SddManager::new(options);
 
         let lit_a = manager.literal("a", Polarity::Positive);
         let lit_b = manager.literal("b", Polarity::Positive);
@@ -525,12 +531,9 @@ mod test {
         let rc = root.right_child();
         let mut fragment = Fragment::new(root.clone(), rc.clone());
 
-        quick_draw(&manager, &a_and_b_or_c, &format!("my_test_base"));
         for i in 0..=11 {
             let next_move = fragment.moves[fragment.state];
-            // println!("\n... minimizing (state {} ~> {}, {next_move:?})", i, i + 1);
             fragment.next(&Direction::Forward, &manager);
-            quick_draw(&manager, &a_and_b_or_c, &format!("my_test_{i}"));
 
             assert_eq!(
                 models,
@@ -546,7 +549,11 @@ mod test {
         use Move::*;
         use Polarity::*;
 
-        let manager = SddManager::new(SddOptions::default());
+        let options = SddOptions::builder()
+            .vtree_strategy(VTreeStrategy::Balanced)
+            .variables(vars(vec!["a", "b", "c"]))
+            .build();
+        let manager = SddManager::new(options);
 
         let lit_a = manager.literal("a", Positive);
         let lit_b = manager.literal("b", Positive);

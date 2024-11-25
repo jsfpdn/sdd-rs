@@ -648,21 +648,6 @@ pub(crate) mod test {
         assert_eq!(got_order.len(), want_order.len());
     }
 
-    #[allow(unused)]
-    fn left_child(vtree: &VTreeRef) -> VTreeRef {
-        match vtree.0.borrow().node.clone() {
-            Node::Leaf(_) => panic!("vtree node is a leaf instead of internal node"),
-            Node::Internal(lc, _) => lc,
-        }
-    }
-
-    pub(crate) fn right_child(vtree: &VTreeRef) -> VTreeRef {
-        match vtree.0.borrow().node.clone() {
-            Node::Leaf(_) => panic!("vtree node is a leaf instead of internal node"),
-            Node::Internal(_, rc) => rc,
-        }
-    }
-
     #[test]
     fn inorder_traversal() {
         // Helper functions to retrieve indices of first and last nodes according

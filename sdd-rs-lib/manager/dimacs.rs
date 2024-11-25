@@ -190,9 +190,8 @@ mod test {
 
     use std::io::BufReader;
 
-    use crate::{literal::Polarity, manager::dimacs::Clause};
-
     use super::{DimacsReader, Preamble};
+    use crate::{literal::Polarity, manager::dimacs::Clause};
 
     fn collect_clauses(dimacs: &mut DimacsReader) -> Vec<Clause> {
         let mut clauses = Vec::new();
@@ -214,8 +213,8 @@ mod test {
 c
 p cnf 4 3
 1 3 -4 0
-4 0 2
--3";
+4 0
+2 -3 0";
         let mut reader = BufReader::new(contents.as_bytes());
         let mut dimacs = DimacsReader::new(&mut reader);
 

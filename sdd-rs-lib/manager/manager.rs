@@ -247,7 +247,7 @@ impl SddManager {
         let variants = match self.literal_manager.borrow().find_by_label(literal) {
             Some((_, variants)) => variants,
             // TODO: We should return proper error instead of panicking here.
-            None => panic!("literal {literal} has not been created!"),
+            None => panic!("literal '{literal}' has not been created!"),
         };
 
         variants.get(polarity)
