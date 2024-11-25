@@ -9,21 +9,21 @@ use sddrs::manager::{options::SddOptions, SddManager};
 
 #[derive(Debug, Clone, ValueEnum)]
 enum LogLevel {
-    TRACE,
-    DEBUG,
-    INFO,
-    WARN,
-    NONE,
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    None,
 }
 
 impl LogLevel {
     fn to_trace(&self) -> Option<tracing::Level> {
         Some(match self {
-            LogLevel::TRACE => tracing::Level::TRACE,
-            LogLevel::DEBUG => tracing::Level::DEBUG,
-            LogLevel::INFO => tracing::Level::INFO,
-            LogLevel::WARN => tracing::Level::WARN,
-            LogLevel::NONE => return None,
+            LogLevel::Trace => tracing::Level::TRACE,
+            LogLevel::Debug => tracing::Level::DEBUG,
+            LogLevel::Info => tracing::Level::INFO,
+            LogLevel::Warn => tracing::Level::WARN,
+            LogLevel::None => return None,
         })
     }
 }
@@ -72,7 +72,7 @@ struct Cli {
     minimize_after_k_clauses: usize,
 
     /// Verbosity level. See `tracing::Level` for more information.
-    #[arg(long, value_enum, default_value_t = LogLevel::WARN)]
+    #[arg(long, value_enum, default_value_t = LogLevel::Warn)]
     verbosity: LogLevel,
 
     /// Print timing and size statistics.
@@ -80,7 +80,7 @@ struct Cli {
     print_statistics: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct Statistics {
     compilation: Option<Duration>,
     minimization: Option<Duration>,
@@ -89,18 +89,6 @@ struct Statistics {
     compiled_sdd_size: Option<usize>,
     compiled_sdd_size_after_minimization: Option<usize>,
     // TODO: Add GC related statistics.
-}
-
-impl Default for Statistics {
-    fn default() -> Self {
-        Self {
-            compilation: None,
-            minimization: None,
-            model_count_time: None,
-            compiled_sdd_size: None,
-            compiled_sdd_size_after_minimization: None,
-        }
-    }
 }
 
 impl Statistics {

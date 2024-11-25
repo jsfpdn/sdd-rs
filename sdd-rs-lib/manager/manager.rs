@@ -441,7 +441,7 @@ impl SddManager {
             size = self.size(reference_sdd)
         );
 
-        let init_size = self.size(&reference_sdd);
+        let init_size = self.size(reference_sdd);
         let mut i = 0;
         let mut best_i = 0;
         let mut best_size = init_size;
@@ -456,7 +456,7 @@ impl SddManager {
             // TODO: Improve the assertion by doing the first model_enumeration in debug as well.
             debug_assert_eq!(models, self.model_enumeration(reference_sdd));
 
-            let curr_size = self.size(&reference_sdd);
+            let curr_size = self.size(reference_sdd);
             println!("({i}): new size: {curr_size}");
             if curr_size < best_size {
                 // We have found better vtree, mark the state we found it in so we can come
@@ -488,7 +488,7 @@ impl SddManager {
             // TODO: Fix backtracking.
             fragment.next(&Direction::Backward, self);
             i -= 1;
-            println!("({i}): new size: {}", self.size(&reference_sdd));
+            println!("({i}): new size: {}", self.size(reference_sdd));
         }
     }
 
@@ -857,7 +857,7 @@ impl SddManager {
                 sub: snd.id(),
             },
             Element {
-                prime: self.negate(&fst).id(),
+                prime: self.negate(fst).id(),
                 sub: FALSE_SDD_IDX
             }
         );
@@ -1108,7 +1108,7 @@ impl SddManager {
             self.insert_node(bc);
         }
 
-        self.finalize_vtree_op(&bc_vec, &c_vec, &x);
+        self.finalize_vtree_op(&bc_vec, &c_vec, x);
 
         // TODO: Make sure this is actually needed.
         self.invalidate_cached_models();
@@ -1116,12 +1116,12 @@ impl SddManager {
 
     fn finalize_vtree_op(&self, replaced: &[SddRef], moved: &[SddRef], vtree: &VTreeRef) {
         for sdd in replaced {
-            self.insert_node(&sdd);
+            self.insert_node(sdd);
         }
 
         for sdd in moved {
             sdd.set_vtree(vtree.clone());
-            self.insert_node(&sdd);
+            self.insert_node(sdd);
         }
     }
 
@@ -1210,17 +1210,14 @@ impl SddManager {
                 continue;
             }
 
-            match sdd.sdd_type.clone() {
-                SddType::Literal(literal) => {
-                    let vtree = self
-                        .vtree_manager
-                        .borrow()
-                        .get_variable_vtree(&literal.var_label())
-                        .unwrap();
+            if let SddType::Literal(literal) = sdd.sdd_type.clone() {
+                let vtree = self
+                    .vtree_manager
+                    .borrow()
+                    .get_variable_vtree(&literal.var_label())
+                    .unwrap();
 
-                    sdd.vtree = vtree.clone();
-                }
-                _ => {}
+                sdd.vtree = vtree.clone();
             }
         }
     }

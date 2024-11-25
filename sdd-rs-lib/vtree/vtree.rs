@@ -1,3 +1,5 @@
+#![allow(clippy::non_canonical_partial_ord_impl)]
+
 use crate::{
     dot_writer::{Dot, DotWriter, Edge, NodeType},
     literal::Variable,
@@ -252,7 +254,7 @@ impl VTreeManager {
 
     /// Construct a balanced vtree.
     fn balanced(variables: &[Variable]) -> VTreeRef {
-        assert!(variables.len() >= 1);
+        assert!(!variables.is_empty());
 
         let mut nodes: Vec<_> = variables
             .iter()
@@ -306,7 +308,7 @@ impl VTreeManager {
             nodes.push_back(parent);
         }
 
-        assert!(variables.len() >= 1);
+        assert!(!variables.is_empty());
         VTreeManager::linear(variables, combine_rightmost)
     }
 
@@ -327,7 +329,7 @@ impl VTreeManager {
             nodes.push_front(parent);
         }
 
-        assert!(variables.len() >= 1);
+        assert!(!variables.is_empty());
         VTreeManager::linear(variables, combine_leftmost)
     }
 

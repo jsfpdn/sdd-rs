@@ -1,3 +1,5 @@
+#![allow(clippy::module_inception)]
+
 mod decision;
 mod element;
 mod node;

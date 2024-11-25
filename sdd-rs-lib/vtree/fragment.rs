@@ -470,8 +470,8 @@ fn cartesian_product(
 
     for fst_element in &fst {
         for snd_element in &snd {
-            let (fst_prime, fst_sub) = fst_element.get_prime_sub(&manager);
-            let (snd_prime, snd_sub) = snd_element.get_prime_sub(&manager);
+            let (fst_prime, fst_sub) = fst_element.get_prime_sub(manager);
+            let (snd_prime, snd_sub) = snd_element.get_prime_sub(manager);
 
             let res_prime = manager.conjoin(&fst_prime, &snd_prime);
             if !res_prime.is_false() {
