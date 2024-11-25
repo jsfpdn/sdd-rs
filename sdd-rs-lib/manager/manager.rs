@@ -1,7 +1,7 @@
 use crate::{
     btreeset,
     dot_writer::{Dot, DotWriter},
-    literal::{LiteralManager, Polarity, Variable, VariableIdx},
+    literal::{Literal, LiteralManager, Polarity, Variable, VariableIdx},
     manager::{dimacs, model::Models, options::SddOptions},
     sdd::{Decision, Element, Sdd, SddId, SddRef, SddType},
     util::set_bits_indices,
@@ -85,18 +85,55 @@ impl SddManager {
         unique_table.get_mut().insert(tt.id(), tt);
         unique_table.get_mut().insert(ff.id(), ff);
 
-        for variable in options.variables.iter() {
-            // TODO: Add the variables.
-        }
+        let variables: Vec<_> = options
+            .variables
+            .iter()
+            .enumerate()
+            .map(|(idx, variable)| Variable::new(variable, idx as u32))
+            .collect();
 
-        SddManager {
+        let manager = SddManager {
             options: options.clone(),
-            vtree_manager: RefCell::new(VTreeManager::new(options.vtree_strategy, &vec![])), // TODO: Fix me.
-            literal_manager: RefCell::new(LiteralManager::new()),
             op_cache: RefCell::new(HashMap::new()),
             next_idx: RefCell::new(SddId(2)), // Account for ff and tt created earlier which have indices 0 and 1.
+            vtree_manager: RefCell::new(VTreeManager::new(options.vtree_strategy, &variables)),
+            literal_manager: RefCell::new(LiteralManager::new()),
             unique_table,
+        };
+
+        for variable in variables {
+            let vtree = manager
+                .vtree_manager
+                .borrow()
+                .get_variable_vtree(&variable)
+                .unwrap();
+
+            let positive_literal = manager.new_sdd_from_type(
+                SddType::Literal(Literal::new_with_label(
+                    Polarity::Positive,
+                    variable.clone(),
+                )),
+                vtree.clone(),
+                None,
+            );
+
+            let negative_literal = manager.new_sdd_from_type(
+                SddType::Literal(Literal::new_with_label(
+                    Polarity::Negative,
+                    variable.clone(),
+                )),
+                vtree.clone(),
+                None,
+            );
+
+            manager.literal_manager.borrow().add_variable(
+                &variable,
+                positive_literal,
+                negative_literal,
+            );
         }
+
+        manager
     }
 
     /// Parse a CNF in [DIMACS] format and construct an SDD. Function expects there is a
@@ -176,23 +213,6 @@ impl SddManager {
             .clone()
     }
 
-    #[must_use]
-    pub(crate) fn literal_from_idx(&self, literal: VariableIdx, polarity: Polarity) -> SddRef {
-        let (sdd, created) = self.literal_manager.borrow().new_literal_from_idx(
-            literal,
-            *self.next_idx.borrow(),
-            polarity,
-            &mut self.vtree_manager.borrow_mut(),
-        );
-
-        if created {
-            self.move_idx();
-        }
-
-        self.insert_node(&sdd);
-        sdd
-    }
-
     pub(crate) fn get_nodes_normalized_for(&self, vtree_idx: VTreeIdx) -> Vec<(SddId, SddRef)> {
         self.unique_table
             .borrow()
@@ -224,22 +244,23 @@ impl SddManager {
     }
 
     pub fn literal(&self, literal: &str, polarity: Polarity) -> SddRef {
-        // TODO: Adding new variable should either invalidate cached model counts
-        // in existing SDDs or recompute them.
+        let variants = match self.literal_manager.borrow().find_by_label(literal) {
+            Some((_, variants)) => variants,
+            // TODO: We should return proper error instead of panicking here.
+            None => panic!("literal {literal} has not been created!"),
+        };
 
-        let (literal, created) = self.literal_manager.borrow().new_literal(
-            literal,
-            polarity,
-            *self.next_idx.borrow(),
-            &mut self.vtree_manager.borrow_mut(),
-        );
+        variants.get(polarity)
+    }
 
-        if created {
-            self.move_idx();
-        }
+    pub(crate) fn literal_from_idx(&self, idx: &VariableIdx, polarity: Polarity) -> SddRef {
+        let variants = match self.literal_manager.borrow().find_by_index(*idx) {
+            Some((_, variants)) => variants,
+            // TODO: We should return proper error instead of panicking here.
+            None => panic!("literal with index {idx:?} has not been created!"),
+        };
 
-        self.insert_node(&literal);
-        literal
+        variants.get(polarity)
     }
 
     pub fn tautology(&self) -> SddRef {
@@ -1248,13 +1269,20 @@ mod test {
     use super::{SddManager, SddOptions};
     use crate::{
         literal::{Literal, Polarity, VariableIdx},
-        manager::model::Model,
+        manager::{
+            model::Model,
+            options::{vars, VTreeStrategy},
+        },
+        util::quick_draw,
     };
     use pretty_assertions::assert_eq;
 
     #[test]
     fn simple_conjoin() {
-        let manager = SddManager::new(SddOptions::default());
+        let options = SddOptions::builder()
+            .variables(vars(vec!["a", "b"]))
+            .build();
+        let manager = SddManager::new(options);
 
         let tt = manager.tautology();
         let ff = manager.contradiction();
@@ -1275,7 +1303,10 @@ mod test {
 
     #[test]
     fn simple_disjoin() {
-        let manager = SddManager::new(SddOptions::default());
+        let options = SddOptions::builder()
+            .variables(vars(vec!["a", "b"]))
+            .build();
+        let manager = SddManager::new(options);
 
         let tt = manager.tautology();
         let ff = manager.contradiction();
@@ -1296,7 +1327,10 @@ mod test {
 
     #[test]
     fn simple_negate() {
-        let manager = SddManager::new(SddOptions::default());
+        let options = SddOptions::builder()
+            .variables(vars(vec!["a", "b"]))
+            .build();
+        let manager = SddManager::new(options);
 
         let tt = manager.tautology();
         let ff = manager.contradiction();
@@ -1313,7 +1347,10 @@ mod test {
 
     #[test]
     fn simple_imply() {
-        let manager = SddManager::new(SddOptions::default());
+        let options = SddOptions::builder()
+            .variables(vars(vec!["a", "b"]))
+            .build();
+        let manager = SddManager::new(options);
 
         let tt = manager.tautology();
         let ff = manager.contradiction();
@@ -1332,7 +1369,10 @@ mod test {
 
     #[test]
     fn simple_equiv() {
-        let manager = SddManager::new(SddOptions::default());
+        let options = SddOptions::builder()
+            .variables(vars(vec!["a", "b"]))
+            .build();
+        let manager = SddManager::new(options);
 
         let tt = manager.tautology();
         let ff = manager.contradiction();
@@ -1349,11 +1389,13 @@ mod test {
 
     #[test]
     fn apply() {
-        let manager = SddManager::new(SddOptions::default());
+        let options = SddOptions::builder()
+            .variables(vars(vec!["a", "b", "c", "d"]))
+            .build();
+        let manager = SddManager::new(options);
 
         let lit_a = manager.literal("a", Polarity::Positive);
         let lit_b = manager.literal("b", Polarity::Positive);
-        let _ = manager.literal("c", Polarity::Positive);
         let lit_d = manager.literal("d", Polarity::Positive);
         //           3
         //         /   \
@@ -1361,13 +1403,6 @@ mod test {
         //      / |     | \
         //     0  2     4  6
         //     A  B     C  D
-
-        // Rotate the right child of root to the left to make the tree balanced as in the diagram above.
-        let root = manager.vtree_manager.borrow().root.clone().unwrap();
-        manager
-            .vtree_manager
-            .borrow_mut()
-            .rotate_left(&root.right_child());
 
         // Resulting SDD must be normalized w.r.t. vtree with index 3.
         let a_and_d = manager.conjoin(&lit_a, &lit_d);
@@ -1380,19 +1415,15 @@ mod test {
 
     #[test]
     fn model_counting() {
-        let manager = SddManager::new(SddOptions::default());
+        let options = SddOptions::builder()
+            .variables(vars(vec!["a", "b", "c", "d"]))
+            .build();
+        let manager = SddManager::new(options);
 
         let lit_a = manager.literal("a", Polarity::Positive);
         let lit_b = manager.literal("b", Polarity::Positive);
         let lit_c = manager.literal("c", Polarity::Positive);
         let lit_d = manager.literal("d", Polarity::Positive);
-
-        // Make the vtree balanced.
-        let root = manager.vtree_manager.borrow().root.clone().unwrap();
-        manager
-            .vtree_manager
-            .borrow_mut()
-            .rotate_left(&root.right_child());
 
         let a_and_d = manager.conjoin(&lit_a, &lit_d);
         assert_eq!(manager.model_count(&a_and_d), 4);
@@ -1419,124 +1450,122 @@ mod test {
 
     #[test]
     fn model_enumeration() {
-        let manager = SddManager::new(SddOptions::default());
+        // This test is broken down into two parts since the first
+        // part uses only a single literal 'a'.
+        {
+            let options = SddOptions::builder().variables(vars(vec!["a"])).build();
+            let manager = SddManager::new(options);
+            let lit_a = manager.literal("a", Polarity::Positive);
 
-        let lit_a = manager.literal("a", Polarity::Positive);
+            assert_eq!(
+                manager.model_enumeration(&lit_a).all_models(),
+                vec![Model::new_from_literals(vec![Literal::new(
+                    Polarity::Positive,
+                    "a",
+                    VariableIdx(0)
+                )])]
+            );
+        }
 
-        assert_eq!(
-            manager.model_enumeration(&lit_a).all_models(),
-            vec![Model::new_from_literals(vec![Literal::new(
-                Polarity::Positive,
-                "a",
-                VariableIdx(0)
-            )])]
-        );
+        {
+            let options = SddOptions::builder()
+                .variables(vars(vec!["a", "b", "c", "d"]))
+                .build();
+            let manager = SddManager::new(options);
+            let lit_a = manager.literal("a", Polarity::Positive);
+            let lit_b = manager.literal("b", Polarity::Positive);
+            let lit_c = manager.literal("c", Polarity::Positive);
+            let lit_d = manager.literal("d", Polarity::Positive);
 
-        let lit_b = manager.literal("b", Polarity::Positive);
-        let lit_c = manager.literal("c", Polarity::Positive);
-        let lit_d = manager.literal("d", Polarity::Positive);
+            let a_and_b = manager.conjoin(&lit_a, &lit_b);
+            let models = vec![
+                Model::new_from_literals(vec![
+                    Literal::new(Polarity::Positive, "a", VariableIdx(0)),
+                    Literal::new(Polarity::Positive, "b", VariableIdx(1)),
+                    Literal::new(Polarity::Negative, "c", VariableIdx(2)),
+                    Literal::new(Polarity::Negative, "d", VariableIdx(3)),
+                ]),
+                Model::new_from_literals(vec![
+                    Literal::new(Polarity::Positive, "a", VariableIdx(0)),
+                    Literal::new(Polarity::Positive, "b", VariableIdx(1)),
+                    Literal::new(Polarity::Negative, "c", VariableIdx(2)),
+                    Literal::new(Polarity::Positive, "d", VariableIdx(3)),
+                ]),
+                Model::new_from_literals(vec![
+                    Literal::new(Polarity::Positive, "a", VariableIdx(0)),
+                    Literal::new(Polarity::Positive, "b", VariableIdx(1)),
+                    Literal::new(Polarity::Positive, "c", VariableIdx(2)),
+                    Literal::new(Polarity::Negative, "d", VariableIdx(3)),
+                ]),
+                Model::new_from_literals(vec![
+                    Literal::new(Polarity::Positive, "a", VariableIdx(0)),
+                    Literal::new(Polarity::Positive, "b", VariableIdx(1)),
+                    Literal::new(Polarity::Positive, "c", VariableIdx(2)),
+                    Literal::new(Polarity::Positive, "d", VariableIdx(3)),
+                ]),
+            ];
 
-        let root = manager.vtree_manager.borrow().root.clone().unwrap();
-        manager
-            .vtree_manager
-            .borrow_mut()
-            .rotate_left(&root.right_child());
+            assert_eq!(manager.model_enumeration(&a_and_b).all_models(), models);
 
-        let a_and_b = manager.conjoin(&lit_a, &lit_b);
-        let models = vec![
-            Model::new_from_literals(vec![
+            let a_and_b_and_c = manager.conjoin(&a_and_b, &lit_c);
+
+            let models = vec![
+                Model::new_from_literals(vec![
+                    Literal::new(Polarity::Positive, "a", VariableIdx(0)),
+                    Literal::new(Polarity::Positive, "b", VariableIdx(1)),
+                    Literal::new(Polarity::Positive, "c", VariableIdx(2)),
+                    Literal::new(Polarity::Negative, "d", VariableIdx(3)),
+                ]),
+                Model::new_from_literals(vec![
+                    Literal::new(Polarity::Positive, "a", VariableIdx(0)),
+                    Literal::new(Polarity::Positive, "b", VariableIdx(1)),
+                    Literal::new(Polarity::Positive, "c", VariableIdx(2)),
+                    Literal::new(Polarity::Positive, "d", VariableIdx(3)),
+                ]),
+            ];
+
+            assert_eq!(
+                manager.model_enumeration(&a_and_b_and_c).all_models(),
+                models
+            );
+
+            let a_and_b_and_c_and_d = manager.conjoin(&a_and_b_and_c, &lit_d);
+            let models = vec![Model::new_from_literals(vec![
                 Literal::new(Polarity::Positive, "a", VariableIdx(0)),
                 Literal::new(Polarity::Positive, "b", VariableIdx(1)),
-                Literal::new(Polarity::Negative, "c", VariableIdx(2)),
-                Literal::new(Polarity::Negative, "d", VariableIdx(3)),
-            ]),
-            Model::new_from_literals(vec![
-                Literal::new(Polarity::Positive, "a", VariableIdx(0)),
-                Literal::new(Polarity::Positive, "b", VariableIdx(1)),
-                Literal::new(Polarity::Negative, "c", VariableIdx(2)),
+                Literal::new(Polarity::Positive, "c", VariableIdx(2)),
                 Literal::new(Polarity::Positive, "d", VariableIdx(3)),
-            ]),
-            Model::new_from_literals(vec![
-                Literal::new(Polarity::Positive, "a", VariableIdx(0)),
-                Literal::new(Polarity::Positive, "b", VariableIdx(1)),
-                Literal::new(Polarity::Positive, "c", VariableIdx(2)),
-                Literal::new(Polarity::Negative, "d", VariableIdx(3)),
-            ]),
-            Model::new_from_literals(vec![
-                Literal::new(Polarity::Positive, "a", VariableIdx(0)),
-                Literal::new(Polarity::Positive, "b", VariableIdx(1)),
-                Literal::new(Polarity::Positive, "c", VariableIdx(2)),
-                Literal::new(Polarity::Positive, "d", VariableIdx(3)),
-            ]),
-        ];
+            ])];
+            assert_eq!(
+                manager.model_enumeration(&a_and_b_and_c_and_d).all_models(),
+                models,
+            );
 
-        assert_eq!(manager.model_enumeration(&a_and_b).all_models(), models);
-
-        let a_and_b_and_c = manager.conjoin(&a_and_b, &lit_c);
-        let models = vec![
-            Model::new_from_literals(vec![
-                Literal::new(Polarity::Positive, "a", VariableIdx(0)),
-                Literal::new(Polarity::Positive, "b", VariableIdx(1)),
-                Literal::new(Polarity::Positive, "c", VariableIdx(2)),
-                Literal::new(Polarity::Negative, "d", VariableIdx(3)),
-            ]),
-            Model::new_from_literals(vec![
-                Literal::new(Polarity::Positive, "a", VariableIdx(0)),
-                Literal::new(Polarity::Positive, "b", VariableIdx(1)),
-                Literal::new(Polarity::Positive, "c", VariableIdx(2)),
-                Literal::new(Polarity::Positive, "d", VariableIdx(3)),
-            ]),
-        ];
-
-        assert_eq!(
-            manager.model_enumeration(&a_and_b_and_c).all_models(),
-            models
-        );
-
-        let a_and_b_and_c_and_d = manager.conjoin(&a_and_b_and_c, &lit_d);
-        let models = vec![Model::new_from_literals(vec![
-            Literal::new(Polarity::Positive, "a", VariableIdx(0)),
-            Literal::new(Polarity::Positive, "b", VariableIdx(1)),
-            Literal::new(Polarity::Positive, "c", VariableIdx(2)),
-            Literal::new(Polarity::Positive, "d", VariableIdx(3)),
-        ])];
-        assert_eq!(
-            manager.model_enumeration(&a_and_b_and_c_and_d).all_models(),
-            models,
-        );
-
-        let not_a = manager.literal("a", Polarity::Negative);
-        let ff = manager.conjoin(&not_a, &a_and_b_and_c_and_d);
-        assert_eq!(manager.model_enumeration(&ff).all_models(), vec![]);
+            let not_a = manager.literal("a", Polarity::Negative);
+            let ff = manager.conjoin(&not_a, &a_and_b_and_c_and_d);
+            assert_eq!(manager.model_enumeration(&ff).all_models(), vec![]);
+        }
     }
 
     #[test]
     fn left_rotation() {
-        let manager = SddManager::new(SddOptions::default());
+        let options = SddOptions::builder()
+            .vtree_strategy(VTreeStrategy::RightLinear)
+            .variables(vars(vec!["a", "b", "c", "d"]))
+            .build();
+        let manager = SddManager::new(options);
 
         let lit_a = manager.literal("a", Polarity::Positive);
         let lit_b = manager.literal("b", Polarity::Positive);
         let lit_c = manager.literal("c", Polarity::Positive);
         let lit_d = manager.literal("d", Polarity::Positive);
-        //           3
-        //         /   \
-        //        1     5
-        //      / |     | \
-        //     0  2     4  6
-        //     A  B     C  D
-
-        // Rotate the right child of root to the left to make the tree balanced as in the diagram above.
-        let root = manager.root().unwrap();
-        manager
-            .vtree_manager
-            .borrow_mut()
-            .rotate_left(&root.right_child());
 
         let a_and_d = manager.conjoin(&lit_a, &lit_d);
         let a_and_d_and_b = manager.conjoin(&a_and_d, &lit_b);
         let a_and_d_and_b_and_c = manager.conjoin(&a_and_d_and_b, &lit_c);
         let models_before = manager.model_enumeration(&a_and_d_and_b_and_c);
 
+        // Rotating right child of the root to the left makes the vtree balanced.
         manager.rotate_left(&manager.root().unwrap().right_child());
 
         let models_after = manager.model_enumeration(&a_and_d_and_b_and_c);
@@ -1545,31 +1574,25 @@ mod test {
 
     #[test]
     fn right_rotation() {
-        let manager = SddManager::new(SddOptions::default());
+        let options = SddOptions::builder()
+            .vtree_strategy(VTreeStrategy::LeftLinear)
+            .variables(vars(vec!["a", "b", "c", "d"]))
+            .build();
+        let manager = SddManager::new(options);
 
         let lit_a = manager.literal("a", Polarity::Positive);
         let lit_b = manager.literal("b", Polarity::Positive);
         let lit_c = manager.literal("c", Polarity::Positive);
         let lit_d = manager.literal("d", Polarity::Positive);
-        //           3
-        //         /   \
-        //        1     5
-        //      / |     | \
-        //     0  2     4  6
-        //     A  B     C  D
-
-        // Rotate the right child of root to the left to make the tree balanced as in the diagram above.
-        let root = manager.root().unwrap();
-        manager
-            .vtree_manager
-            .borrow_mut()
-            .rotate_left(&root.right_child());
 
         let a_and_d = manager.conjoin(&lit_a, &lit_d);
         let a_and_d_and_b = manager.conjoin(&a_and_d, &lit_b);
         let a_and_d_and_b_and_c = manager.conjoin(&a_and_d_and_b, &lit_c);
         let models_before = manager.model_enumeration(&a_and_d_and_b_and_c);
 
+        quick_draw(&manager, &a_and_d_and_b_and_c, "left_linear");
+        // Rotating the root to the right makes the vtree balanced.
+        // TODO: Fix this.
         manager.rotate_right(&manager.root().unwrap());
 
         let models_after = manager.model_enumeration(&a_and_d_and_b_and_c);
@@ -1578,25 +1601,16 @@ mod test {
 
     #[test]
     fn swap() {
-        let manager = SddManager::new(SddOptions::default());
+        let options = SddOptions::builder()
+            .vtree_strategy(VTreeStrategy::Balanced)
+            .variables(vars(vec!["a", "b", "c", "d"]))
+            .build();
+        let manager = SddManager::new(options);
 
         let lit_a = manager.literal("a", Polarity::Positive);
         let lit_b = manager.literal("b", Polarity::Positive);
         let lit_c = manager.literal("c", Polarity::Positive);
         let lit_d = manager.literal("d", Polarity::Positive);
-        //           3
-        //         /   \
-        //        1     5
-        //      / |     | \
-        //     0  2     4  6
-        //     A  B     C  D
-
-        // Rotate the right child of root to the left to make the tree balanced as in the diagram above.
-        let root = manager.root().unwrap();
-        manager
-            .vtree_manager
-            .borrow_mut()
-            .rotate_left(&root.right_child());
 
         let a_and_d = manager.conjoin(&lit_a, &lit_d);
         let a_and_d_and_b = manager.conjoin(&a_and_d, &lit_b);

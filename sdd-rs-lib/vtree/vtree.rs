@@ -264,6 +264,9 @@ impl VTreeManager {
         while nodes.len() > 1 {
             let mut parents = Vec::with_capacity(nodes.len() / 2);
             for i in (0..nodes.len()).step_by(2) {
+                if i + 1 == nodes.len() {
+                    continue;
+                }
                 let lc = nodes.get(i).unwrap();
                 let rc = nodes.get(i + 1).unwrap();
 
@@ -274,6 +277,10 @@ impl VTreeManager {
                 rc.set_parent(Some(&parent));
 
                 parents.push(parent);
+            }
+
+            if nodes.len() % 2 == 1 {
+                parents.push(nodes.last().unwrap().clone());
             }
 
             nodes = parents;

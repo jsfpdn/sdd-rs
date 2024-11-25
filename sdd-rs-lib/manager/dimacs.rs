@@ -25,7 +25,7 @@ impl Clause {
             .zip(self.var_label_polarities.iter())
         {
             // DIMACS variables are indexed from 1 but our variables start at 0.
-            let lit = manager.literal_from_idx(VariableIdx((*idx - 1) as u32), *polarity);
+            let lit = manager.literal_from_idx(&VariableIdx(*idx as u32 - 1), *polarity);
             sdd = manager.disjoin(&sdd, &lit);
         }
 
@@ -86,15 +86,26 @@ impl<'a> DimacsReader<'a> {
             return Ok(None);
         }
 
-        let mut clause = vec![];
-        match self.reader.read_until(b'0', &mut clause) {
+        let mut clause = String::new();
+        match self.reader.read_line(&mut clause) {
             Ok(read) => {
                 if read == 0 {
                     self.state = DimacsReaderState::Finished;
                     Ok(None)
                 } else {
                     self.state = DimacsReaderState::ParsingClauses;
-                    self.parse_clause_line(&clause)
+                    let mut clause = clause.trim().to_owned();
+                    if clause == "%" {
+                        let _ = self.reader.read_line(&mut clause);
+                        if clause == "0" {
+                            return Ok(None);
+                        }
+                        return Err(format!(
+                            "expected '0' after '%' but found '{clause}' instead"
+                        ));
+                    }
+
+                    self.parse_clause_line(clause)
                 }
             }
             Err(err) => Err(format!("could not parse clause: {err}")),
@@ -134,33 +145,11 @@ impl<'a> DimacsReader<'a> {
         Ok(Preamble { clauses, variables })
     }
 
-    fn parse_clause_line(&mut self, line: &[u8]) -> Result<Option<Clause>, String> {
-        let tokens: Vec<_> = line
-            .split(|num| *num == b' ' || *num == b'\n')
-            .filter(|variable| !variable.is_empty())
-            .map(String::from_utf8_lossy)
-            .collect();
-
-        // Check whether this is the special (and optional) syntax for EOF.
-        if tokens.len() == 2 {
-            let fst_token = tokens.first().unwrap();
-            let snd_token = tokens.get(1).unwrap();
-
-            if fst_token == "%" {
-                if snd_token == "0" {
-                    self.state = DimacsReaderState::Finished;
-                    return Ok(None);
-                }
-
-                return Err(format!(
-                    "found '%' and next symbol should be '0' instead of '{snd_token}'"
-                ));
-            }
-        }
+    fn parse_clause_line(&mut self, line: String) -> Result<Option<Clause>, String> {
+        let tokens: Vec<_> = line.split(" ").filter(|token| *token != "0").collect();
 
         let literals: Vec<_> = tokens
             .iter()
-            .filter(|token| *token != "0")
             .map(|variable_idx| match variable_idx.trim().parse::<i64>() {
                 Err(err) => Err(format!("literal '{variable_idx}' is invalid: {err}")),
                 Ok(idx) => Ok((Polarity::from(!variable_idx.starts_with("-")), idx)),

@@ -24,11 +24,26 @@ pub enum MinimizationCutoff {
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone, Builder)]
 pub struct SddOptions {
+    #[builder(default = VTreeStrategy::Balanced)]
     pub vtree_strategy: VTreeStrategy,
+
+    #[builder(default = FragmentHeuristic::Root)]
     pub fragment_heuristic: FragmentHeuristic,
+
+    #[builder(default = 0)]
     pub minimize_after: usize,
+
+    #[builder(default = MinimizationCutoff::None)]
     pub minimization_cutoff: MinimizationCutoff,
+
+    #[builder(default = Vec::new())]
+    #[builder(into)]
     pub variables: Vec<String>,
+}
+
+/// TODO: This is an ugly hack, fix it.
+pub fn vars(variables: Vec<&str>) -> Vec<String> {
+    variables.iter().map(|v| v.to_string()).collect()
 }
 
 impl Default for SddOptions {

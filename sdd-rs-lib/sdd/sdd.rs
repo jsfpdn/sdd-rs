@@ -443,14 +443,19 @@ impl Sdd {
 #[cfg(test)]
 mod test {
     use crate::literal::Polarity;
+    use crate::manager::options::{vars, VTreeStrategy};
     use crate::manager::{options::SddOptions, SddManager};
     use crate::vtree::LeftDependence;
 
     #[test]
     fn vtree_dependence() {
-        let manager = SddManager::new(SddOptions::default());
+        let options = SddOptions::builder()
+            .variables(vars(vec!["A", "B", "C", "D"]))
+            .vtree_strategy(VTreeStrategy::RightLinear)
+            .build();
+        let manager = SddManager::new(options);
+
         let a = manager.literal("A", Polarity::Positive);
-        manager.literal("B", Polarity::Positive);
         let c = manager.literal("C", Polarity::Positive);
         let d = manager.literal("D", Polarity::Positive);
         // The vtree looks like this:
