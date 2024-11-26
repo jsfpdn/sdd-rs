@@ -19,6 +19,7 @@ pub enum MinimizationCutoff {
     None,
     Iteration(usize),
     Decrease(f32),
+    // TODO: Add variant for time elapsed.
 }
 
 #[allow(clippy::module_name_repetitions)]

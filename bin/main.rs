@@ -158,19 +158,7 @@ fn main() -> Result<(), std::io::Error> {
                 format!("could not construct SDD from the DIMACS file: {err}"),
             ));
         }
-        Ok(sdd) => {
-            if args.count_models {
-                let model_count_start = Instant::now();
-                let model_count = manager.model_count(&sdd);
-                statistics.model_count_time = Some(model_count_start.elapsed());
-                println!("{model_count}");
-            }
-
-            if args.enumerate_models {
-                println!("{}", manager.model_enumeration(&sdd));
-            }
-            sdd
-        }
+        Ok(sdd) => sdd,
     };
 
     statistics.compiled_sdd_size = Some(manager.size(&sdd));
@@ -184,6 +172,17 @@ fn main() -> Result<(), std::io::Error> {
 
         statistics.compiled_sdd_size_after_minimization = Some(manager.size(&sdd));
         statistics.minimization = Some(minimization_start.elapsed());
+    }
+
+    if args.count_models {
+        let model_count_start = Instant::now();
+        let model_count = manager.model_count(&sdd);
+        statistics.model_count_time = Some(model_count_start.elapsed());
+        println!("{model_count}");
+    }
+
+    if args.enumerate_models {
+        println!("{}", manager.model_enumeration(&sdd));
     }
 
     if args.print_statistics {

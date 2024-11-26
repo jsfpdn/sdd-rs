@@ -482,14 +482,8 @@ impl SddManager {
             i += 1;
         }
 
-        println!("backtracking back to {best_i}");
-        tracing::debug!("reverting from {i} to {best_i}");
-        while i > best_i {
-            // TODO: Fix backtracking.
-            fragment.next(&Direction::Backward, self);
-            i -= 1;
-            println!("({i}): new size: {}", self.size(reference_sdd));
-        }
+        tracing::debug!("rewinding from {i} to {best_i}");
+        fragment.rewind(best_i, &self);
     }
 
     fn criteria_met(
@@ -637,8 +631,10 @@ impl SddManager {
             };
 
             let get_models_count = |sdd: &SddRef| {
-                if sdd.is_literal() {
+                if sdd.is_literal() || sdd.is_true() {
                     1
+                } else if sdd.is_false() {
+                    0
                 } else {
                     self._model_count(sdd)
                 }
