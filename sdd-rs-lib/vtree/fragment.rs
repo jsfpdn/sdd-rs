@@ -14,13 +14,6 @@ pub(crate) enum Direction {
     Backward,
 }
 
-#[derive(PartialEq, Eq, Debug)]
-enum Mode {
-    Initial,
-    Next,
-    Goto,
-}
-
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum Move {
     LeftRotateChild,
@@ -62,26 +55,56 @@ const MOVES_RIGHT_LINEAR: [Move; 12] = [
     Move::SwapChild,
 ];
 
-impl Mode {
-    fn can_transition(&self, next_state: Mode) -> bool {
-        match self {
-            Mode::Initial => true,
-            Mode::Next => next_state != Mode::Goto,
-            Mode::Goto => next_state != Mode::Next,
-        }
-    }
-}
-
-// TODO: Fragment shadows
-
 pub(crate) struct Fragment {
     current_root: VTreeRef,
     current_child: VTreeRef,
 
-    state: usize,
-    mode: Mode,
+    state: FragmentState,
+}
 
-    moves: [Move; 12],
+struct FragmentState {
+    // Index points to the `forward_moves` array to the next move to be performed.
+    index: usize,
+    forward_moves: [Move; 12],
+    backward_moves: [Move; 12],
+}
+
+enum Linearity {
+    LeftLinear,
+    RightLinear,
+}
+
+impl FragmentState {
+    fn new(linearity: Linearity) -> Self {
+        let (forward_moves, backward_moves) = match linearity {
+            Linearity::LeftLinear => (MOVES_LEFT_LINEAR, MOVES_RIGHT_LINEAR),
+            Linearity::RightLinear => (MOVES_RIGHT_LINEAR, MOVES_LEFT_LINEAR),
+        };
+
+        Self {
+            index: 0,
+            forward_moves,
+            backward_moves,
+        }
+    }
+
+    fn next(&mut self, direction: &Direction) -> Move {
+        match direction {
+            Direction::Forward => {
+                assert!(self.index <= 11);
+                let mv = self.forward_moves[self.index];
+                self.index += 1;
+                mv
+            }
+            Direction::Backward => {
+                // Assert that we have indeed moved forward before in order to go backward.
+                assert!(self.index <= 12);
+                assert!(self.index != 0);
+                self.index -= 1;
+                self.backward_moves[self.index]
+            }
+        }
+    }
 }
 
 /// Given the following vtree rooted at `x`:
@@ -129,32 +152,22 @@ pub(crate) enum RightDependence {
 impl Fragment {
     #[must_use]
     pub(crate) fn new(root: VTreeRef, child: VTreeRef) -> Self {
-        let moves = match root.0.borrow().node.clone() {
-            Node::Internal(lc, _) if Rc::ptr_eq(&lc.0, &child.0) => MOVES_LEFT_LINEAR,
-            Node::Internal(_, rc) if Rc::ptr_eq(&rc.0, &child.0) => MOVES_RIGHT_LINEAR,
+        let linearity = match root.0.borrow().node.clone() {
+            Node::Internal(lc, _) if Rc::ptr_eq(&lc.0, &child.0) => Linearity::LeftLinear,
+            Node::Internal(_, rc) if Rc::ptr_eq(&rc.0, &child.0) => Linearity::RightLinear,
             _ => panic!("root and child cannot form a fragment"),
         };
 
         Fragment {
             current_root: root.clone(),
             current_child: child.clone(),
-            state: 0,
-            mode: Mode::Initial,
-            moves,
+            state: FragmentState::new(linearity),
         }
     }
 
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     pub(crate) fn next(&mut self, direction: &Direction, manager: &SddManager) {
-        assert!(self.state <= 11);
-        assert!(
-            self.mode.can_transition(Mode::Next),
-            "cannot transition from {:?} to {:?}",
-            self.mode,
-            Mode::Next,
-        );
-
-        let next_move = self.next_move(direction);
+        let next_move = self.state.next(direction);
         tracing::debug!(?next_move);
 
         match next_move {
@@ -184,34 +197,18 @@ impl Fragment {
         }
     }
 
-    fn next_move(&mut self, direction: &Direction) -> Move {
-        let state = self.get_and_move_state(direction);
-        self.moves[state]
-    }
+    pub(crate) fn rewind(&mut self, state: usize, manager: &SddManager) {
+        assert!(self.state.index > state);
 
-    fn get_and_move_state(&mut self, direction: &Direction) -> usize {
-        let state = self.state;
-        if *direction == Direction::Forward {
-            if state == 11 {
-                self.state = 0;
-            } else {
-                self.state += 1;
-            }
-        } else if state == 0 {
-            self.state = 11;
-        } else {
-            self.state -= 1;
+        while self.state.index > state {
+            self.next(&Direction::Backward, manager)
         }
-
-        state
     }
 
     fn swap(&mut self) {
         let tmp = self.current_root.clone();
         self.current_root = self.current_child.clone();
         self.current_child = tmp;
-        // let old_x = x.0.replace(y.0.borrow().clone());
-        // y.0.replace(old_x);
     }
 }
 
@@ -496,7 +493,7 @@ mod test {
             options::{vars, SddOptions, VTreeStrategy},
             SddManager,
         },
-        vtree::fragment::Move,
+        vtree::fragment::{FragmentState, Linearity, Move},
     };
 
     use super::{Direction, Fragment};
@@ -508,7 +505,7 @@ mod test {
         // We should be able to create minimal right-linear fragment and visit all the
         // possible states while going forward.
         let options = SddOptions::builder()
-            .vtree_strategy(VTreeStrategy::Balanced)
+            .vtree_strategy(VTreeStrategy::RightLinear)
             .variables(vars(vec!["a", "b", "c"]))
             .build();
         let manager = SddManager::new(options);
@@ -532,7 +529,7 @@ mod test {
         let mut fragment = Fragment::new(root.clone(), rc.clone());
 
         for i in 0..=11 {
-            let next_move = fragment.moves[fragment.state];
+            let next_move = fragment.state.forward_moves[fragment.state.index];
             fragment.next(&Direction::Forward, &manager);
 
             assert_eq!(
@@ -541,59 +538,51 @@ mod test {
                 "{i}-th state failed after doing {next_move:?}",
             );
         }
+
+        // Try to roll back to the 5th state (e.g. RR, SC, LR, SC, RR)
+        fragment.rewind(5, &manager);
+        assert_eq!(fragment.state.index, 5);
     }
 
     #[test]
     fn move_between_states() {
         use Direction::*;
         use Move::*;
-        use Polarity::*;
 
-        let options = SddOptions::builder()
-            .vtree_strategy(VTreeStrategy::Balanced)
-            .variables(vars(vec!["a", "b", "c"]))
-            .build();
-        let manager = SddManager::new(options);
+        // Order of operations when going forward must be RR, SC, LR, SC, RR.
+        // When rewinding and rolling it back, the operations should be inverse
+        // (inverse(RR) = LL, inverse(LL) = RR, inverse(SC) = SC) and in the
+        // inverse order.
 
-        let lit_a = manager.literal("a", Positive);
-        let lit_b = manager.literal("b", Positive);
-        let lit_c = manager.literal("c", Positive);
+        let mut state = FragmentState::new(Linearity::LeftLinear);
+        assert_eq!(state.next(&Forward), RightRotateRoot);
+        assert_eq!(state.index, 1);
 
-        let root = manager.root().unwrap();
-        let rc = root.right_child();
-        let mut fragment = Fragment::new(root.clone(), rc.clone());
+        assert_eq!(state.next(&Forward), SwapChild);
+        assert_eq!(state.index, 2);
 
-        assert_eq!(fragment.next_move(&Forward), LeftRotateChild);
-        assert_eq!(fragment.state, 1);
+        assert_eq!(state.next(&Forward), LeftRotateChild);
+        assert_eq!(state.index, 3);
 
-        assert_eq!(fragment.next_move(&Forward), SwapChild);
-        assert_eq!(fragment.state, 2);
+        assert_eq!(state.next(&Forward), SwapChild);
+        assert_eq!(state.index, 4);
 
-        assert_eq!(fragment.next_move(&Forward), RightRotateRoot);
-        assert_eq!(fragment.state, 3);
+        assert_eq!(state.next(&Forward), RightRotateRoot);
+        assert_eq!(state.index, 5);
 
-        assert_eq!(fragment.next_move(&Forward), SwapChild);
-        assert_eq!(fragment.state, 4);
+        assert_eq!(state.next(&Backward), LeftRotateChild);
+        assert_eq!(state.index, 4);
 
-        assert_eq!(fragment.next_move(&Forward), LeftRotateChild);
-        assert_eq!(fragment.state, 5);
+        assert_eq!(state.next(&Backward), SwapChild);
+        assert_eq!(state.index, 3);
 
-        assert_eq!(fragment.next_move(&Backward), SwapChild);
-        assert_eq!(fragment.state, 4);
+        assert_eq!(state.next(&Backward), RightRotateRoot);
+        assert_eq!(state.index, 2);
 
-        assert_eq!(fragment.next_move(&Backward), RightRotateRoot);
-        assert_eq!(fragment.state, 3);
+        assert_eq!(state.next(&Backward), SwapChild);
+        assert_eq!(state.index, 1);
 
-        assert_eq!(fragment.next_move(&Backward), SwapChild);
-        assert_eq!(fragment.state, 2);
-
-        assert_eq!(fragment.next_move(&Backward), LeftRotateChild);
-        assert_eq!(fragment.state, 1);
-
-        assert_eq!(fragment.next_move(&Backward), SwapChild);
-        assert_eq!(fragment.state, 0);
-
-        assert_eq!(fragment.next_move(&Backward), SwapChild);
-        assert_eq!(fragment.state, 11);
+        assert_eq!(state.next(&Backward), LeftRotateChild);
+        assert_eq!(state.index, 0);
     }
 }
