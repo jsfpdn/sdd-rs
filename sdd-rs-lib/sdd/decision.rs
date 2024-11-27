@@ -5,7 +5,7 @@ use crate::{
 };
 use std::collections::{BTreeSet, HashSet};
 
-#[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub(crate) struct Decision {
     pub(crate) elements: BTreeSet<Element>,
 }
@@ -30,7 +30,7 @@ impl Decision {
         }
 
         for element in &self.elements {
-            let (prime, sub) = element.get_prime_sub(manager);
+            let (prime, sub) = element.get_prime_sub();
 
             // Check for `{(true, A)}`.
             if prime.is_true() {
@@ -69,7 +69,7 @@ impl Decision {
     pub(super) fn is_compressed(&self, manager: &SddManager) -> bool {
         let mut subs: HashSet<SddId> = HashSet::new();
         for element in &self.elements {
-            let (_, sub) = element.get_prime_sub(manager);
+            let (_, sub) = element.get_prime_sub();
             if subs.contains(&sub.id()) {
                 return false;
             }
@@ -89,7 +89,7 @@ impl Decision {
         if self.elements.len() == 1 {
             let el = elements.first().unwrap();
             if el.prime.is_true() {
-                return manager.try_get_node(el.sub);
+                return Some(el.sub.clone());
             }
         }
 
@@ -101,12 +101,12 @@ impl Decision {
             let el_2_prime;
             if el_1.sub.is_true() && el_2.sub.is_false() {
                 // Check for {(_, true), (_, false)}.
-                el_1_prime = manager.get_node(el_1.prime);
-                el_2_prime = manager.get_node(el_2.prime);
+                el_1_prime = el_1.prime.clone();
+                el_2_prime = el_2.prime.clone();
             } else if el_2.sub.is_true() && el_1.sub.is_false() {
                 // Check for {(_, false), (_, true)}.
-                el_1_prime = manager.get_node(el_2.prime);
-                el_2_prime = manager.get_node(el_1.prime);
+                el_1_prime = el_2.prime.clone();
+                el_2_prime = el_1.prime.clone();
             } else {
                 return None;
             }
@@ -129,7 +129,7 @@ impl Decision {
         while i < last_el_idx {
             let mut j = i + 1;
 
-            let mut fst = *elements.get(i).unwrap();
+            let mut fst = elements.get(i).unwrap().clone();
             while j <= last_el_idx {
                 let snd = elements.get(j).unwrap();
                 // TODO: Does this equality actually work? Can we just compare ids?
@@ -139,15 +139,13 @@ impl Decision {
                 }
 
                 // The subs are equal, we can compress the elements together.
-                let fst_prime = manager.get_node(fst.prime);
-                let snd_prime = manager.get_node(snd.prime);
-                let new_prime = manager.disjoin(&fst_prime, &snd_prime);
+                let new_prime = manager.disjoin(&fst.prime, &snd.prime);
 
                 fst = Element {
-                    prime: new_prime.id(),
-                    sub: fst.sub,
+                    prime: new_prime,
+                    sub: fst.sub.clone(),
                 };
-                elements[i] = fst;
+                elements[i] = fst.clone();
 
                 // Remove element at the `j`-th position from the vector of elements.
                 // This means decreasing the `last_el_idx` and not moving the `j` index
@@ -186,17 +184,28 @@ impl Decision {
         }
     }
 
-    pub(super) fn subs(&self, manager: &SddManager) -> Vec<SddRef> {
+    pub(super) fn subs(&self) -> Vec<SddRef> {
         self.elements
             .iter()
-            .map(|Element { sub, .. }| manager.get_node(*sub))
+            .map(|Element { sub, .. }| sub)
+            .cloned()
             .collect()
     }
 
-    pub(super) fn primes(&self, manager: &SddManager) -> Vec<SddRef> {
+    pub(super) fn primes(&self) -> Vec<SddRef> {
         self.elements
             .iter()
-            .map(|Element { prime, .. }| manager.get_node(*prime))
+            .map(|Element { prime, .. }| prime)
+            .cloned()
             .collect()
+    }
+
+    pub(crate) fn hash(&self) -> usize {
+        let elements: BTreeSet<(SddId, SddId)> = self
+            .elements
+            .iter()
+            .map(|Element { prime, sub }| (prime.id(), sub.id()))
+            .collect();
+        fxhash::hash(&elements)
     }
 }

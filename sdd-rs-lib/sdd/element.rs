@@ -5,33 +5,63 @@ use crate::{
 };
 
 // Element node (a paired box) is a conjunction of prime and sub.
-#[derive(PartialEq, Eq, Clone, Hash, PartialOrd, Ord, Debug, Copy)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub(crate) struct Element {
-    pub(crate) prime: SddId,
-    pub(crate) sub: SddId,
+    pub(crate) prime: SddRef,
+    pub(crate) sub: SddRef,
+}
+
+impl PartialOrd for Element {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Element {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let order = self.prime.id().cmp(&other.prime.id());
+        if order == std::cmp::Ordering::Equal {
+            self.sub.id().cmp(&other.sub.id())
+        } else {
+            order
+        }
+    }
 }
 
 impl Element {
     pub(super) fn is_trimmed(&self, manager: &SddManager) -> bool {
-        let (prime, sub) = self.get_prime_sub(manager);
+        let (prime, sub) = self.get_prime_sub();
         prime.is_trimmed(manager) && sub.is_trimmed(manager)
     }
 
     pub(super) fn is_compressed(&self, manager: &SddManager) -> bool {
-        let (prime, sub) = self.get_prime_sub(manager);
+        let (prime, sub) = self.get_prime_sub();
         prime.is_compressed(manager) && sub.is_compressed(manager)
     }
 
-    pub(crate) fn get_prime_sub(&self, manager: &SddManager) -> (SddRef, SddRef) {
-        (manager.get_node(self.prime), manager.get_node(self.sub))
+    pub(crate) fn get_prime_sub(&self) -> (SddRef, SddRef) {
+        (self.prime.clone(), self.sub.clone())
+    }
+
+    pub(crate) fn hash(&self) -> usize {
+        #[derive(Hash)]
+        struct PrimeSub {
+            prime: SddId,
+            sub: SddId,
+        }
+
+        fxhash::hash(&PrimeSub {
+            prime: self.prime.id(),
+            sub: self.sub.id(),
+        })
     }
 }
 
 impl Dot for Element {
     fn draw<'a>(&self, writer: &mut DotWriter, manager: &SddManager) {
-        let idx = fxhash::hash(self);
-
-        let (prime, sub) = self.get_prime_sub(manager);
+        // TODO: Remove unused manager.
+        let idx = self.hash();
+        let (prime, sub) = self.get_prime_sub();
 
         writer.add_node(
             idx,
@@ -41,16 +71,16 @@ impl Dot for Element {
         if let Sdd {
             sdd_type: SddType::Decision(node),
             ..
-        } = manager.get_node(self.prime).0.borrow().to_owned()
+        } = self.prime.0.borrow().to_owned()
         {
-            writer.add_edge(Edge::Prime(idx, fxhash::hash(&node)));
+            writer.add_edge(Edge::Prime(idx, node.hash()));
         }
         if let Sdd {
             sdd_type: SddType::Decision(node),
             ..
-        } = manager.get_node(self.sub).0.borrow().to_owned()
+        } = self.sub.0.borrow().to_owned()
         {
-            writer.add_edge(Edge::Sub(idx, fxhash::hash(&node)));
+            writer.add_edge(Edge::Sub(idx, node.hash()));
         };
     }
 }

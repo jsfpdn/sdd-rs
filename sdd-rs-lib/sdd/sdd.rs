@@ -21,17 +21,7 @@ impl Display for SddId {
     }
 }
 
-impl SddId {
-    pub(crate) fn is_true(&self) -> bool {
-        *self == TRUE_SDD_IDX
-    }
-
-    pub(crate) fn is_false(&self) -> bool {
-        *self == FALSE_SDD_IDX
-    }
-}
-
-#[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub(crate) enum SddType {
     True,
     False,
@@ -58,7 +48,7 @@ impl SddType {
 }
 
 // TODO: Sdd should become public only within the crate.
-#[derive(PartialEq, Eq, Clone, PartialOrd, Ord)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct Sdd {
     pub(crate) sdd_idx: SddId,
     pub(crate) sdd_type: SddType,
@@ -85,10 +75,10 @@ impl Dot for Sdd {
             // value and only take up space.
             SddType::True | SddType::False | SddType::Literal(..) => (),
             SddType::Decision(node) => {
-                let idx = fxhash::hash(&node);
+                let idx = node.hash();
                 for elem in node.elements.iter() {
                     elem.draw(writer, manager);
-                    writer.add_edge(Edge::Simple(idx, fxhash::hash(&elem)));
+                    writer.add_edge(Edge::Simple(idx, elem.hash()));
                 }
                 let node_type =
                     NodeType::Circle(self.vtree.index().0 as u16, Some(self.id().0 as usize));
@@ -193,24 +183,24 @@ impl Sdd {
 
     /// Expand the SDD into a decision node as described in Algorithm 1 in
     /// [SDD: A New Canonical Representation of Propositional Knowledge Bases](https://ai.dmi.unibas.ch/research/reading_group/darwiche-ijcai2011.pdf).
-    pub(crate) fn expand(&self) -> Decision {
+    pub(crate) fn expand(&self, manager: &SddManager) -> Decision {
         match self.sdd_type {
             SddType::True => Decision {
                 elements: btreeset!(Element {
-                    prime: TRUE_SDD_IDX,
-                    sub: TRUE_SDD_IDX,
+                    prime: manager.tautology(),
+                    sub: manager.tautology(),
                 }),
             },
             SddType::False => Decision {
                 elements: btreeset!(Element {
-                    prime: TRUE_SDD_IDX,
-                    sub: FALSE_SDD_IDX,
+                    prime: manager.tautology(),
+                    sub: manager.contradiction(),
                 }),
             },
             SddType::Literal(_) => Decision {
                 elements: btreeset!(Element {
-                    prime: self.id(),
-                    sub: FALSE_SDD_IDX,
+                    prime: manager.get_node(self.id()),
+                    sub: manager.contradiction(),
                 }),
             },
             SddType::Decision(ref dec) => dec.clone(),
@@ -222,11 +212,9 @@ impl Sdd {
         if let SddType::Decision(ref dec) = self.sdd_type {
             let mut elements = BTreeSet::new();
             for Element { prime, sub } in &dec.elements {
-                let sub = manager.get_node(*sub).negate(manager);
-
                 elements.insert(Element {
-                    prime: *prime,
-                    sub: sub.id(),
+                    prime: prime.clone(),
+                    sub: sub.negate(manager).clone(),
                 });
             }
 
@@ -311,16 +299,16 @@ impl Sdd {
     ) -> SddRef {
         // gamma == {(T, T)}?
         if gamma.eq(&btreeset![Element {
-            prime: TRUE_SDD_IDX,
-            sub: TRUE_SDD_IDX,
+            prime: manager.tautology(),
+            sub: manager.tautology(),
         }]) {
             return manager.tautology();
         }
 
         // gamma == {(T, F)}?
         if gamma.eq(&btreeset![Element {
-            prime: TRUE_SDD_IDX,
-            sub: FALSE_SDD_IDX,
+            prime: manager.tautology(),
+            sub: manager.contradiction(),
         }]) {
             return manager.contradiction();
         }
@@ -352,7 +340,7 @@ impl Sdd {
             panic!("cannot get dependence on anything other than decision node");
         };
 
-        let primes = decision.primes(manager).to_vec();
+        let primes = decision.primes().to_vec();
         // No need to filter out constants from collected primes since they cannot
         // occur as primes of elements.
 
@@ -400,7 +388,7 @@ impl Sdd {
         };
 
         let subs: Vec<_> = decision
-            .subs(manager)
+            .subs()
             .iter()
             .filter(|sub| !sub.is_constant())
             .cloned()

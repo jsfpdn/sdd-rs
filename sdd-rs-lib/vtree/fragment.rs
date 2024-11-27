@@ -1,7 +1,7 @@
 use tracing::instrument;
 
 use crate::{
-    manager::{SddManager, FALSE_SDD_IDX, TRUE_SDD_IDX},
+    manager::SddManager,
     sdd::{Decision, Element, SddRef, SddType},
     vtree::{Node, VTreeRef},
 };
@@ -315,13 +315,10 @@ pub(crate) fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddMa
 
     let mut elements = BTreeSet::new();
     for element in &decision.elements {
-        let (a, bc) = element.get_prime_sub(manager);
+        let (a, bc) = element.get_prime_sub();
 
         if bc.is_constant() || bc.vtree().index() > x.index() {
-            elements.insert(Element {
-                prime: a.id(),
-                sub: bc.id(),
-            });
+            elements.insert(Element { prime: a, sub: bc });
             continue;
         }
 
@@ -331,14 +328,11 @@ pub(crate) fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddMa
             };
 
             for bc_element in bc_decision.elements.iter() {
-                let (b, c) = bc_element.get_prime_sub(manager);
+                let (b, c) = bc_element.get_prime_sub();
                 // TODO: Once conjoin is able to do vtree search on it's own, turn it off in here.
                 // TODO: we could improve this since we already know LCA, which is x's left child.
                 let ab = manager._conjoin_rotations(&a, &b, &w);
-                elements.insert(Element {
-                    prime: ab.id(),
-                    sub: c.id(),
-                });
+                elements.insert(Element { prime: ab, sub: c });
             }
 
             continue;
@@ -347,14 +341,14 @@ pub(crate) fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddMa
         // last case: bc is normalized for vtree in b
         // Create element (a && bc, True).
         elements.insert(Element {
-            prime: manager._conjoin_rotations(&a, &bc, &w).id(),
-            sub: TRUE_SDD_IDX,
+            prime: manager._conjoin_rotations(&a, &bc, &w),
+            sub: manager.tautology(),
         });
 
         // Create element (a && !bc, False).
         elements.insert(Element {
-            prime: manager._conjoin_rotations(&a, &bc.negate(manager), &w).id(),
-            sub: FALSE_SDD_IDX,
+            prime: manager._conjoin_rotations(&a, &bc.negate(manager), &w),
+            sub: manager.contradiction(),
         });
     }
 
@@ -380,13 +374,13 @@ pub(crate) fn rotate_partition_right(
     for element in &decision.elements {
         let mut current_elements = BTreeSet::new();
 
-        let (ab, c) = element.get_prime_sub(manager);
+        let (ab, c) = element.get_prime_sub();
         assert!(!ab.is_constant());
 
         if ab.vtree().index() >= x.inorder_first() && ab.vtree().index() <= x.inorder_last() {
             current_elements.insert(Element {
-                prime: TRUE_SDD_IDX,
-                sub: manager._conjoin_rotations(&ab, &c, &x).id(),
+                prime: manager.tautology(),
+                sub: manager._conjoin_rotations(&ab, &c, &x),
             });
         } else if ab.vtree().index() == w.index() {
             let SddType::Decision(ref ab_decision) = ab.0.borrow().sdd_type else {
@@ -394,22 +388,19 @@ pub(crate) fn rotate_partition_right(
             };
 
             for ab_element in &ab_decision.elements {
-                let (a, b) = ab_element.get_prime_sub(manager);
+                let (a, b) = ab_element.get_prime_sub();
                 let bc = manager._conjoin_rotations(&b, &c, &x);
-                current_elements.insert(Element {
-                    prime: a.id(),
-                    sub: bc.id(),
-                });
+                current_elements.insert(Element { prime: a, sub: bc });
             }
         } else {
             current_elements.insert(Element {
-                prime: ab.id(),
-                sub: c.id(),
+                prime: ab.clone(),
+                sub: c,
             });
 
             current_elements.insert(Element {
-                prime: ab.negate(manager).id(),
-                sub: FALSE_SDD_IDX,
+                prime: ab.negate(manager),
+                sub: manager.contradiction(),
             });
         }
 
@@ -428,19 +419,16 @@ pub(crate) fn swap_partition(node: &SddRef, manager: &SddManager) -> Decision {
     for element in &decision.elements {
         let mut current_elements = BTreeSet::new();
 
-        let (a, b) = element.get_prime_sub(manager);
+        let (a, b) = element.get_prime_sub();
         let neg_b = manager.negate(&b);
         if !b.is_false() {
-            current_elements.insert(Element {
-                prime: b.id(),
-                sub: a.id(),
-            });
+            current_elements.insert(Element { prime: b, sub: a });
         }
 
         if !neg_b.is_false() {
             current_elements.insert(Element {
-                prime: neg_b.id(),
-                sub: FALSE_SDD_IDX,
+                prime: neg_b,
+                sub: manager.contradiction(),
             });
         }
 
@@ -467,16 +455,16 @@ fn cartesian_product(
 
     for fst_element in &fst {
         for snd_element in &snd {
-            let (fst_prime, fst_sub) = fst_element.get_prime_sub(manager);
-            let (snd_prime, snd_sub) = snd_element.get_prime_sub(manager);
+            let (fst_prime, fst_sub) = fst_element.get_prime_sub();
+            let (snd_prime, snd_sub) = snd_element.get_prime_sub();
 
             let res_prime = manager.conjoin(&fst_prime, &snd_prime);
             if !res_prime.is_false() {
                 let res_sub = manager.disjoin(&fst_sub, &snd_sub);
 
                 out.insert(Element {
-                    prime: res_prime.id(),
-                    sub: res_sub.id(),
+                    prime: res_prime,
+                    sub: res_sub,
                 });
             }
         }

@@ -516,7 +516,7 @@ impl SddManager {
                     elements.len()
                         + elements
                             .iter()
-                            .map(|element| element.get_prime_sub(manager))
+                            .map(|element| element.get_prime_sub())
                             .map(|(prime, sub)| {
                                 traverse_and_count(manager, &prime, seen)
                                     + traverse_and_count(manager, &sub, seen)
@@ -570,8 +570,6 @@ impl SddManager {
             let all_variables = self.get_variables(sdd);
             for Element { prime, sub } in &decision.elements {
                 let mut models = Vec::new();
-                let prime = self.get_node(*prime);
-                let sub = self.get_node(*sub);
 
                 if prime.is_false() || sub.is_false() {
                     continue;
@@ -643,9 +641,6 @@ impl SddManager {
             let all_variables = self.get_variables(sdd).len();
 
             for Element { prime, sub } in &decision.elements {
-                let prime = self.get_node(*prime);
-                let sub = self.get_node(*sub);
-
                 let model_count = get_models_count(&prime) * get_models_count(&sub);
 
                 // Account for variables that do not appear in neither prime or sub.
@@ -681,7 +676,7 @@ impl SddManager {
             if let SddType::Decision(Decision { ref elements }) = sdd.0.borrow().sdd_type {
                 elements
                     .iter()
-                    .map(|element| element.get_prime_sub(self))
+                    .map(|element| element.get_prime_sub())
                     .for_each(|(prime, sub)| {
                         sdds.push(prime);
                         sdds.push(sub)
@@ -757,20 +752,16 @@ impl SddManager {
         for Element {
             prime: fst_prime,
             sub: fst_sub,
-        } in fst.0.borrow().expand().elements.iter()
+        } in fst.0.borrow().expand(self).elements.iter()
         {
             for Element {
                 prime: snd_prime,
                 sub: snd_sub,
-            } in snd.0.borrow().expand().elements.iter()
+            } in snd.0.borrow().expand(self).elements.iter()
             {
-                let fst_prime = self.get_node(*fst_prime);
-                let snd_prime = self.get_node(*snd_prime);
                 let res_prime = self.conjoin(&fst_prime, &snd_prime);
 
                 if !res_prime.is_false() {
-                    let fst_sub = &self.get_node(*fst_sub);
-                    let snd_sub = &self.get_node(*snd_sub);
                     let res_sub = match op {
                         Operation::Conjoin => self.conjoin(fst_sub, snd_sub),
                         Operation::Disjoin => self.disjoin(fst_sub, snd_sub),
@@ -783,8 +774,8 @@ impl SddManager {
                     }
 
                     elements.insert(Element {
-                        prime: res_prime.id(),
-                        sub: res_sub.id(),
+                        prime: res_prime,
+                        sub: res_sub,
                     });
                 }
             }
@@ -815,12 +806,12 @@ impl SddManager {
 
         btreeset!(
             Element {
-                prime: fst.id(),
-                sub: apply(snd, &tt).id(),
+                prime: fst.clone(),
+                sub: apply(snd, &tt),
             },
             Element {
-                prime: fst_negated.id(),
-                sub: apply(snd, &ff).id(),
+                prime: fst_negated,
+                sub: apply(snd, &ff),
             }
         )
     }
@@ -849,12 +840,12 @@ impl SddManager {
 
         let elements = btreeset!(
             Element {
-                prime: fst.id(),
-                sub: snd.id(),
+                prime: fst.clone(),
+                sub: snd.clone(),
             },
             Element {
-                prime: self.negate(fst).id(),
-                sub: FALSE_SDD_IDX
+                prime: self.negate(fst),
+                sub: self.contradiction(),
             }
         );
 
@@ -899,8 +890,8 @@ impl SddManager {
         );
 
         let mut elements = btreeset!(Element {
-            prime: self.negate(new_node).id(),
-            sub: op.zero(),
+            prime: self.negate(new_node),
+            sub: self.get_node(op.zero()),
         });
 
         for Element {
@@ -908,11 +899,10 @@ impl SddManager {
             sub: snd_sub,
         } in snd_elements
         {
-            let snd_prime = self.get_node(snd_prime);
             let new_prime = self.conjoin(&snd_prime, new_node);
             if !new_prime.is_false() {
                 elements.insert(Element {
-                    prime: new_prime.id(),
+                    prime: new_prime,
                     sub: snd_sub,
                 });
             }
@@ -949,19 +939,18 @@ impl SddManager {
         let mut elements = BTreeSet::new();
 
         for Element {
-            prime: fst_prime_idx,
-            sub: fst_sub_idx,
+            prime: fst_prime,
+            sub: fst_sub,
         } in fst_elements
         {
-            let fst_sub = self.get_node(fst_sub_idx);
             let new_sub = match op {
                 Operation::Conjoin => self.conjoin(&fst_sub, snd),
                 Operation::Disjoin => self.disjoin(&fst_sub, snd),
             };
 
             elements.insert(Element {
-                prime: fst_prime_idx,
-                sub: new_sub.id(),
+                prime: fst_prime,
+                sub: new_sub,
             });
         }
 
@@ -1413,6 +1402,7 @@ mod test {
         assert_eq!(manager.model_count(&a_or_d), manager.model_count(&lit_a));
 
         let a_and_b = manager.conjoin(&lit_a, &lit_b);
+        quick_draw(&manager, &a_and_b, "a_and_b");
         assert_eq!(manager.model_count(&a_and_b), 4);
 
         // A && B && B == A && B
@@ -1423,9 +1413,12 @@ mod test {
         );
 
         let a_and_b_and_c = manager.conjoin(&a_and_b, &lit_c);
+        println!("{:?}", a_and_b_and_c.0);
+        quick_draw(&manager, &a_and_b_and_c, "a_and_b_and_c");
         assert_eq!(manager.model_count(&a_and_b_and_c), 2);
 
         let a_and_b_and_c_or_d = manager.disjoin(&a_and_b_and_c, &lit_d);
+        quick_draw(&manager, &a_and_b_and_c_or_d, "failure");
         assert_eq!(manager.model_count(&a_and_b_and_c_or_d), 9);
     }
 
