@@ -18,7 +18,8 @@ use crate::{
 use bitvec::prelude::*;
 use std::{
     cell::RefCell,
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{BTreeSet, HashMap},
+    iter::FromIterator,
     ops::BitOr,
     rc::Rc,
 };
@@ -193,8 +194,6 @@ impl SddManager {
             return Err(String::from(
                 "preamble specifies more variables than those present in the manager",
             ));
-        } else if create_variables && preamble.variables > num_variables {
-            self.add_remaining_variables(preamble.variables - num_variables);
         }
 
         let mut sdd = self.tautology();
@@ -229,11 +228,6 @@ impl SddManager {
                 }
             }
         }
-
-        // TODO: Remove this as this gets ultimately called in apply.
-        // if self.should_collect_garbage(&sdd) {
-        //     self._collect_garbage(Some(sdd.id()));
-        // }
 
         Ok(sdd)
     }
@@ -287,7 +281,7 @@ impl SddManager {
         self.unique_table.borrow_mut().remove(&id).unwrap();
     }
 
-    fn remove_from_op_cache(&self, ids: &HashSet<SddId>) {
+    fn remove_from_op_cache(&self, ids: &BTreeSet<SddId>) {
         let entries: Vec<_> = {
             self.op_cache
                 .borrow()
@@ -303,16 +297,20 @@ impl SddManager {
         for entry in &entries {
             op_cache.remove(entry).unwrap();
         }
-    }
 
-    fn remove_negations_of(&self, sdds: &HashSet<SddId>) {
-        for sdd_id in sdds {
-            self.remove_negation_of(sdd_id);
+        let entries_neg: Vec<_> = {
+            self.neg_cache
+                .borrow()
+                .iter()
+                .filter(|(fst, negation)| ids.contains(fst) || ids.contains(negation))
+                .map(|(key, _)| key.clone())
+                .collect()
+        };
+
+        let mut neg_cache = self.neg_cache.borrow_mut();
+        for key in &entries_neg {
+            neg_cache.remove(key).unwrap();
         }
-    }
-
-    fn remove_negation_of(&self, id: &SddId) {
-        self.neg_cache.borrow_mut().remove(id);
     }
 
     pub fn literal(&self, literal: &str, polarity: Polarity) -> SddRef {
@@ -585,22 +583,17 @@ impl SddManager {
                 && !sdd.is_constant_or_literal()
         }
 
-        let mut removed = HashSet::new();
-        let mut negations = HashSet::new();
-        let mut queue: Vec<_> = self
-            .unique_table
-            .borrow()
-            .values()
-            .filter(|sdd| should_sweep(sdd, 2, except))
-            .cloned()
-            .collect();
+        let mut removed = BTreeSet::new();
+        let mut queue: BTreeSet<_> = BTreeSet::from_iter(
+            self.unique_table
+                .borrow()
+                .values()
+                .filter(|sdd| should_sweep(sdd, 2, except))
+                .map(|sdd| sdd.id()),
+        );
 
         while !queue.is_empty() {
-            let sdd = queue.pop().unwrap();
-
-            if let Some(negation) = self.get_cached_operation(CachedOperation::Neg(sdd.id())) {
-                negations.insert(negation);
-            }
+            let sdd = self.get_node(queue.pop_last().unwrap());
 
             // Keep the id for later cleanup of the op-cache, remove the node from the unique_table
             // and remove the "weak" reference to it from a negated sdd (if such exists).
@@ -609,18 +602,17 @@ impl SddManager {
 
             let elements = sdd.elements().unwrap();
             for Element { prime, sub } in elements {
-                if should_sweep(&prime, 2, except) {
-                    queue.push(prime);
+                if !queue.contains(&prime.id()) && should_sweep(&prime, 2, except) {
+                    queue.insert(prime.id());
                 }
 
-                if should_sweep(&sub, 2, except) {
-                    queue.push(sub);
+                if !queue.contains(&sub.id()) && should_sweep(&sub, 2, except) {
+                    queue.insert(sub.id());
                 }
             }
         }
 
         self.remove_from_op_cache(&removed);
-        self.remove_negations_of(&negations);
         self.gc_stats.borrow_mut().collected(removed.len());
     }
 
@@ -937,7 +929,7 @@ impl SddManager {
         assert!(!fst.is_constant());
         assert!(!snd.is_constant());
 
-        let fst_negated = fst.clone().negate(self);
+        let fst_negated = fst.negate(self);
 
         let apply = |fst: &SddRef, snd: &SddRef| {
             if op == Operation::Conjoin {
@@ -1027,7 +1019,7 @@ impl SddManager {
         let new_node = if op == Operation::Conjoin {
             fst
         } else {
-            &fst.clone().negate(self)
+            &fst.negate(self)
         };
 
         let snd_elements = snd.0.borrow().sdd_type.elements().unwrap_or_else(||
@@ -1177,39 +1169,6 @@ impl SddManager {
         }
     }
 
-    /// Generate labels for remaining variables to be added to the label_manager
-    /// and adjust the vtree accordingly.
-    fn add_remaining_variables(&self, to_add: usize) {
-        fn variable_exists(manager: &SddManager, variable: &Variable) -> bool {
-            manager.literal_manager.borrow().exists(variable)
-        }
-
-        fn next_variable_idx(manager: &SddManager) -> u32 {
-            manager.literal_manager.borrow().len() as u32
-        }
-
-        let alphabet = String::from_utf8((b'A'..=b'Z').collect()).unwrap();
-        let mut i = 0;
-        let mut to_add = to_add;
-        while i < to_add {
-            let generation = i / 26;
-            let idx = i % 26;
-
-            let next_idx = next_variable_idx(self);
-            let var_repr = format!("{}_{generation}", alphabet.get(idx..idx + 1).unwrap());
-            let variable = Variable::new(&var_repr, next_idx);
-            if !variable_exists(self, &variable) {
-                // "Take advantage" of the `literal` method which correctly inserts the variable
-                // and adjusts the vtree.
-                self.literal(&var_repr, Polarity::Positive);
-            } else {
-                // Move to_add to try the next variable.
-                to_add += 1;
-            }
-            i += 1;
-        }
-    }
-
     pub fn root(&self) -> Option<VTreeRef> {
         self.vtree_manager.borrow().root.clone()
     }
@@ -1346,36 +1305,11 @@ impl SddManager {
             sdd.set_vtree(x.clone());
             self.insert_node(sdd);
         }
-        // TODO: This takes a little bit more work as more complicated
-        // cases such as manager::test::swap fails due to nodes above
-        // literals are normalized against the wrong vtrees. Either
-        // find the bug or set the correct vtree index "manually" as
-        // we currently do with literals.
-        self.fix_literal_vtrees();
 
         // TODO: Make sure this is actually needed.
         self.invalidate_cached_models();
 
         self.rotating.replace(false);
-    }
-
-    fn fix_literal_vtrees(&self) {
-        for (_, sdd) in self.unique_table.borrow().iter() {
-            let mut sdd = sdd.0.borrow_mut();
-            if !sdd.is_literal() {
-                continue;
-            }
-
-            if let SddType::Literal(literal) = sdd.sdd_type.clone() {
-                let vtree = self
-                    .vtree_manager
-                    .borrow()
-                    .get_variable_vtree(&literal.var_label())
-                    .unwrap();
-
-                sdd.vtree = vtree.clone();
-            }
-        }
     }
 
     fn invalidate_cached_models(&self) {

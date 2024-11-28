@@ -59,10 +59,6 @@ impl LiteralManager {
             .collect()
     }
 
-    pub(crate) fn exists(&self, variable: &Variable) -> bool {
-        self.literals.borrow().contains_key(variable)
-    }
-
     pub(crate) fn find_by_index(&self, index: VariableIdx) -> Option<(Variable, LiteralVariants)> {
         self.literals
             .borrow()

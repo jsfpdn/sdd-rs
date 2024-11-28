@@ -352,10 +352,7 @@ pub(crate) fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddMa
         });
     }
 
-    Decision {
-        elements: elements.clone(),
-    }
-    .canonicalize(manager)
+    Decision { elements }.canonicalize(manager)
 }
 
 /// Rotate partitions to the right.

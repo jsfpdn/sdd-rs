@@ -143,7 +143,7 @@ impl Decision {
 
                 fst = Element {
                     prime: new_prime,
-                    sub: fst.sub.clone(),
+                    sub: fst.sub,
                 };
                 elements[i] = fst.clone();
 
@@ -179,7 +179,7 @@ impl Decision {
             if let Some(trimmed_sdd) = decision.trim(manager) {
                 unwrap_decision(trimmed_sdd.0.borrow().sdd_type.clone())
             } else {
-                decision.clone()
+                decision
             }
         }
     }

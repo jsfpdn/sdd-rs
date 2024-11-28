@@ -1,4 +1,4 @@
-use crate::manager::{CachedOperation, SddManager};
+use crate::manager::{CachedOperation, SddManager, FALSE_SDD_IDX, TRUE_SDD_IDX};
 use crate::sdd::{Sdd, SddId, SddType};
 use crate::vtree::VTreeRef;
 use bitvec::prelude::*;
@@ -34,12 +34,12 @@ impl SddRef {
 
     /// Check whether the SDD represent a true constant.
     pub fn is_true(&self) -> bool {
-        self.0.borrow().is_true()
+        self.id() == TRUE_SDD_IDX
     }
 
     /// Check whether the SDD represent a false constant.
     pub fn is_false(&self) -> bool {
-        self.0.borrow().is_false()
+        self.id() == FALSE_SDD_IDX
     }
 
     /// Check whether the SDD represents either the true or false constants.

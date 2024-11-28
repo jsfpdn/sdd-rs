@@ -47,9 +47,8 @@ impl SddType {
     }
 }
 
-// TODO: Sdd should become public only within the crate.
 #[derive(PartialEq, Eq, Clone)]
-pub struct Sdd {
+pub(crate) struct Sdd {
     pub(crate) sdd_idx: SddId,
     pub(crate) sdd_type: SddType,
     pub(crate) vtree: VTreeRef,
@@ -125,39 +124,12 @@ impl Sdd {
     }
 
     #[must_use]
-    pub fn id(&self) -> SddId {
+    pub(crate) fn id(&self) -> SddId {
         self.sdd_idx
     }
 
-    /// Check whether the SDD represent a true constant.
-    pub fn is_true(&self) -> bool {
-        matches!(
-            self,
-            Sdd {
-                sdd_type: SddType::True,
-                ..
-            }
-        )
-    }
-
-    /// Check whether the SDD represent a false constant.
-    pub fn is_false(&self) -> bool {
-        matches!(
-            self,
-            Sdd {
-                sdd_type: SddType::False,
-                ..
-            }
-        )
-    }
-
-    /// Check whether the SDD represents either the true or false constants.
-    pub fn is_constant(&self) -> bool {
-        self.is_true() || self.is_false()
-    }
-
     /// Check whether the SDD represents a literal.
-    pub fn is_literal(&self) -> bool {
+    pub(crate) fn is_literal(&self) -> bool {
         matches!(
             self,
             Sdd {
@@ -165,11 +137,6 @@ impl Sdd {
                 ..
             }
         )
-    }
-
-    /// Check whether the SDD represents either a constant or literal.
-    pub fn is_constant_or_literal(&self) -> bool {
-        self.is_constant() || self.is_literal()
     }
 
     /// Expand the SDD into a decision node as described in Algorithm 1 in
@@ -205,7 +172,7 @@ impl Sdd {
             for Element { prime, sub } in &dec.elements {
                 elements.insert(Element {
                     prime: prime.clone(),
-                    sub: sub.negate(manager).clone(),
+                    sub: sub.negate(manager),
                 });
             }
 
@@ -236,18 +203,18 @@ impl Sdd {
     /// SDD is trimmed if it does not contain decompositions in the form of
     /// `{(true, alpha)}` and `{(alpha, true), (!alpha, false)}`.
     pub fn is_trimmed(&self, manager: &SddManager) -> bool {
-        match self.sdd_type.clone() {
+        match self.sdd_type {
             SddType::True | SddType::False | SddType::Literal(_) => true,
-            SddType::Decision(decision) => decision.is_trimmed(manager),
+            SddType::Decision(ref decision) => decision.is_trimmed(manager),
         }
     }
 
     /// Recursively check whether [`self`] and all its descendants are compressed.
     /// SDD is compressed if no elements share a sub.
     pub fn is_compressed(&self, manager: &SddManager) -> bool {
-        match self.sdd_type.clone() {
+        match self.sdd_type {
             SddType::True | SddType::False | SddType::Literal(_) => true,
-            SddType::Decision(decision) => decision.is_compressed(manager),
+            SddType::Decision(ref decision) => decision.is_compressed(manager),
         }
     }
 

@@ -211,8 +211,11 @@ fn main() -> Result<(), std::io::Error> {
         println!("{}", manager.model_enumeration(&sdd));
     }
 
-    if args.print_statistics {
+    if args.collect_garbage.is_some() {
         statistics.gc_stats = Some(manager.gc_statistics());
+    }
+
+    if args.print_statistics {
         statistics.all_sdds = Some(manager.total_sdds());
         statistics.print();
     }
