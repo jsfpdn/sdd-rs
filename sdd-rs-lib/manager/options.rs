@@ -15,6 +15,12 @@ pub enum FragmentHeuristic {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub enum GarbageCollection {
+    Off,
+    Automatic,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum MinimizationCutoff {
     None,
     Iteration(usize),
@@ -40,6 +46,9 @@ pub struct SddOptions {
     #[builder(default = Vec::new())]
     #[builder(into)]
     pub variables: Vec<String>,
+
+    #[builder(default = GarbageCollection::Automatic)]
+    pub garbage_collection: GarbageCollection,
 }
 
 /// TODO: This is an ugly hack, fix it.
@@ -56,6 +65,7 @@ impl Default for SddOptions {
             minimize_after: 0,
             minimization_cutoff: MinimizationCutoff::None,
             variables: Vec::new(),
+            garbage_collection: GarbageCollection::Automatic,
         }
     }
 }

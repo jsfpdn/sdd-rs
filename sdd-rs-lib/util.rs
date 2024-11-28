@@ -1,5 +1,4 @@
 use crate::dot_writer::{Dot, DotWriter};
-use crate::manager::options::SddOptions;
 use crate::vtree::VTreeManager;
 use crate::{manager::SddManager, sdd::SddRef};
 use std::fs::File;
@@ -60,7 +59,7 @@ pub(crate) fn quick_draw_vtree(manager: &VTreeManager, path: &str) {
     let f = File::create(path).unwrap();
     let mut b = BufWriter::new(f);
     let mut dot_writer = DotWriter::new(String::from("vtree"), false);
-    manager.draw(&mut dot_writer, &SddManager::new(SddOptions::default()));
+    manager.draw(&mut dot_writer);
     dot_writer.write(&mut b as &mut dyn std::io::Write).unwrap()
 }
 

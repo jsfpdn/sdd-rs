@@ -58,7 +58,7 @@ impl Element {
 }
 
 impl Dot for Element {
-    fn draw<'a>(&self, writer: &mut DotWriter, manager: &SddManager) {
+    fn draw<'a>(&self, writer: &mut DotWriter) {
         // TODO: Remove unused manager.
         let idx = self.hash();
         let (prime, sub) = self.get_prime_sub();

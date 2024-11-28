@@ -3,7 +3,7 @@
 use crate::{
     dot_writer::{Dot, DotWriter, Edge, NodeType},
     literal::Variable,
-    manager::{options::VTreeStrategy, SddManager},
+    manager::options::VTreeStrategy,
 };
 use derive_more::derive::{Add, AddAssign, From, Sub};
 use std::{
@@ -600,7 +600,7 @@ impl VTreeManager {
 }
 
 impl Dot for VTreeManager {
-    fn draw(&self, writer: &mut DotWriter, _: &SddManager) {
+    fn draw(&self, writer: &mut DotWriter) {
         if self.root.is_none() {
             return;
         }

@@ -69,7 +69,7 @@ impl fmt::Debug for Sdd {
 }
 
 impl Dot for Sdd {
-    fn draw<'a>(&self, writer: &mut DotWriter, manager: &SddManager) {
+    fn draw<'a>(&self, writer: &mut DotWriter) {
         match self.sdd_type.clone() {
             // Do not render literals and constants as they do not provide any
             // value and only take up space.
@@ -77,7 +77,7 @@ impl Dot for Sdd {
             SddType::Decision(node) => {
                 let idx = node.hash();
                 for elem in node.elements.iter() {
-                    elem.draw(writer, manager);
+                    elem.draw(writer);
                     writer.add_edge(Edge::Simple(idx, elem.hash()));
                 }
                 let node_type =

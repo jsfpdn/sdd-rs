@@ -2,7 +2,6 @@
 
 mod decision;
 mod element;
-mod node;
 mod sdd;
 mod sdd_ref;
 

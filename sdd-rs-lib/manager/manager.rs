@@ -2,7 +2,11 @@ use crate::{
     btreeset,
     dot_writer::{Dot, DotWriter},
     literal::{Literal, LiteralManager, Polarity, Variable, VariableIdx},
-    manager::{dimacs, model::Models, options::SddOptions},
+    manager::{
+        dimacs,
+        model::Models,
+        options::{GarbageCollection, SddOptions},
+    },
     sdd::{Decision, Element, Sdd, SddId, SddRef, SddType},
     util::set_bits_indices,
     vtree::{
@@ -16,6 +20,7 @@ use std::{
     cell::RefCell,
     collections::{BTreeSet, HashMap},
     ops::BitOr,
+    rc::Rc,
 };
 use tracing::instrument;
 
@@ -66,6 +71,10 @@ pub struct SddManager {
     op_cache: RefCell<HashMap<Entry, SddId>>,
 
     next_idx: RefCell<SddId>,
+
+    // Flag denoting whether we are doing rotations. If so, garbage collection
+    // is turned off.
+    rotating: RefCell<bool>,
 }
 
 // True and false SDDs have indicies 0 and 1 throughout the whole computation.
@@ -98,6 +107,7 @@ impl SddManager {
             next_idx: RefCell::new(SddId(2)), // Account for ff and tt created earlier which have indices 0 and 1.
             vtree_manager: RefCell::new(VTreeManager::new(options.vtree_strategy, &variables)),
             literal_manager: RefCell::new(LiteralManager::new()),
+            rotating: RefCell::new(false),
             unique_table,
         };
 
@@ -194,7 +204,10 @@ impl SddManager {
             }
         }
 
-        // TODO: Dimacs output.
+        if self.should_collect_garbage() {
+            self.collect_garbage(&sdd.id());
+        }
+
         Ok(sdd)
     }
 
@@ -502,6 +515,58 @@ impl SddManager {
         }
     }
 
+    pub fn collect_garbage(&self, except: &SddId) {
+        // Idea:
+        // * get all decision nodes with refcount == 2 and put them into a shame-box
+        // * for each item in the shame box:
+        //      * get all children
+        //      * remove their parent from shame-box and unique-table (=> collect it),
+        //          put the id to some side-table (we need to dump the op-cache afterwards too)
+        //      * every child that now has refcount == 2 (or 3?) belongs to the shame-box
+        // * repeat this untill the shame-box is empty
+
+        fn should_sweep(sdd: &SddRef, ref_count: usize, except: &SddId) -> bool {
+            Rc::strong_count(&sdd.0) < ref_count
+                && sdd.id() != *except
+                && !sdd.is_constant_or_literal()
+        }
+
+        let mut removed: Vec<SddId> = Vec::new();
+        let mut queue: Vec<_> = self
+            .unique_table
+            .borrow()
+            .values()
+            .filter(|sdd| should_sweep(sdd, 2, except))
+            .cloned()
+            .collect();
+
+        while !queue.is_empty() {
+            let sdd = queue.pop().unwrap();
+            removed.push(sdd.id());
+            self.remove_node(sdd.id()).unwrap();
+
+            let elements = sdd.elements().unwrap();
+            for Element { prime, sub } in elements {
+                if should_sweep(&prime, 2, except) {
+                    queue.push(prime);
+                }
+
+                if should_sweep(&sub, 2, except) {
+                    queue.push(sub);
+                }
+            }
+        }
+    }
+
+    fn should_collect_garbage(&self) -> bool {
+        // TODO: Add sdd/nodes ratio
+        !*self.rotating.borrow()
+            && matches!(
+                self.options.garbage_collection,
+                GarbageCollection::Automatic
+            )
+    }
+
     /// Get the size of the SDD which is the number of elements reachable from it.
     pub fn size(&self, sdd: &SddRef) -> usize {
         fn traverse_and_count(manager: &SddManager, sdd: &SddRef, seen: &mut Vec<SddId>) -> usize {
@@ -661,7 +726,7 @@ impl SddManager {
     pub fn draw_all_sdds(&self, writer: &mut dyn std::io::Write) -> Result<(), String> {
         let mut dot_writer = DotWriter::new(String::from("sdd"), true);
         for node in self.unique_table.borrow().values() {
-            node.0.borrow().draw(&mut dot_writer, self);
+            node.0.borrow().draw(&mut dot_writer);
         }
         dot_writer.write(writer)
     }
@@ -671,7 +736,7 @@ impl SddManager {
 
         let mut sdds = vec![sdd.clone()];
         while let Some(sdd) = sdds.pop() {
-            sdd.0.borrow().draw(&mut dot_writer, self);
+            sdd.0.borrow().draw(&mut dot_writer);
 
             if let SddType::Decision(Decision { ref elements }) = sdd.0.borrow().sdd_type {
                 elements
@@ -691,7 +756,7 @@ impl SddManager {
     /// Returns an error if TBD.
     pub fn draw_vtree_graph(&self, writer: &mut dyn std::io::Write) -> Result<(), String> {
         let mut dot_writer = DotWriter::new(String::from("vtree"), false);
-        self.vtree_manager.borrow().draw(&mut dot_writer, self);
+        self.vtree_manager.borrow().draw(&mut dot_writer);
         dot_writer.write(writer)
     }
 
@@ -738,7 +803,15 @@ impl SddManager {
         debug_assert!(sdd.is_trimmed(self));
         debug_assert!(sdd.is_compressed(self));
 
+        if self.should_collect_garbage() {
+            self.collect_garbage(&sdd.id());
+        }
+
         sdd
+    }
+
+    pub fn total_sdds(&self) -> usize {
+        self.unique_table.borrow().len()
     }
 
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
@@ -1073,6 +1146,8 @@ impl SddManager {
     /// * `w(a, b)` stay at `w`
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     pub fn rotate_left(&self, x: &VTreeRef) {
+        self.rotating.replace(true);
+
         let w =
             x.0.borrow()
                 .get_parent()
@@ -1097,6 +1172,8 @@ impl SddManager {
 
         // TODO: Make sure this is actually needed.
         self.invalidate_cached_models();
+
+        self.rotating.replace(false);
     }
 
     fn finalize_vtree_op(&self, replaced: &[SddRef], moved: &[SddRef], vtree: &VTreeRef) {
@@ -1131,6 +1208,7 @@ impl SddManager {
     /// * `x(a, b)` stay at `x`
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     pub fn rotate_right(&self, x: &VTreeRef) {
+        self.rotating.replace(true);
         // TODO: Double check all the vtree occurances.
         // TODO: Double check computing the cartesian product.
         let w = x.left_child();
@@ -1152,6 +1230,8 @@ impl SddManager {
 
         // TODO: Make sure this is actually needed.
         self.invalidate_cached_models();
+
+        self.rotating.replace(false);
     }
 
     /// Swap children of the given vtree [`x`] and adjust SDDs accordingly.
@@ -1166,6 +1246,7 @@ impl SddManager {
     /// [`SddManager::minimization`] for a more sophisticated way of finding better vtrees.
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     pub fn swap(&self, x: &VTreeRef) {
+        self.rotating.replace(true);
         let split = split_nodes_for_swap(x, self);
 
         self.vtree_manager.borrow_mut().swap(x);
@@ -1186,6 +1267,8 @@ impl SddManager {
 
         // TODO: Make sure this is actually needed.
         self.invalidate_cached_models();
+
+        self.rotating.replace(false);
     }
 
     fn fix_literal_vtrees(&self) {
@@ -1241,9 +1324,8 @@ mod test {
         literal::{Literal, Polarity, VariableIdx},
         manager::{
             model::Model,
-            options::{vars, VTreeStrategy},
+            options::{vars, GarbageCollection, VTreeStrategy},
         },
-        util::quick_draw,
     };
     use pretty_assertions::assert_eq;
 
@@ -1361,6 +1443,7 @@ mod test {
     fn apply() {
         let options = SddOptions::builder()
             .variables(vars(vec!["a", "b", "c", "d"]))
+            .garbage_collection(GarbageCollection::Automatic)
             .build();
         let manager = SddManager::new(options);
 
@@ -1402,7 +1485,6 @@ mod test {
         assert_eq!(manager.model_count(&a_or_d), manager.model_count(&lit_a));
 
         let a_and_b = manager.conjoin(&lit_a, &lit_b);
-        quick_draw(&manager, &a_and_b, "a_and_b");
         assert_eq!(manager.model_count(&a_and_b), 4);
 
         // A && B && B == A && B
@@ -1413,12 +1495,9 @@ mod test {
         );
 
         let a_and_b_and_c = manager.conjoin(&a_and_b, &lit_c);
-        println!("{:?}", a_and_b_and_c.0);
-        quick_draw(&manager, &a_and_b_and_c, "a_and_b_and_c");
         assert_eq!(manager.model_count(&a_and_b_and_c), 2);
 
         let a_and_b_and_c_or_d = manager.disjoin(&a_and_b_and_c, &lit_d);
-        quick_draw(&manager, &a_and_b_and_c_or_d, "failure");
         assert_eq!(manager.model_count(&a_and_b_and_c_or_d), 9);
     }
 
@@ -1525,6 +1604,7 @@ mod test {
     fn left_rotation() {
         let options = SddOptions::builder()
             .vtree_strategy(VTreeStrategy::RightLinear)
+            .garbage_collection(GarbageCollection::Automatic)
             .variables(vars(vec!["a", "b", "c", "d"]))
             .build();
         let manager = SddManager::new(options);
@@ -1550,6 +1630,7 @@ mod test {
     fn right_rotation() {
         let options = SddOptions::builder()
             .vtree_strategy(VTreeStrategy::LeftLinear)
+            .garbage_collection(GarbageCollection::Automatic)
             .variables(vars(vec!["a", "b", "c", "d"]))
             .build();
         let manager = SddManager::new(options);
@@ -1564,9 +1645,7 @@ mod test {
         let a_and_d_and_b_and_c = manager.conjoin(&a_and_d_and_b, &lit_c);
         let models_before = manager.model_enumeration(&a_and_d_and_b_and_c);
 
-        quick_draw(&manager, &a_and_d_and_b_and_c, "left_linear");
         // Rotating the root to the right makes the vtree balanced.
-        // TODO: Fix this.
         manager.rotate_right(&manager.root().unwrap());
 
         let models_after = manager.model_enumeration(&a_and_d_and_b_and_c);
@@ -1577,6 +1656,7 @@ mod test {
     fn swap() {
         let options = SddOptions::builder()
             .vtree_strategy(VTreeStrategy::Balanced)
+            .garbage_collection(GarbageCollection::Automatic)
             .variables(vars(vec!["a", "b", "c", "d"]))
             .build();
         let manager = SddManager::new(options);

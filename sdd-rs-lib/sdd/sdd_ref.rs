@@ -3,7 +3,10 @@ use crate::sdd::{Sdd, SddId, SddType};
 use crate::vtree::VTreeRef;
 use bitvec::prelude::*;
 use std::cell::RefCell;
+use std::collections::BTreeSet;
 use std::rc::Rc;
+
+use super::Element;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SddRef(pub(crate) Rc<RefCell<Sdd>>);
@@ -129,5 +132,12 @@ impl SddRef {
 
     pub(crate) fn set_vtree(&self, vtree: VTreeRef) {
         self.0.borrow_mut().vtree = vtree;
+    }
+
+    pub(crate) fn elements(&self) -> Option<BTreeSet<Element>> {
+        match self.0.borrow().sdd_type {
+            SddType::Decision(ref decision) => Some(decision.elements.clone()),
+            _ => None,
+        }
     }
 }

@@ -4,7 +4,9 @@ use std::time::{Duration, Instant};
 
 use clap::{Parser, ValueEnum};
 use sddrs::manager::dimacs::{self};
-use sddrs::manager::options::{FragmentHeuristic, MinimizationCutoff, VTreeStrategy};
+use sddrs::manager::options::{
+    FragmentHeuristic, GarbageCollection, MinimizationCutoff, VTreeStrategy,
+};
 use sddrs::manager::{options::SddOptions, SddManager};
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -78,6 +80,10 @@ struct Cli {
     /// Print timing and size statistics.
     #[arg(short, long)]
     print_statistics: bool,
+
+    /// Collect dead nodes.
+    #[arg(long)]
+    collect_garbage: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -88,7 +94,7 @@ struct Statistics {
 
     compiled_sdd_size: Option<usize>,
     compiled_sdd_size_after_minimization: Option<usize>,
-    // TODO: Add GC related statistics.
+    all_sdds: Option<usize>, // TODO: Add GC related statistics.
 }
 
 impl Statistics {
@@ -110,6 +116,7 @@ impl Statistics {
             );
         } else {
             println!("sdd size        : {}", self.compiled_sdd_size.unwrap());
+            println!("all sdds        : {}", self.all_sdds.unwrap());
         }
     }
 }
@@ -138,6 +145,11 @@ fn main() -> Result<(), std::io::Error> {
         .minimize_after(args.minimize_after_k_clauses)
         .minimization_cutoff(MinimizationCutoff::None)
         .variables(variables)
+        .garbage_collection(if args.collect_garbage {
+            GarbageCollection::Automatic
+        } else {
+            GarbageCollection::Off
+        })
         .build();
 
     let manager = SddManager::new(options.clone());
@@ -186,6 +198,7 @@ fn main() -> Result<(), std::io::Error> {
     }
 
     if args.print_statistics {
+        statistics.all_sdds = Some(manager.total_sdds());
         statistics.print();
     }
 
