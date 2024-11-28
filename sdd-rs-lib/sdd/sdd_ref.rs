@@ -1,4 +1,4 @@
-use crate::manager::SddManager;
+use crate::manager::{CachedOperation, SddManager};
 use crate::sdd::{Sdd, SddId, SddType};
 use crate::vtree::VTreeRef;
 use bitvec::prelude::*;
@@ -61,8 +61,8 @@ impl SddRef {
     ///
     /// This operation may create more SDDs in the unique table.
     pub(crate) fn eq_negated(&self, other: &SddRef, manager: &SddManager) -> bool {
-        if let Some(negation) = manager.cached_negation(self.id()) {
-            return negation.id() == other.id();
+        if let Some(negation) = manager.get_cached_operation(CachedOperation::Neg(self.id())) {
+            return negation == other.id();
         }
 
         // TODO: This may cause panic w.r.t. borrowing here and later when negating.
@@ -84,8 +84,8 @@ impl SddRef {
     /// The computation works lazily - if the negation has been already computed,
     /// the value is just returned.
     pub(crate) fn negate(&self, manager: &SddManager) -> SddRef {
-        if let Some(negation) = manager.cached_negation(self.id()) {
-            return negation;
+        if let Some(negation) = manager.get_cached_operation(CachedOperation::Neg(self.id())) {
+            return manager.get_node(negation);
         }
 
         let negation = self.0.borrow_mut().negate(manager);

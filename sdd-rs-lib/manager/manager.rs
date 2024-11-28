@@ -27,7 +27,7 @@ use tracing::instrument;
 use super::options::{FragmentHeuristic, MinimizationCutoff};
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug, Copy)]
-enum Operation {
+pub(crate) enum Operation {
     Conjoin,
     Disjoin,
 }
@@ -40,6 +40,11 @@ impl Operation {
             Operation::Disjoin => TRUE_SDD_IDX,
         }
     }
+}
+
+pub(crate) enum CachedOperation {
+    BinOp(SddId, Operation, SddId),
+    Neg(SddId),
 }
 
 #[derive(Eq, PartialEq, Hash, Debug, Clone)]
@@ -593,8 +598,8 @@ impl SddManager {
         while !queue.is_empty() {
             let sdd = queue.pop().unwrap();
 
-            if let Some(negation) = self.neg_cache.borrow().get(&sdd.id()) {
-                negations.insert(*negation);
+            if let Some(negation) = self.get_cached_operation(CachedOperation::Neg(sdd.id())) {
+                negations.insert(negation);
             }
 
             // Keep the id for later cleanup of the op-cache, remove the node from the unique_table
@@ -837,13 +842,11 @@ impl SddManager {
             (snd, fst)
         };
 
-        if let Some(result_id) = self.op_cache.borrow().get(&Entry {
-            fst: fst.id(),
-            snd: snd.id(),
-            op,
-        }) {
+        if let Some(result) =
+            self.get_cached_operation(CachedOperation::BinOp(fst.id(), op, snd.id()))
+        {
             tracing::debug!(fst_id = fst.id().0, snd_id = snd.id().0, ?op, "cached");
-            return self.get_node(*result_id);
+            return self.get_node(result);
         }
 
         let (lca, order) = self
@@ -863,7 +866,7 @@ impl SddManager {
         sdd.canonicalize(self);
 
         self.insert_node(&sdd);
-        self.cache_operation(fst.id(), snd.id(), op, sdd.id());
+        self.cache_operation(CachedOperation::BinOp(fst.id(), op, snd.id()), sdd.id());
 
         // TODO: Show where the properties are violated.
         debug_assert!(sdd.is_trimmed(self));
@@ -973,12 +976,12 @@ impl SddManager {
             return fst.clone();
         }
 
-        if let Some(result_id) = self.op_cache.borrow().get(&Entry {
-            fst: fst.id(),
-            snd: snd.id(),
-            op: Operation::Conjoin,
-        }) {
-            return self.get_node(*result_id);
+        if let Some(result) = self.get_cached_operation(CachedOperation::BinOp(
+            fst.id(),
+            Operation::Conjoin,
+            snd.id(),
+        )) {
+            return self.get_node(result);
         }
 
         let elements = btreeset!(
@@ -996,7 +999,10 @@ impl SddManager {
         sdd.canonicalize(self);
 
         self.insert_node(&sdd);
-        self.cache_operation(fst.id(), snd.id(), Operation::Conjoin, sdd.id());
+        self.cache_operation(
+            CachedOperation::BinOp(fst.id(), Operation::Conjoin, snd.id()),
+            sdd.id(),
+        );
 
         sdd
     }
@@ -1104,22 +1110,23 @@ impl SddManager {
         self.unique_table.borrow_mut().insert(sdd.id(), sdd.clone());
     }
 
-    #[instrument]
-    fn cache_operation(&self, fst: SddId, snd: SddId, op: Operation, res_id: SddId) {
-        self.op_cache
-            .borrow_mut()
-            .insert(Entry { fst, snd, op }, res_id);
+    pub(crate) fn cache_operation(&self, op: CachedOperation, result: SddId) {
+        match op {
+            CachedOperation::BinOp(fst, op, snd) => self
+                .op_cache
+                .borrow_mut()
+                .insert(Entry { fst, snd, op }, result),
+            CachedOperation::Neg(fst) => self.neg_cache.borrow_mut().insert(fst, result),
+        };
     }
 
-    pub(crate) fn cache_negation(&self, sdd: SddId, negation: SddId) {
-        self.neg_cache.borrow_mut().insert(sdd, negation);
-    }
-
-    pub(crate) fn cached_negation(&self, sdd: SddId) -> Option<SddRef> {
-        self.neg_cache
-            .borrow()
-            .get(&sdd)
-            .map(|id| self.get_node(*id))
+    pub(crate) fn get_cached_operation(&self, op: CachedOperation) -> Option<SddId> {
+        match op {
+            CachedOperation::BinOp(fst, op, snd) => {
+                self.op_cache.borrow().get(&Entry { fst, snd, op }).cloned()
+            }
+            CachedOperation::Neg(fst) => self.neg_cache.borrow().get(&fst).cloned(),
+        }
     }
 
     fn get_variables(&self, sdd: &SddRef) -> BTreeSet<Variable> {
@@ -1386,7 +1393,7 @@ impl SddManager {
         let sdd = SddRef::new(Sdd::new(sdd_type, *self.next_idx.borrow(), vtree));
         self.move_idx();
         if let Some(negation) = negation {
-            self.cache_negation(sdd.id(), negation);
+            self.cache_operation(CachedOperation::Neg(sdd.id()), negation);
         }
 
         self.insert_node(&sdd);

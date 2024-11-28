@@ -7,7 +7,7 @@ use crate::{
     btreeset,
     dot_writer::{Dot, DotWriter, Edge, NodeType},
     literal::{Literal, Variable},
-    manager::{SddManager, FALSE_SDD_IDX, TRUE_SDD_IDX},
+    manager::{CachedOperation, SddManager, FALSE_SDD_IDX, TRUE_SDD_IDX},
     sdd::{Decision, Element, SddRef},
     vtree::{LeftDependence, Node, RightDependence, VTreeIdx, VTreeRef},
 };
@@ -216,7 +216,7 @@ impl Sdd {
             );
 
             // Cache the negation for this SDD.
-            manager.cache_negation(self.id(), negated_sdd.id());
+            manager.cache_operation(CachedOperation::Neg(self.id()), negated_sdd.id());
             return negated_sdd;
         }
 
@@ -268,7 +268,6 @@ impl Sdd {
                     if let Some(trimmed_sdd) = decision.trim(manager) {
                         trimmed_sdd.0.borrow().clone()
                     } else {
-                        // TODO: Double check that the negation is already present in the neg_cache.
                         Sdd::new(
                             SddType::Decision(decision.clone()),
                             self.sdd_idx,
