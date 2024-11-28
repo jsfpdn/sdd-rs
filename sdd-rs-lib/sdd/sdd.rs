@@ -53,7 +53,6 @@ pub struct Sdd {
     pub(crate) sdd_idx: SddId,
     pub(crate) sdd_type: SddType,
     pub(crate) vtree: VTreeRef,
-    pub(crate) negation: Option<SddId>,
     pub(crate) model_count: Option<u64>,
     pub(crate) models: Option<Vec<BitVec>>,
 }
@@ -90,12 +89,7 @@ impl Dot for Sdd {
 
 impl Sdd {
     #[must_use]
-    pub(crate) fn new(
-        sdd_type: SddType,
-        sdd_idx: SddId,
-        vtree: VTreeRef,
-        negation: Option<SddId>,
-    ) -> Sdd {
+    pub(crate) fn new(sdd_type: SddType, sdd_idx: SddId, vtree: VTreeRef) -> Sdd {
         let (model_count, models) = match sdd_type.clone() {
             SddType::False => (Some(0), None),
             SddType::True => (Some(1), None),
@@ -107,7 +101,6 @@ impl Sdd {
             sdd_idx,
             sdd_type,
             vtree,
-            negation,
             model_count,
             models,
         }
@@ -119,7 +112,6 @@ impl Sdd {
             SddType::True,
             TRUE_SDD_IDX,
             VTreeRef::new(None, VTreeIdx(0), Node::Leaf(Variable::new("True", 0))),
-            None,
         )
     }
 
@@ -129,7 +121,6 @@ impl Sdd {
             SddType::False,
             FALSE_SDD_IDX,
             VTreeRef::new(None, VTreeIdx(0), Node::Leaf(Variable::new("True", 0))),
-            None,
         )
     }
 
@@ -225,7 +216,7 @@ impl Sdd {
             );
 
             // Cache the negation for this SDD.
-            self.negation = Some(negated_sdd.id());
+            manager.cache_negation(self.id(), negated_sdd.id());
             return negated_sdd;
         }
 
@@ -277,11 +268,11 @@ impl Sdd {
                     if let Some(trimmed_sdd) = decision.trim(manager) {
                         trimmed_sdd.0.borrow().clone()
                     } else {
+                        // TODO: Double check that the negation is already present in the neg_cache.
                         Sdd::new(
                             SddType::Decision(decision.clone()),
                             self.sdd_idx,
                             self.vtree.clone(),
-                            self.negation, // TODO: Double check this.
                         )
                     }
                 }
@@ -293,7 +284,7 @@ impl Sdd {
     /// Compute "uniqueD" SDD as described in Algorithm 1 in
     /// [SDD: A New Canonical Representation of Propositional Knowledge Bases](https://ai.dmi.unibas.ch/research/reading_group/darwiche-ijcai2011.pdf).
     pub(crate) fn unique_d(
-        gamma: BTreeSet<Element>,
+        gamma: &BTreeSet<Element>,
         vtree: VTreeRef,
         manager: &SddManager,
     ) -> SddRef {
@@ -314,7 +305,9 @@ impl Sdd {
         }
 
         manager.new_sdd_from_type(
-            SddType::Decision(Decision { elements: gamma }),
+            SddType::Decision(Decision {
+                elements: gamma.clone(),
+            }),
             vtree.clone(),
             None,
         )

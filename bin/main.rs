@@ -7,6 +7,7 @@ use sddrs::manager::dimacs::{self};
 use sddrs::manager::options::{
     FragmentHeuristic, GarbageCollection, MinimizationCutoff, VTreeStrategy,
 };
+use sddrs::manager::GCStatistics;
 use sddrs::manager::{options::SddOptions, SddManager};
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -81,9 +82,11 @@ struct Cli {
     #[arg(short, long)]
     print_statistics: bool,
 
-    /// Collect dead nodes.
+    /// Collect dead nodes. The provided number denotes the ratio of dead-to-live nodes
+    /// when the garbage collection kicks in. When set to 0, garbage collection is performed
+    /// after every apply operation.
     #[arg(long)]
-    collect_garbage: bool,
+    collect_garbage: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -94,7 +97,10 @@ struct Statistics {
 
     compiled_sdd_size: Option<usize>,
     compiled_sdd_size_after_minimization: Option<usize>,
-    all_sdds: Option<usize>, // TODO: Add GC related statistics.
+    all_sdds: Option<usize>,
+
+    gc_trigger_ratio: Option<f64>,
+    gc_stats: Option<GCStatistics>,
 }
 
 impl Statistics {
@@ -118,6 +124,12 @@ impl Statistics {
             println!("sdd size        : {}", self.compiled_sdd_size.unwrap());
             println!("all sdds        : {}", self.all_sdds.unwrap());
         }
+
+        if let Some(ref gc_stats) = self.gc_stats {
+            println!("gc trigger ratio: {}", self.gc_trigger_ratio.unwrap());
+            println!("nodes collected : {}", gc_stats.nodes_collected);
+            println!("gc triggered    : {}", gc_stats.gc_triggered);
+        }
     }
 }
 
@@ -139,21 +151,23 @@ fn main() -> Result<(), std::io::Error> {
         }
     };
 
+    let mut statistics = Statistics::default();
     let options = SddOptions::builder()
         .vtree_strategy(args.vtree)
         .fragment_heuristic(FragmentHeuristic::Root)
         .minimize_after(args.minimize_after_k_clauses)
         .minimization_cutoff(MinimizationCutoff::None)
         .variables(variables)
-        .garbage_collection(if args.collect_garbage {
-            GarbageCollection::Automatic
-        } else {
-            GarbageCollection::Off
+        .garbage_collection(match args.collect_garbage {
+            Some(ratio) => {
+                statistics.gc_trigger_ratio = Some(ratio);
+                GarbageCollection::Automatic(ratio)
+            }
+            None => GarbageCollection::Off,
         })
         .build();
 
     let manager = SddManager::new(options.clone());
-    let mut statistics = Statistics::default();
 
     // We have read the preamble already so we have to rewind the cursor to the beginning
     // of the file.
@@ -198,6 +212,7 @@ fn main() -> Result<(), std::io::Error> {
     }
 
     if args.print_statistics {
+        statistics.gc_stats = Some(manager.gc_statistics());
         statistics.all_sdds = Some(manager.total_sdds());
         statistics.print();
     }

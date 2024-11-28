@@ -101,18 +101,18 @@ impl Decision {
             let el_2_prime;
             if el_1.sub.is_true() && el_2.sub.is_false() {
                 // Check for {(_, true), (_, false)}.
-                el_1_prime = el_1.prime.clone();
-                el_2_prime = el_2.prime.clone();
+                el_1_prime = &el_1.prime;
+                el_2_prime = &el_2.prime;
             } else if el_2.sub.is_true() && el_1.sub.is_false() {
                 // Check for {(_, false), (_, true)}.
-                el_1_prime = el_2.prime.clone();
-                el_2_prime = el_1.prime.clone();
+                el_1_prime = &el_2.prime;
+                el_2_prime = &el_1.prime;
             } else {
                 return None;
             }
 
             if el_1_prime.eq_negated(&el_2_prime, manager) {
-                return Some(el_1_prime);
+                return Some(el_1_prime.clone());
             }
         }
 

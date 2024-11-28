@@ -18,7 +18,7 @@ use crate::{
 use bitvec::prelude::*;
 use std::{
     cell::RefCell,
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, HashSet},
     ops::BitOr,
     rc::Rc,
 };
@@ -55,6 +55,19 @@ impl Entry {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct GCStatistics {
+    pub nodes_collected: usize,
+    pub gc_triggered: usize,
+}
+
+impl GCStatistics {
+    fn collected(&mut self, nodes_collected: usize) {
+        self.gc_triggered += 1;
+        self.nodes_collected += nodes_collected;
+    }
+}
+
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug)]
 pub struct SddManager {
@@ -69,12 +82,15 @@ pub struct SddManager {
 
     // Caches all the computations.
     op_cache: RefCell<HashMap<Entry, SddId>>,
+    neg_cache: RefCell<HashMap<SddId, SddId>>,
 
     next_idx: RefCell<SddId>,
 
     // Flag denoting whether we are doing rotations. If so, garbage collection
     // is turned off.
     rotating: RefCell<bool>,
+
+    gc_stats: RefCell<GCStatistics>,
 }
 
 // True and false SDDs have indicies 0 and 1 throughout the whole computation.
@@ -104,10 +120,15 @@ impl SddManager {
         let manager = SddManager {
             options: options.clone(),
             op_cache: RefCell::new(HashMap::new()),
+            neg_cache: RefCell::new(HashMap::new()),
             next_idx: RefCell::new(SddId(2)), // Account for ff and tt created earlier which have indices 0 and 1.
             vtree_manager: RefCell::new(VTreeManager::new(options.vtree_strategy, &variables)),
             literal_manager: RefCell::new(LiteralManager::new()),
             rotating: RefCell::new(false),
+            gc_stats: RefCell::new(GCStatistics {
+                nodes_collected: 0,
+                gc_triggered: 0,
+            }),
             unique_table,
         };
 
@@ -204,9 +225,10 @@ impl SddManager {
             }
         }
 
-        if self.should_collect_garbage() {
-            self.collect_garbage(&sdd.id());
-        }
+        // TODO: Remove this as this gets ultimately called in apply.
+        // if self.should_collect_garbage(&sdd) {
+        //     self._collect_garbage(Some(sdd.id()));
+        // }
 
         Ok(sdd)
     }
@@ -254,6 +276,38 @@ impl SddManager {
             Some(..) => Ok(()),
             None => Err(()),
         }
+    }
+
+    fn remove_from_unique_table(&self, id: SddId) {
+        self.unique_table.borrow_mut().remove(&id).unwrap();
+    }
+
+    fn remove_from_op_cache(&self, ids: &HashSet<SddId>) {
+        let entries: Vec<_> = {
+            self.op_cache
+                .borrow()
+                .iter()
+                .filter(|(Entry { fst, snd, .. }, res)| {
+                    ids.contains(fst) || ids.contains(snd) || ids.contains(res)
+                })
+                .map(|(entry, _)| entry.clone())
+                .collect()
+        };
+
+        let mut op_cache = self.op_cache.borrow_mut();
+        for entry in &entries {
+            op_cache.remove(entry).unwrap();
+        }
+    }
+
+    fn remove_negations_of(&self, sdds: &HashSet<SddId>) {
+        for sdd_id in sdds {
+            self.remove_negation_of(sdd_id);
+        }
+    }
+
+    fn remove_negation_of(&self, id: &SddId) {
+        self.neg_cache.borrow_mut().remove(id);
     }
 
     pub fn literal(&self, literal: &str, polarity: Polarity) -> SddRef {
@@ -515,23 +569,19 @@ impl SddManager {
         }
     }
 
-    pub fn collect_garbage(&self, except: &SddId) {
-        // Idea:
-        // * get all decision nodes with refcount == 2 and put them into a shame-box
-        // * for each item in the shame box:
-        //      * get all children
-        //      * remove their parent from shame-box and unique-table (=> collect it),
-        //          put the id to some side-table (we need to dump the op-cache afterwards too)
-        //      * every child that now has refcount == 2 (or 3?) belongs to the shame-box
-        // * repeat this untill the shame-box is empty
+    pub fn collect_garbage(&self) {
+        self._collect_garbage(None)
+    }
 
-        fn should_sweep(sdd: &SddRef, ref_count: usize, except: &SddId) -> bool {
+    fn _collect_garbage(&self, except: Option<SddId>) {
+        fn should_sweep(sdd: &SddRef, ref_count: usize, except: Option<SddId>) -> bool {
             Rc::strong_count(&sdd.0) < ref_count
-                && sdd.id() != *except
+                && except.map_or(true, |except| sdd.id() != except)
                 && !sdd.is_constant_or_literal()
         }
 
-        let mut removed: Vec<SddId> = Vec::new();
+        let mut removed = HashSet::new();
+        let mut negations = HashSet::new();
         let mut queue: Vec<_> = self
             .unique_table
             .borrow()
@@ -542,8 +592,15 @@ impl SddManager {
 
         while !queue.is_empty() {
             let sdd = queue.pop().unwrap();
-            removed.push(sdd.id());
-            self.remove_node(sdd.id()).unwrap();
+
+            if let Some(negation) = self.neg_cache.borrow().get(&sdd.id()) {
+                negations.insert(*negation);
+            }
+
+            // Keep the id for later cleanup of the op-cache, remove the node from the unique_table
+            // and remove the "weak" reference to it from a negated sdd (if such exists).
+            removed.insert(sdd.id());
+            self.remove_from_unique_table(sdd.id());
 
             let elements = sdd.elements().unwrap();
             for Element { prime, sub } in elements {
@@ -556,15 +613,24 @@ impl SddManager {
                 }
             }
         }
+
+        self.remove_from_op_cache(&removed);
+        self.remove_negations_of(&negations);
+        self.gc_stats.borrow_mut().collected(removed.len());
     }
 
-    fn should_collect_garbage(&self) -> bool {
-        // TODO: Add sdd/nodes ratio
-        !*self.rotating.borrow()
-            && matches!(
-                self.options.garbage_collection,
-                GarbageCollection::Automatic
-            )
+    fn should_collect_garbage(&self, reference: &SddRef) -> bool {
+        fn hit_threshold(total_nodes: usize, sdd_size: usize, ratio: f64) -> bool {
+            (sdd_size as f64 / total_nodes as f64) < ratio
+        }
+
+        match self.options.garbage_collection {
+            GarbageCollection::Automatic(ratio) => {
+                !*self.rotating.borrow()
+                    && hit_threshold(self.total_sdds(), self.size(reference), ratio)
+            }
+            _ => false,
+        }
     }
 
     /// Get the size of the SDD which is the number of elements reachable from it.
@@ -792,9 +858,9 @@ impl SddManager {
             VTreeOrder::RightSubOfLeft => self._apply_right_sub_of_left(fst, snd, op),
         };
 
-        let sdd = Sdd::unique_d(elements.clone(), lca, self);
+        // TODO: do not compute LCA when it's known.
+        let sdd = Sdd::unique_d(&elements, lca, self);
         sdd.canonicalize(self);
-        // TODO: canonicalize is not working properly => infinite loop since it's not changing.
 
         self.insert_node(&sdd);
         self.cache_operation(fst.id(), snd.id(), op, sdd.id());
@@ -803,11 +869,15 @@ impl SddManager {
         debug_assert!(sdd.is_trimmed(self));
         debug_assert!(sdd.is_compressed(self));
 
-        if self.should_collect_garbage() {
-            self.collect_garbage(&sdd.id());
+        if self.should_collect_garbage(&sdd) {
+            self._collect_garbage(Some(sdd.id()));
         }
 
         sdd
+    }
+
+    pub fn gc_statistics(&self) -> GCStatistics {
+        self.gc_stats.borrow().clone()
     }
 
     pub fn total_sdds(&self) -> usize {
@@ -922,7 +992,7 @@ impl SddManager {
             }
         );
 
-        let sdd = Sdd::unique_d(elements, lca.clone(), self);
+        let sdd = Sdd::unique_d(&elements, lca.clone(), self);
         sdd.canonicalize(self);
 
         self.insert_node(&sdd);
@@ -1039,6 +1109,17 @@ impl SddManager {
         self.op_cache
             .borrow_mut()
             .insert(Entry { fst, snd, op }, res_id);
+    }
+
+    pub(crate) fn cache_negation(&self, sdd: SddId, negation: SddId) {
+        self.neg_cache.borrow_mut().insert(sdd, negation);
+    }
+
+    pub(crate) fn cached_negation(&self, sdd: SddId) -> Option<SddRef> {
+        self.neg_cache
+            .borrow()
+            .get(&sdd)
+            .map(|id| self.get_node(*id))
     }
 
     fn get_variables(&self, sdd: &SddRef) -> BTreeSet<Variable> {
@@ -1302,8 +1383,11 @@ impl SddManager {
         vtree: VTreeRef,
         negation: Option<SddId>,
     ) -> SddRef {
-        let sdd = SddRef::new(Sdd::new(sdd_type, *self.next_idx.borrow(), vtree, negation));
+        let sdd = SddRef::new(Sdd::new(sdd_type, *self.next_idx.borrow(), vtree));
         self.move_idx();
+        if let Some(negation) = negation {
+            self.cache_negation(sdd.id(), negation);
+        }
 
         self.insert_node(&sdd);
         sdd
@@ -1443,7 +1527,7 @@ mod test {
     fn apply() {
         let options = SddOptions::builder()
             .variables(vars(vec!["a", "b", "c", "d"]))
-            .garbage_collection(GarbageCollection::Automatic)
+            .garbage_collection(GarbageCollection::Automatic(0.0))
             .build();
         let manager = SddManager::new(options);
 
@@ -1604,7 +1688,7 @@ mod test {
     fn left_rotation() {
         let options = SddOptions::builder()
             .vtree_strategy(VTreeStrategy::RightLinear)
-            .garbage_collection(GarbageCollection::Automatic)
+            .garbage_collection(GarbageCollection::Automatic(0.0))
             .variables(vars(vec!["a", "b", "c", "d"]))
             .build();
         let manager = SddManager::new(options);
@@ -1630,7 +1714,7 @@ mod test {
     fn right_rotation() {
         let options = SddOptions::builder()
             .vtree_strategy(VTreeStrategy::LeftLinear)
-            .garbage_collection(GarbageCollection::Automatic)
+            .garbage_collection(GarbageCollection::Automatic(0.0))
             .variables(vars(vec!["a", "b", "c", "d"]))
             .build();
         let manager = SddManager::new(options);
@@ -1656,7 +1740,7 @@ mod test {
     fn swap() {
         let options = SddOptions::builder()
             .vtree_strategy(VTreeStrategy::Balanced)
-            .garbage_collection(GarbageCollection::Automatic)
+            .garbage_collection(GarbageCollection::Automatic(0.0))
             .variables(vars(vec!["a", "b", "c", "d"]))
             .build();
         let manager = SddManager::new(options);

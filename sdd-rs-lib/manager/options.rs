@@ -17,7 +17,7 @@ pub enum FragmentHeuristic {
 #[derive(Debug, Clone, Copy)]
 pub enum GarbageCollection {
     Off,
-    Automatic,
+    Automatic(f64),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -47,25 +47,11 @@ pub struct SddOptions {
     #[builder(into)]
     pub variables: Vec<String>,
 
-    #[builder(default = GarbageCollection::Automatic)]
+    #[builder(default = GarbageCollection::Automatic(0.3))]
     pub garbage_collection: GarbageCollection,
 }
 
 /// TODO: This is an ugly hack, fix it.
 pub fn vars(variables: Vec<&str>) -> Vec<String> {
     variables.iter().map(|v| v.to_string()).collect()
-}
-
-impl Default for SddOptions {
-    #[must_use]
-    fn default() -> Self {
-        SddOptions {
-            vtree_strategy: VTreeStrategy::Balanced,
-            fragment_heuristic: FragmentHeuristic::Root,
-            minimize_after: 0,
-            minimization_cutoff: MinimizationCutoff::None,
-            variables: Vec::new(),
-            garbage_collection: GarbageCollection::Automatic,
-        }
-    }
 }
