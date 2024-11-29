@@ -1,4 +1,4 @@
-#![allow(clippy::non_canonical_partial_ord_impl)]
+#![allow(clippy::non_canonical_partial_ord_impl, clippy::similar_names)]
 
 use crate::{
     dot_writer::{Dot, DotWriter, Edge, NodeType},
@@ -136,7 +136,7 @@ impl VTree {
     }
 }
 
-/// VTreeOrder describes the relation between two vtrees.
+/// `VTreeOrder` describes the relation between two vtrees.
 #[derive(Debug, PartialEq)]
 pub(crate) enum VTreeOrder {
     // The two compared vtrees are one and the same.
@@ -177,14 +177,20 @@ impl VTreeRef {
         VTreeRef(Rc::new(RefCell::new(VTree::new(parent, idx, node))))
     }
 
+    #[must_use]
     pub fn is_leaf(&self) -> bool {
         matches!(self.0.borrow().node, Node::Leaf(..))
     }
 
+    #[must_use]
     pub fn is_internal(&self) -> bool {
         matches!(self.0.borrow().node, Node::Internal(..))
     }
 
+    /// # Panics
+    ///
+    /// TODO
+    #[must_use]
     pub fn left_child(&self) -> VTreeRef {
         match self.0.borrow().node {
             Node::Leaf(_) => panic!("vtree node must be internal in order to have children"),
@@ -192,6 +198,10 @@ impl VTreeRef {
         }
     }
 
+    /// # Panics
+    ///
+    /// TODO
+    #[must_use]
     pub fn right_child(&self) -> VTreeRef {
         match self.0.borrow().node {
             Node::Leaf(_) => panic!("vtree node must be internal in order to have children"),
@@ -199,10 +209,12 @@ impl VTreeRef {
         }
     }
 
+    #[must_use]
     pub fn parent(&self) -> Option<VTreeRef> {
         self.0.borrow().parent.clone()
     }
 
+    #[must_use]
     pub fn index(&self) -> VTreeIdx {
         self.0.borrow().idx
     }
@@ -216,15 +228,15 @@ impl VTreeRef {
     }
 
     fn set_parent(&self, parent: Option<&VTreeRef>) {
-        self.0.borrow_mut().parent = parent.cloned()
+        self.0.borrow_mut().parent = parent.cloned();
     }
 
     fn set_left_child(&self, left_child: &VTreeRef) {
-        self.0.borrow_mut().set_left_child(left_child)
+        self.0.borrow_mut().set_left_child(left_child);
     }
 
     fn set_right_child(&self, right_child: &VTreeRef) {
-        self.0.borrow_mut().set_right_child(right_child)
+        self.0.borrow_mut().set_right_child(right_child);
     }
 }
 
@@ -236,20 +248,20 @@ pub(crate) struct VTreeManager {
 impl VTreeManager {
     #[must_use]
     pub(crate) fn new(strategy: VTreeStrategy, variables: &[Variable]) -> VTreeManager {
-        let root = if !variables.is_empty() {
-            let root = match strategy {
-                VTreeStrategy::Balanced => VTreeManager::balanced(variables),
-                VTreeStrategy::RightLinear => VTreeManager::right_linear(variables),
-                VTreeStrategy::LeftLinear => VTreeManager::left_linear(variables),
-            };
+        VTreeManager {
+            root: if variables.is_empty() {
+                None
+            } else {
+                let root = match strategy {
+                    VTreeStrategy::Balanced => VTreeManager::balanced(variables),
+                    VTreeStrategy::RightLinear => VTreeManager::right_linear(variables),
+                    VTreeStrategy::LeftLinear => VTreeManager::left_linear(variables),
+                };
 
-            VTreeManager::set_inorder_indices(root.clone(), VTreeIdx(0));
-            Some(root)
-        } else {
-            None
-        };
-
-        VTreeManager { root }
+                VTreeManager::set_inorder_indices(&root, VTreeIdx(0));
+                Some(root)
+            },
+        }
     }
 
     /// Construct a balanced vtree.
@@ -357,14 +369,14 @@ impl VTreeManager {
     }
 
     fn set_inorder_indices(
-        node: VTreeRef,
+        node: &VTreeRef,
         idx: VTreeIdx,
     ) -> (VTreeIdx, Option<VTreeRef>, Option<VTreeRef>) {
         let (new_idx, par_idx, fst, last) = if let Node::Internal(lc, rc) =
             node.0.borrow().node.clone()
         {
-            let (new_idx, fst, _) = VTreeManager::set_inorder_indices(lc, idx);
-            let (par_idx, _, last) = VTreeManager::set_inorder_indices(rc, new_idx + VTreeIdx(1));
+            let (new_idx, fst, _) = VTreeManager::set_inorder_indices(&lc, idx);
+            let (par_idx, _, last) = VTreeManager::set_inorder_indices(&rc, new_idx + VTreeIdx(1));
 
             (new_idx, par_idx, fst, last)
         } else {
@@ -449,7 +461,7 @@ impl VTreeManager {
             self.root = Some(x.clone());
         }
 
-        VTreeManager::set_inorder_indices(self.root.clone().unwrap(), VTreeIdx(0));
+        VTreeManager::set_inorder_indices(self.root.as_ref().unwrap(), VTreeIdx(0));
     }
 
     /// Rotates the vtree to the right. Given the following tree,
@@ -496,7 +508,7 @@ impl VTreeManager {
             self.root = Some(w.clone());
         }
 
-        VTreeManager::set_inorder_indices(self.root.clone().unwrap(), VTreeIdx(0));
+        VTreeManager::set_inorder_indices(self.root.as_ref().unwrap(), VTreeIdx(0));
     }
 
     /// Swaps children of internal node.
@@ -515,7 +527,7 @@ impl VTreeManager {
             }
         }
 
-        VTreeManager::set_inorder_indices(self.root.clone().unwrap(), VTreeIdx(0));
+        VTreeManager::set_inorder_indices(self.root.as_ref().unwrap(), VTreeIdx(0));
     }
 
     pub(crate) fn get_variable_vtree(&self, variable: &Variable) -> Option<VTreeRef> {
@@ -607,10 +619,7 @@ impl Dot for VTreeManager {
 
         // Get the total order first to neatly order the leaf nodes in the graph.
         for (variable, idx) in self.variables_total_order() {
-            writer.add_node(
-                idx.0 as usize,
-                NodeType::CircleStr(variable.label(), idx.0 as u16),
-            );
+            writer.add_node(idx.0 as usize, NodeType::CircleStr(variable.label(), idx.0));
         }
 
         let mut nodes = vec![self.root.as_ref().unwrap().clone()];
@@ -622,10 +631,7 @@ impl Dot for VTreeManager {
                 nodes.push(lc.clone());
                 nodes.push(rc.clone());
 
-                writer.add_node(
-                    vtree.idx.0 as usize,
-                    NodeType::Circle(vtree.idx.0 as u16, None),
-                );
+                writer.add_node(vtree.idx.0 as usize, NodeType::Circle(vtree.idx.0, None));
             };
         }
     }
@@ -641,8 +647,8 @@ pub(crate) mod test {
 
     use super::{Node, VTreeManager};
 
-    fn orders_eq(got_order: Vec<(Variable, VTreeIdx)>, want_order: Vec<Variable>) {
-        for ((got, _), want) in got_order.iter().zip(&want_order) {
+    fn orders_eq(got_order: &[(Variable, VTreeIdx)], want_order: &[Variable]) {
+        for ((got, _), want) in got_order.to_vec().iter().zip(&want_order.to_vec()) {
             assert_eq!(got, want);
         }
         assert_eq!(got_order.len(), want_order.len());
@@ -665,7 +671,7 @@ pub(crate) mod test {
         //     A  B     C  D
         let manager = VTreeManager::new(
             VTreeStrategy::Balanced,
-            &vec![
+            &[
                 Variable::new("A", 0),
                 Variable::new("B", 1),
                 Variable::new("C", 2),
@@ -717,7 +723,7 @@ pub(crate) mod test {
     fn structure() {
         let manager = VTreeManager::new(
             VTreeStrategy::RightLinear,
-            &vec![
+            &[
                 Variable::new("A", 1),
                 Variable::new("B", 2),
                 Variable::new("C", 3),
@@ -752,41 +758,41 @@ pub(crate) mod test {
     fn variables_total_order_simple() {
         let manager = VTreeManager::new(
             VTreeStrategy::RightLinear,
-            &vec![
+            &[
                 Variable::new("A", 0),
                 Variable::new("B", 1),
                 Variable::new("C", 2),
             ],
         );
 
-        let want_order = vec![
+        let want_order = [
             Variable::new("A", 0),
             Variable::new("B", 1),
             Variable::new("C", 2),
         ];
-        orders_eq(manager.variables_total_order(), want_order);
+        orders_eq(&manager.variables_total_order(), &want_order);
     }
 
     #[test]
     fn variables_total_order_swap() {
         let mut manager = VTreeManager::new(
             VTreeStrategy::Balanced,
-            &vec![Variable::new("A", 0), Variable::new("B", 1)],
+            &[Variable::new("A", 0), Variable::new("B", 1)],
         );
         let root = manager.root.clone().unwrap();
 
         // <A, B> ~> <B, A>
         manager.swap(&root);
         orders_eq(
-            manager.variables_total_order(),
-            vec![Variable::new("B", 1), Variable::new("A", 0)],
+            &manager.variables_total_order(),
+            &[Variable::new("B", 1), Variable::new("A", 0)],
         );
 
         // <B, A> ~> <A, B>
         manager.swap(&root);
         orders_eq(
-            manager.variables_total_order(),
-            vec![Variable::new("A", 0), Variable::new("B", 1)],
+            &manager.variables_total_order(),
+            &[Variable::new("A", 0), Variable::new("B", 1)],
         );
     }
 
@@ -794,7 +800,7 @@ pub(crate) mod test {
     fn variables_total_order() {
         let mut manager = VTreeManager::new(
             VTreeStrategy::RightLinear,
-            &vec![
+            &[
                 Variable::new("A", 0),
                 Variable::new("B", 1),
                 Variable::new("C", 2),
@@ -823,7 +829,7 @@ pub(crate) mod test {
         manager.rotate_left(&y);
 
         // The total order must not change when rotating.
-        orders_eq(manager.variables_total_order(), want_order.clone());
+        orders_eq(&manager.variables_total_order(), &want_order);
 
         // The tree must look like this:
         //     y
@@ -858,7 +864,7 @@ pub(crate) mod test {
         manager.rotate_right(&y);
 
         // The total order must not change when rotating.
-        orders_eq(manager.variables_total_order(), want_order.clone());
+        orders_eq(&manager.variables_total_order(), &want_order);
 
         // The tree should like exactly like in the beginning:
         //    x
@@ -895,7 +901,7 @@ pub(crate) mod test {
     fn least_common_ancestor() {
         let manager = VTreeManager::new(
             VTreeStrategy::Balanced,
-            &vec![
+            &[
                 Variable::new("A", 0),
                 Variable::new("B", 1),
                 Variable::new("C", 2),
@@ -938,7 +944,7 @@ pub(crate) mod test {
         let var_label_index = |vtree: Option<VTreeRef>| -> VTreeIdx { vtree.unwrap().index() };
         let manager = VTreeManager::new(
             VTreeStrategy::RightLinear,
-            &vec![
+            &[
                 Variable::new("A", 0),
                 Variable::new("B", 1),
                 Variable::new("C", 2),
@@ -977,7 +983,7 @@ pub(crate) mod test {
     fn get_variables() {
         let manager = VTreeManager::new(
             VTreeStrategy::LeftLinear,
-            &vec![
+            &[
                 Variable::new("A", 0),
                 Variable::new("B", 1),
                 Variable::new("C", 2),

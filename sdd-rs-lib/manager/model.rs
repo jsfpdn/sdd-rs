@@ -9,15 +9,14 @@ pub struct Models {
 }
 
 impl Models {
-    pub(crate) fn new(models: Vec<BitVec>, variables: Vec<Variable>) -> Self {
-        let mut models = models.clone();
+    pub(crate) fn new(models: &[BitVec], variables: Vec<Variable>) -> Self {
+        let mut models = models.to_owned();
         models.sort();
         Models { models, variables }
     }
 
-    #[allow(unused)]
+    #[must_use]
     pub fn all_models(&self) -> Vec<Model> {
-        // TODO: Remove this once EnumerationIterator is implemented.
         self.models
             .iter()
             .map(|enumeration_bitvec| {
@@ -48,8 +47,8 @@ pub struct Model {
 
 impl Model {
     #[allow(unused)]
-    pub(crate) fn new_from_literals(literals: Vec<Literal>) -> Self {
-        let mut literals = literals.clone();
+    pub(crate) fn new_from_literals(literals: &[Literal]) -> Self {
+        let mut literals = literals.to_owned();
         literals.sort();
         Model { literals }
     }

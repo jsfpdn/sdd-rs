@@ -69,7 +69,7 @@ impl Statistics {
 
 fn model_count_sdd(sdd: &SddPtr, manager: &VTreeManager) -> (f64, Duration) {
     let mut vars = HashMap::new();
-    for v in 0..manager.num_vars() + 1 {
+    for v in 0..=manager.num_vars() {
         vars.insert(
             VarLabel::new_usize(v),
             (RealSemiring(0.0), RealSemiring(1.0)),

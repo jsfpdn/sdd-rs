@@ -19,7 +19,6 @@ use bitvec::prelude::*;
 use std::{
     cell::RefCell,
     collections::{BTreeSet, HashMap},
-    iter::FromIterator,
     ops::BitOr,
     rc::Rc,
 };
@@ -35,7 +34,7 @@ pub(crate) enum Operation {
 
 impl Operation {
     /// Get the absorbing element with respect to the Boolean operation.
-    fn zero(&self) -> SddId {
+    fn zero(self) -> SddId {
         match self {
             Operation::Conjoin => FALSE_SDD_IDX,
             Operation::Disjoin => TRUE_SDD_IDX,
@@ -104,8 +103,11 @@ pub(crate) const FALSE_SDD_IDX: SddId = SddId(0);
 pub(crate) const TRUE_SDD_IDX: SddId = SddId(1);
 
 impl SddManager {
+    /// # Panics
+    ///
+    /// TODO
     #[must_use]
-    pub fn new(options: SddOptions) -> SddManager {
+    pub fn new(options: &SddOptions) -> SddManager {
         let mut unique_table = RefCell::new(HashMap::new());
         let ff = SddRef::new(Sdd::new_false());
         let tt = SddRef::new(Sdd::new_true());
@@ -120,7 +122,7 @@ impl SddManager {
             .variables
             .iter()
             .enumerate()
-            .map(|(idx, variable)| Variable::new(variable, idx as u32))
+            .map(|(idx, variable)| Variable::new(variable, u32::try_from(idx).unwrap()))
             .collect();
 
         let manager = SddManager {
@@ -176,6 +178,10 @@ impl SddManager {
     /// Parse a CNF in [DIMACS] format and construct an SDD. Function expects there is a
     /// sufficient number of variables already defined in the manager and tries to map
     /// variable indices in DIMACS to their string representations.
+    ///
+    /// # Errors
+    ///
+    /// TODO
     ///
     /// [DIMACS]: https://www21.in.tum.de/~lammich/2015_SS_Seminar_SAT/resources/dimacs-cnf.pdf
     pub fn from_dimacs(
@@ -267,9 +273,9 @@ impl SddManager {
                 .collect()
         };
 
-        entries
-            .iter()
-            .for_each(|(entry, _)| _ = self.op_cache.borrow_mut().remove(entry).unwrap());
+        for (entry, _) in entries {
+            _ = self.op_cache.borrow_mut().remove(&entry).unwrap();
+        }
 
         match self.unique_table.borrow_mut().remove(&id) {
             Some(..) => Ok(()),
@@ -303,7 +309,7 @@ impl SddManager {
                 .borrow()
                 .iter()
                 .filter(|(fst, negation)| ids.contains(fst) || ids.contains(negation))
-                .map(|(key, _)| key.clone())
+                .map(|(key, _)| *key)
                 .collect()
         };
 
@@ -313,31 +319,38 @@ impl SddManager {
         }
     }
 
+    /// # Panics
+    ///
+    /// TODO
     pub fn literal(&self, literal: &str, polarity: Polarity) -> SddRef {
-        let variants = match self.literal_manager.borrow().find_by_label(literal) {
-            Some((_, variants)) => variants,
+        let Some((_, variants)) = self.literal_manager.borrow().find_by_label(literal) else {
             // TODO: We should return proper error instead of panicking here.
-            None => panic!("literal '{literal}' has not been created!"),
+            panic!("literal '{literal}' has not been created!");
         };
 
         variants.get(polarity)
     }
 
-    pub(crate) fn literal_from_idx(&self, idx: &VariableIdx, polarity: Polarity) -> SddRef {
-        let variants = match self.literal_manager.borrow().find_by_index(*idx) {
-            Some((_, variants)) => variants,
+    pub(crate) fn literal_from_idx(&self, idx: VariableIdx, polarity: Polarity) -> SddRef {
+        let Some((_, variants)) = self.literal_manager.borrow().find_by_index(idx) else {
             // TODO: We should return proper error instead of panicking here.
-            None => panic!("literal with index {idx:?} has not been created!"),
+            panic!("literal with index {idx:?} has not been created!");
         };
 
         variants.get(polarity)
     }
 
+    /// # Panics
+    ///
+    /// TODO
     pub fn tautology(&self) -> SddRef {
         self.try_get_node(TRUE_SDD_IDX)
             .expect("True SDD node must be present in the unique table at all times")
     }
 
+    /// # Panics
+    ///
+    /// TODO
     pub fn contradiction(&self) -> SddRef {
         self.try_get_node(FALSE_SDD_IDX)
             .expect("False SDD node must be present in the unique table at all times")
@@ -464,10 +477,13 @@ impl SddManager {
             .difference(&self.get_variables(sdd))
             .cloned()
             .collect();
-        self.expand_models(&mut models, &unbound_variables);
-        Models::new(models, all_variables.iter().cloned().collect())
+        SddManager::expand_models(&mut models, &unbound_variables);
+        Models::new(&models, all_variables.iter().cloned().collect())
     }
 
+    /// # Panics
+    ///
+    /// TODO
     pub fn model_count(&self, sdd: &SddRef) -> u64 {
         let models = self._model_count(sdd);
 
@@ -486,7 +502,7 @@ impl SddManager {
             .len();
         let unbound = self.literal_manager.borrow().len() - sdd_variables;
 
-        models * 2_u64.pow(unbound as u32)
+        models * 2_u64.pow(u32::try_from(unbound).unwrap())
     }
 
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
@@ -502,7 +518,7 @@ impl SddManager {
         // Currently, we're constructing just right-linear fragments.
         let rc = root.right_child();
 
-        let mut fragment = Fragment::new(root, rc);
+        let mut fragment = Fragment::new(&root, &rc);
 
         // TODO: Remove sanity checks.
         let models = self.model_enumeration(reference_sdd);
@@ -536,7 +552,7 @@ impl SddManager {
                 best_i = i;
             }
 
-            if self.criteria_met(cut_off, init_size, curr_size, i) {
+            if SddManager::criteria_met(cut_off, init_size, curr_size, i) {
                 if matches!(cut_off, MinimizationCutoff::Decrease(_)) || best_i == i {
                     // We have fulfilled the searching criteria and the current vtree configuration
                     // makes the reference sdd sufficiently small.
@@ -553,11 +569,10 @@ impl SddManager {
         }
 
         tracing::debug!("rewinding from {i} to {best_i}");
-        fragment.rewind(best_i, &self);
+        fragment.rewind(best_i, self);
     }
 
     fn criteria_met(
-        &self,
         cut_off: MinimizationCutoff,
         init_size: usize,
         curr_size: usize,
@@ -566,14 +581,16 @@ impl SddManager {
         match cut_off {
             MinimizationCutoff::Iteration(after_iter) => curr_iter >= after_iter,
             MinimizationCutoff::Decrease(decrease) => {
-                (curr_size as f32 / init_size as f32) - decrease >= f32::EPSILON
+                #[allow(clippy::cast_precision_loss)]
+                let ratio = curr_size as f64 / init_size as f64;
+                ratio - decrease >= f64::EPSILON
             }
             MinimizationCutoff::None => false,
         }
     }
 
     pub fn collect_garbage(&self) {
-        self._collect_garbage(None)
+        self._collect_garbage(None);
     }
 
     fn _collect_garbage(&self, except: Option<SddId>) {
@@ -584,13 +601,13 @@ impl SddManager {
         }
 
         let mut removed = BTreeSet::new();
-        let mut queue: BTreeSet<_> = BTreeSet::from_iter(
-            self.unique_table
-                .borrow()
-                .values()
-                .filter(|sdd| should_sweep(sdd, 2, except))
-                .map(|sdd| sdd.id()),
-        );
+        let mut queue: BTreeSet<_> = self
+            .unique_table
+            .borrow()
+            .values()
+            .filter(|sdd| should_sweep(sdd, 2, except))
+            .map(SddRef::id)
+            .collect();
 
         while !queue.is_empty() {
             let sdd = self.get_node(queue.pop_last().unwrap());
@@ -618,21 +635,23 @@ impl SddManager {
 
     fn should_collect_garbage(&self, reference: &SddRef) -> bool {
         fn hit_threshold(total_nodes: usize, sdd_size: usize, ratio: f64) -> bool {
+            #![allow(clippy::cast_precision_loss)]
             (sdd_size as f64 / total_nodes as f64) < ratio
         }
 
         match self.options.garbage_collection {
+            GarbageCollection::Off => false,
             GarbageCollection::Automatic(ratio) => {
                 !*self.rotating.borrow()
                     && hit_threshold(self.total_sdds(), self.size(reference), ratio)
             }
-            _ => false,
         }
     }
 
     /// Get the size of the SDD which is the number of elements reachable from it.
     pub fn size(&self, sdd: &SddRef) -> usize {
-        fn traverse_and_count(manager: &SddManager, sdd: &SddRef, seen: &mut Vec<SddId>) -> usize {
+        // TODO: Move this function to SddRef.
+        fn traverse_and_count(sdd: &SddRef, seen: &mut Vec<SddId>) -> usize {
             if seen.contains(&sdd.id()) {
                 return 0;
             }
@@ -644,10 +663,9 @@ impl SddManager {
                     elements.len()
                         + elements
                             .iter()
-                            .map(|element| element.get_prime_sub())
+                            .map(Element::get_prime_sub)
                             .map(|(prime, sub)| {
-                                traverse_and_count(manager, &prime, seen)
-                                    + traverse_and_count(manager, &sub, seen)
+                                traverse_and_count(&prime, seen) + traverse_and_count(&sub, seen)
                             })
                             .sum::<usize>()
                 }
@@ -656,7 +674,7 @@ impl SddManager {
         }
 
         let mut seen: Vec<SddId> = Vec::new();
-        traverse_and_count(self, sdd, &mut seen)
+        traverse_and_count(sdd, &mut seen)
     }
 
     #[instrument(skip_all, level = tracing::Level::DEBUG)]
@@ -689,10 +707,7 @@ impl SddManager {
             }
 
             let SddType::Decision(decision) = sdd_type else {
-                panic!(
-                    "every other sddType should've been handled ({:?})",
-                    sdd_type
-                );
+                panic!("every other sddType should've been handled ({sdd_type:?})",);
             };
 
             let all_variables = self.get_variables(sdd);
@@ -705,16 +720,16 @@ impl SddManager {
 
                 if prime.is_true() || sub.is_true() {
                     if prime.is_true() {
-                        self._model_enumeration(&sub, &mut models);
+                        self._model_enumeration(sub, &mut models);
                     } else {
-                        self._model_enumeration(&prime, &mut models);
+                        self._model_enumeration(prime, &mut models);
                     }
                 } else {
                     let mut fst = Vec::new();
                     let mut snd = Vec::new();
 
-                    self._model_enumeration(&prime, &mut fst);
-                    self._model_enumeration(&sub, &mut snd);
+                    self._model_enumeration(prime, &mut fst);
+                    self._model_enumeration(sub, &mut snd);
 
                     for fst_bv in &fst {
                         for snd_bv in &snd {
@@ -724,8 +739,8 @@ impl SddManager {
                 }
 
                 let all_reachable_variables = self
-                    .get_variables(&prime)
-                    .union(&self.get_variables(&sub))
+                    .get_variables(prime)
+                    .union(&self.get_variables(sub))
                     .cloned()
                     .collect();
                 let unbound_variables: Vec<_> = all_variables
@@ -733,7 +748,7 @@ impl SddManager {
                     .cloned()
                     .collect();
 
-                self.expand_models(&mut models, &unbound_variables);
+                SddManager::expand_models(&mut models, &unbound_variables);
                 all_models.append(&mut models);
             }
         }
@@ -769,16 +784,16 @@ impl SddManager {
             let all_variables = self.get_variables(sdd).len();
 
             for Element { prime, sub } in &decision.elements {
-                let model_count = get_models_count(&prime) * get_models_count(&sub);
+                let model_count = get_models_count(prime) * get_models_count(sub);
 
                 // Account for variables that do not appear in neither prime or sub.
                 let all_reachable = self
-                    .get_variables(&prime)
-                    .union(&self.get_variables(&sub))
+                    .get_variables(prime)
+                    .union(&self.get_variables(sub))
                     .count();
                 let unbound_variables = all_variables - all_reachable;
 
-                total_models += model_count * 2_u64.pow(unbound_variables as u32);
+                total_models += model_count * 2_u64.pow(u32::try_from(unbound_variables).unwrap());
             }
         }
 
@@ -786,6 +801,9 @@ impl SddManager {
         total_models
     }
 
+    /// # Errors
+    ///
+    /// TODO
     pub fn draw_all_sdds(&self, writer: &mut dyn std::io::Write) -> Result<(), String> {
         let mut dot_writer = DotWriter::new(String::from("sdd"), true);
         for node in self.unique_table.borrow().values() {
@@ -794,6 +812,9 @@ impl SddManager {
         dot_writer.write(writer)
     }
 
+    /// # Errors
+    ///
+    /// TODO
     pub fn draw_sdd(&self, writer: &mut dyn std::io::Write, sdd: &SddRef) -> Result<(), String> {
         let mut dot_writer = DotWriter::new(String::from("sdd"), true);
 
@@ -804,10 +825,10 @@ impl SddManager {
             if let SddType::Decision(Decision { ref elements }) = sdd.0.borrow().sdd_type {
                 elements
                     .iter()
-                    .map(|element| element.get_prime_sub())
+                    .map(Element::get_prime_sub)
                     .for_each(|(prime, sub)| {
                         sdds.push(prime);
-                        sdds.push(sub)
+                        sdds.push(sub);
                     });
             };
         }
@@ -835,7 +856,7 @@ impl SddManager {
         };
 
         if let Some(result) =
-            self.get_cached_operation(CachedOperation::BinOp(fst.id(), op, snd.id()))
+            self.get_cached_operation(&CachedOperation::BinOp(fst.id(), op, snd.id()))
         {
             tracing::debug!(fst_id = fst.id().0, snd_id = snd.id().0, ?op, "cached");
             return self.get_node(result);
@@ -854,11 +875,11 @@ impl SddManager {
         };
 
         // TODO: do not compute LCA when it's known.
-        let sdd = Sdd::unique_d(&elements, lca, self);
+        let sdd = Sdd::unique_d(&elements, &lca, self);
         sdd.canonicalize(self);
 
         self.insert_node(&sdd);
-        self.cache_operation(CachedOperation::BinOp(fst.id(), op, snd.id()), sdd.id());
+        self.cache_operation(&CachedOperation::BinOp(fst.id(), op, snd.id()), sdd.id());
 
         // TODO: Show where the properties are violated.
         debug_assert!(sdd.is_trimmed(self));
@@ -890,14 +911,14 @@ impl SddManager {
         for Element {
             prime: fst_prime,
             sub: fst_sub,
-        } in fst.0.borrow().expand(self).elements.iter()
+        } in &fst.0.borrow().expand(self).elements
         {
             for Element {
                 prime: snd_prime,
                 sub: snd_sub,
-            } in snd.0.borrow().expand(self).elements.iter()
+            } in &snd.0.borrow().expand(self).elements
             {
-                let res_prime = self.conjoin(&fst_prime, &snd_prime);
+                let res_prime = self.conjoin(fst_prime, snd_prime);
 
                 if !res_prime.is_false() {
                     let res_sub = match op {
@@ -908,7 +929,7 @@ impl SddManager {
                     if res_sub.is_true() && res_prime.is_true() {
                         println!(
                             "_apply_eq: we can optimize since res_sub and res_prime are both true"
-                        )
+                        );
                     }
 
                     elements.insert(Element {
@@ -968,7 +989,7 @@ impl SddManager {
             return fst.clone();
         }
 
-        if let Some(result) = self.get_cached_operation(CachedOperation::BinOp(
+        if let Some(result) = self.get_cached_operation(&CachedOperation::BinOp(
             fst.id(),
             Operation::Conjoin,
             snd.id(),
@@ -987,12 +1008,12 @@ impl SddManager {
             }
         );
 
-        let sdd = Sdd::unique_d(&elements, lca.clone(), self);
+        let sdd = Sdd::unique_d(&elements, lca, self);
         sdd.canonicalize(self);
 
         self.insert_node(&sdd);
         self.cache_operation(
-            CachedOperation::BinOp(fst.id(), Operation::Conjoin, snd.id()),
+            &CachedOperation::BinOp(fst.id(), Operation::Conjoin, snd.id()),
             sdd.id(),
         );
 
@@ -1102,22 +1123,32 @@ impl SddManager {
         self.unique_table.borrow_mut().insert(sdd.id(), sdd.clone());
     }
 
-    pub(crate) fn cache_operation(&self, op: CachedOperation, result: SddId) {
+    pub(crate) fn cache_operation(&self, op: &CachedOperation, result: SddId) {
         match op {
-            CachedOperation::BinOp(fst, op, snd) => self
-                .op_cache
-                .borrow_mut()
-                .insert(Entry { fst, snd, op }, result),
-            CachedOperation::Neg(fst) => self.neg_cache.borrow_mut().insert(fst, result),
+            CachedOperation::BinOp(fst, op, snd) => self.op_cache.borrow_mut().insert(
+                Entry {
+                    fst: *fst,
+                    snd: *snd,
+                    op: *op,
+                },
+                result,
+            ),
+            CachedOperation::Neg(fst) => self.neg_cache.borrow_mut().insert(*fst, result),
         };
     }
 
-    pub(crate) fn get_cached_operation(&self, op: CachedOperation) -> Option<SddId> {
+    pub(crate) fn get_cached_operation(&self, op: &CachedOperation) -> Option<SddId> {
         match op {
-            CachedOperation::BinOp(fst, op, snd) => {
-                self.op_cache.borrow().get(&Entry { fst, snd, op }).cloned()
-            }
-            CachedOperation::Neg(fst) => self.neg_cache.borrow().get(&fst).cloned(),
+            CachedOperation::BinOp(fst, op, snd) => self
+                .op_cache
+                .borrow()
+                .get(&Entry {
+                    fst: *fst,
+                    snd: *snd,
+                    op: *op,
+                })
+                .copied(),
+            CachedOperation::Neg(fst) => self.neg_cache.borrow().get(fst).copied(),
         }
     }
 
@@ -1136,7 +1167,7 @@ impl SddManager {
     }
 
     /// Expand [`models`] with all the possible instantiations of [`unbound _variables`].
-    fn expand_models(&self, models: &mut Vec<BitVec>, unbound_variables: &[Variable]) {
+    fn expand_models(models: &mut Vec<BitVec>, unbound_variables: &[Variable]) {
         if unbound_variables.is_empty() {
             return;
         }
@@ -1327,7 +1358,7 @@ impl SddManager {
         let sdd = SddRef::new(Sdd::new(sdd_type, *self.next_idx.borrow(), vtree));
         self.move_idx();
         if let Some(negation) = negation {
-            self.cache_operation(CachedOperation::Neg(sdd.id()), negation);
+            self.cache_operation(&CachedOperation::Neg(sdd.id()), negation);
         }
 
         self.insert_node(&sdd);
@@ -1349,17 +1380,16 @@ mod test {
         literal::{Literal, Polarity, VariableIdx},
         manager::{
             model::Model,
-            options::{vars, GarbageCollection, VTreeStrategy},
+            options::{GarbageCollection, VTreeStrategy},
         },
     };
+    use bon::arr;
     use pretty_assertions::assert_eq;
 
     #[test]
     fn simple_conjoin() {
-        let options = SddOptions::builder()
-            .variables(vars(vec!["a", "b"]))
-            .build();
-        let manager = SddManager::new(options);
+        let options = SddOptions::builder().variables(arr!["a", "b"]).build();
+        let manager = SddManager::new(&options);
 
         let tt = manager.tautology();
         let ff = manager.contradiction();
@@ -1380,10 +1410,8 @@ mod test {
 
     #[test]
     fn simple_disjoin() {
-        let options = SddOptions::builder()
-            .variables(vars(vec!["a", "b"]))
-            .build();
-        let manager = SddManager::new(options);
+        let options = SddOptions::builder().variables(arr!["a", "b"]).build();
+        let manager = SddManager::new(&options);
 
         let tt = manager.tautology();
         let ff = manager.contradiction();
@@ -1404,10 +1432,8 @@ mod test {
 
     #[test]
     fn simple_negate() {
-        let options = SddOptions::builder()
-            .variables(vars(vec!["a", "b"]))
-            .build();
-        let manager = SddManager::new(options);
+        let options = SddOptions::builder().variables(arr!["a", "b"]).build();
+        let manager = SddManager::new(&options);
 
         let tt = manager.tautology();
         let ff = manager.contradiction();
@@ -1424,10 +1450,8 @@ mod test {
 
     #[test]
     fn simple_imply() {
-        let options = SddOptions::builder()
-            .variables(vars(vec!["a", "b"]))
-            .build();
-        let manager = SddManager::new(options);
+        let options = SddOptions::builder().variables(arr!["a", "b"]).build();
+        let manager = SddManager::new(&options);
 
         let tt = manager.tautology();
         let ff = manager.contradiction();
@@ -1446,10 +1470,8 @@ mod test {
 
     #[test]
     fn simple_equiv() {
-        let options = SddOptions::builder()
-            .variables(vars(vec!["a", "b"]))
-            .build();
-        let manager = SddManager::new(options);
+        let options = SddOptions::builder().variables(arr!["a", "b"]).build();
+        let manager = SddManager::new(&options);
 
         let tt = manager.tautology();
         let ff = manager.contradiction();
@@ -1467,10 +1489,10 @@ mod test {
     #[test]
     fn apply() {
         let options = SddOptions::builder()
-            .variables(vars(vec!["a", "b", "c", "d"]))
+            .variables(arr!["a", "b", "c", "d"])
             .garbage_collection(GarbageCollection::Automatic(0.0))
             .build();
-        let manager = SddManager::new(options);
+        let manager = SddManager::new(&options);
 
         let lit_a = manager.literal("a", Polarity::Positive);
         let lit_b = manager.literal("b", Polarity::Positive);
@@ -1494,9 +1516,9 @@ mod test {
     #[test]
     fn model_counting() {
         let options = SddOptions::builder()
-            .variables(vars(vec!["a", "b", "c", "d"]))
+            .variables(arr!["a", "b", "c", "d"])
             .build();
-        let manager = SddManager::new(options);
+        let manager = SddManager::new(&options);
 
         let lit_a = manager.literal("a", Polarity::Positive);
         let lit_b = manager.literal("b", Polarity::Positive);
@@ -1531,13 +1553,13 @@ mod test {
         // This test is broken down into two parts since the first
         // part uses only a single literal 'a'.
         {
-            let options = SddOptions::builder().variables(vars(vec!["a"])).build();
-            let manager = SddManager::new(options);
+            let options = SddOptions::builder().variables(arr!["a"]).build();
+            let manager = SddManager::new(&options);
             let lit_a = manager.literal("a", Polarity::Positive);
 
             assert_eq!(
                 manager.model_enumeration(&lit_a).all_models(),
-                vec![Model::new_from_literals(vec![Literal::new(
+                vec![Model::new_from_literals(&[Literal::new(
                     Polarity::Positive,
                     "a",
                     VariableIdx(0)
@@ -1547,35 +1569,35 @@ mod test {
 
         {
             let options = SddOptions::builder()
-                .variables(vars(vec!["a", "b", "c", "d"]))
+                .variables(arr!["a", "b", "c", "d"])
                 .build();
-            let manager = SddManager::new(options);
+            let manager = SddManager::new(&options);
             let lit_a = manager.literal("a", Polarity::Positive);
             let lit_b = manager.literal("b", Polarity::Positive);
             let lit_c = manager.literal("c", Polarity::Positive);
             let lit_d = manager.literal("d", Polarity::Positive);
 
             let a_and_b = manager.conjoin(&lit_a, &lit_b);
-            let models = vec![
-                Model::new_from_literals(vec![
+            let models = &[
+                Model::new_from_literals(&[
                     Literal::new(Polarity::Positive, "a", VariableIdx(0)),
                     Literal::new(Polarity::Positive, "b", VariableIdx(1)),
                     Literal::new(Polarity::Negative, "c", VariableIdx(2)),
                     Literal::new(Polarity::Negative, "d", VariableIdx(3)),
                 ]),
-                Model::new_from_literals(vec![
+                Model::new_from_literals(&[
                     Literal::new(Polarity::Positive, "a", VariableIdx(0)),
                     Literal::new(Polarity::Positive, "b", VariableIdx(1)),
                     Literal::new(Polarity::Negative, "c", VariableIdx(2)),
                     Literal::new(Polarity::Positive, "d", VariableIdx(3)),
                 ]),
-                Model::new_from_literals(vec![
+                Model::new_from_literals(&[
                     Literal::new(Polarity::Positive, "a", VariableIdx(0)),
                     Literal::new(Polarity::Positive, "b", VariableIdx(1)),
                     Literal::new(Polarity::Positive, "c", VariableIdx(2)),
                     Literal::new(Polarity::Negative, "d", VariableIdx(3)),
                 ]),
-                Model::new_from_literals(vec![
+                Model::new_from_literals(&[
                     Literal::new(Polarity::Positive, "a", VariableIdx(0)),
                     Literal::new(Polarity::Positive, "b", VariableIdx(1)),
                     Literal::new(Polarity::Positive, "c", VariableIdx(2)),
@@ -1587,14 +1609,14 @@ mod test {
 
             let a_and_b_and_c = manager.conjoin(&a_and_b, &lit_c);
 
-            let models = vec![
-                Model::new_from_literals(vec![
+            let models = &[
+                Model::new_from_literals(&[
                     Literal::new(Polarity::Positive, "a", VariableIdx(0)),
                     Literal::new(Polarity::Positive, "b", VariableIdx(1)),
                     Literal::new(Polarity::Positive, "c", VariableIdx(2)),
                     Literal::new(Polarity::Negative, "d", VariableIdx(3)),
                 ]),
-                Model::new_from_literals(vec![
+                Model::new_from_literals(&[
                     Literal::new(Polarity::Positive, "a", VariableIdx(0)),
                     Literal::new(Polarity::Positive, "b", VariableIdx(1)),
                     Literal::new(Polarity::Positive, "c", VariableIdx(2)),
@@ -1608,7 +1630,7 @@ mod test {
             );
 
             let a_and_b_and_c_and_d = manager.conjoin(&a_and_b_and_c, &lit_d);
-            let models = vec![Model::new_from_literals(vec![
+            let models = &[Model::new_from_literals(&[
                 Literal::new(Polarity::Positive, "a", VariableIdx(0)),
                 Literal::new(Polarity::Positive, "b", VariableIdx(1)),
                 Literal::new(Polarity::Positive, "c", VariableIdx(2)),
@@ -1630,9 +1652,9 @@ mod test {
         let options = SddOptions::builder()
             .vtree_strategy(VTreeStrategy::RightLinear)
             .garbage_collection(GarbageCollection::Automatic(0.0))
-            .variables(vars(vec!["a", "b", "c", "d"]))
+            .variables(arr!["a", "b", "c", "d"])
             .build();
-        let manager = SddManager::new(options);
+        let manager = SddManager::new(&options);
 
         let lit_a = manager.literal("a", Polarity::Positive);
         let lit_b = manager.literal("b", Polarity::Positive);
@@ -1656,9 +1678,9 @@ mod test {
         let options = SddOptions::builder()
             .vtree_strategy(VTreeStrategy::LeftLinear)
             .garbage_collection(GarbageCollection::Automatic(0.0))
-            .variables(vars(vec!["a", "b", "c", "d"]))
+            .variables(arr!["a", "b", "c", "d"])
             .build();
-        let manager = SddManager::new(options);
+        let manager = SddManager::new(&options);
 
         let lit_a = manager.literal("a", Polarity::Positive);
         let lit_b = manager.literal("b", Polarity::Positive);
@@ -1682,9 +1704,9 @@ mod test {
         let options = SddOptions::builder()
             .vtree_strategy(VTreeStrategy::Balanced)
             .garbage_collection(GarbageCollection::Automatic(0.0))
-            .variables(vars(vec!["a", "b", "c", "d"]))
+            .variables(arr!["a", "b", "c", "d"])
             .build();
-        let manager = SddManager::new(options);
+        let manager = SddManager::new(&options);
 
         let lit_a = manager.literal("a", Polarity::Positive);
         let lit_b = manager.literal("b", Polarity::Positive);

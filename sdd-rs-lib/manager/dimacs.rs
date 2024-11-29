@@ -11,7 +11,7 @@ pub struct Preamble {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Clause {
     pub(crate) var_label_polarities: Vec<Polarity>,
-    pub(crate) var_label_indices: Vec<u16>,
+    pub(crate) var_label_indices: Vec<u32>,
 }
 
 impl Clause {
@@ -25,7 +25,7 @@ impl Clause {
             .zip(self.var_label_polarities.iter())
         {
             // DIMACS variables are indexed from 1 but our variables start at 0.
-            let lit = manager.literal_from_idx(&VariableIdx(*idx as u32 - 1), *polarity);
+            let lit = manager.literal_from_idx(VariableIdx(idx - 1), *polarity);
             sdd = manager.disjoin(&sdd, &lit);
         }
 
@@ -41,6 +41,7 @@ enum DimacsReaderState {
     Finished,
 }
 
+#[allow(clippy::module_name_repetitions)]
 pub struct DimacsReader<'a> {
     reader: &'a mut dyn std::io::BufRead,
     state: DimacsReaderState,
@@ -55,6 +56,9 @@ impl<'a> DimacsReader<'a> {
         }
     }
 
+    /// # Errors
+    ///
+    /// TODO
     pub fn parse_preamble(&mut self) -> Result<Preamble, String> {
         if self.state != DimacsReaderState::Initialized {
             return Err(String::from("preamble already parsed"));
@@ -104,7 +108,7 @@ impl<'a> DimacsReader<'a> {
                         return Err(format!("expected '0' after '%' but found '{zero}' instead"));
                     }
 
-                    self.parse_clause_line(clause)
+                    DimacsReader::parse_clause_line(&clause)
                 }
             }
             Err(err) => Err(format!("could not parse clause: {err}")),
@@ -113,7 +117,7 @@ impl<'a> DimacsReader<'a> {
 
     fn parse_problem_line(&mut self, line: &str) -> Result<Preamble, String> {
         let items: Vec<_> = line
-            .split(" ")
+            .split(' ')
             .filter(|element| !element.trim().is_empty())
             .collect();
         if items.len() != 4 {
@@ -144,14 +148,14 @@ impl<'a> DimacsReader<'a> {
         Ok(Preamble { clauses, variables })
     }
 
-    fn parse_clause_line(&mut self, line: String) -> Result<Option<Clause>, String> {
-        let tokens: Vec<_> = line.split(" ").filter(|token| *token != "0").collect();
+    fn parse_clause_line(line: &str) -> Result<Option<Clause>, String> {
+        let tokens: Vec<_> = line.split(' ').filter(|token| *token != "0").collect();
 
         let literals: Vec<_> = tokens
             .iter()
-            .map(|variable_idx| match variable_idx.trim().parse::<i64>() {
+            .map(|variable_idx| match variable_idx.trim().parse::<i32>() {
                 Err(err) => Err(format!("literal '{variable_idx}' is invalid: {err}")),
-                Ok(idx) => Ok((Polarity::from(!variable_idx.starts_with("-")), idx)),
+                Ok(idx) => Ok((Polarity::from(!variable_idx.starts_with('-')), idx)),
             })
             .collect();
 
@@ -168,7 +172,7 @@ impl<'a> DimacsReader<'a> {
         for literal in &literals {
             match literal {
                 Ok((polarity, idx)) => {
-                    clause.var_label_indices.push(idx.unsigned_abs() as u16);
+                    clause.var_label_indices.push(idx.unsigned_abs());
                     clause.var_label_polarities.push(*polarity);
                 }
                 Err(err) => return Err(format!("could not parse clause: {err}")),

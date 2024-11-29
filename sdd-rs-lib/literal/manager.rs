@@ -79,15 +79,14 @@ impl LiteralManager {
 #[cfg(test)]
 mod test {
     use crate::literal::Polarity;
-    use crate::manager::options::vars;
     use crate::manager::{options::SddOptions, SddManager};
+
+    use bon::arr;
 
     #[test]
     fn create_literals() {
-        let options = SddOptions::builder()
-            .variables(vars(vec!["a", "b"]))
-            .build();
-        let manager = SddManager::new(options);
+        let options = SddOptions::builder().variables(arr!["a", "b"]).build();
+        let manager = SddManager::new(&options);
 
         manager.literal("a", Polarity::Negative);
         manager.literal("a", Polarity::Positive);

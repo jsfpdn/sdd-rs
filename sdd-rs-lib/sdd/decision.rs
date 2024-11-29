@@ -111,7 +111,7 @@ impl Decision {
                 return None;
             }
 
-            if el_1_prime.eq_negated(&el_2_prime, manager) {
+            if el_1_prime.eq_negated(el_2_prime, manager) {
                 return Some(el_1_prime.clone());
             }
         }

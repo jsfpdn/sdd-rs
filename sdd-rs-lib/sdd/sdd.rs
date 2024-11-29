@@ -12,6 +12,7 @@ use crate::{
     vtree::{LeftDependence, Node, RightDependence, VTreeIdx, VTreeRef},
 };
 
+#[allow(clippy::module_name_repetitions)]
 #[derive(Eq, PartialEq, Hash, Debug, PartialOrd, Ord, Clone, Copy, AddAssign)]
 pub struct SddId(pub u32);
 
@@ -47,23 +48,14 @@ impl SddType {
     }
 }
 
-#[derive(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub(crate) struct Sdd {
-    pub(crate) sdd_idx: SddId,
+    pub(crate) id: SddId,
+    #[allow(clippy::struct_field_names)]
     pub(crate) sdd_type: SddType,
     pub(crate) vtree: VTreeRef,
     pub(crate) model_count: Option<u64>,
     pub(crate) models: Option<Vec<BitVec>>,
-}
-
-impl fmt::Debug for Sdd {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Sdd")
-            .field("sdd_type", &self.sdd_type)
-            .field("vtree_idx", &self.vtree.index())
-            .field("id", &self.id())
-            .finish()
-    }
 }
 
 impl Dot for Sdd {
@@ -74,12 +66,11 @@ impl Dot for Sdd {
             SddType::True | SddType::False | SddType::Literal(..) => (),
             SddType::Decision(node) => {
                 let idx = node.hash();
-                for elem in node.elements.iter() {
+                for elem in &node.elements {
                     elem.draw(writer);
                     writer.add_edge(Edge::Simple(idx, elem.hash()));
                 }
-                let node_type =
-                    NodeType::Circle(self.vtree.index().0 as u16, Some(self.id().0 as usize));
+                let node_type = NodeType::Circle(self.vtree.index().0, Some(self.id().0 as usize));
                 writer.add_node(idx, node_type);
             }
         };
@@ -88,16 +79,15 @@ impl Dot for Sdd {
 
 impl Sdd {
     #[must_use]
-    pub(crate) fn new(sdd_type: SddType, sdd_idx: SddId, vtree: VTreeRef) -> Sdd {
+    pub(crate) fn new(sdd_type: SddType, id: SddId, vtree: VTreeRef) -> Sdd {
         let (model_count, models) = match sdd_type.clone() {
             SddType::False => (Some(0), None),
-            SddType::True => (Some(1), None),
-            SddType::Literal(_) => (Some(1), None),
-            _ => (None, None),
+            SddType::True | SddType::Literal(..) => (Some(1), None),
+            SddType::Decision(..) => (None, None),
         };
 
         Sdd {
-            sdd_idx,
+            id,
             sdd_type,
             vtree,
             model_count,
@@ -125,7 +115,7 @@ impl Sdd {
 
     #[must_use]
     pub(crate) fn id(&self) -> SddId {
-        self.sdd_idx
+        self.id
     }
 
     /// Check whether the SDD represents a literal.
@@ -183,7 +173,7 @@ impl Sdd {
             );
 
             // Cache the negation for this SDD.
-            manager.cache_operation(CachedOperation::Neg(self.id()), negated_sdd.id());
+            manager.cache_operation(&CachedOperation::Neg(self.id()), negated_sdd.id());
             return negated_sdd;
         }
 
@@ -237,7 +227,7 @@ impl Sdd {
                     } else {
                         Sdd::new(
                             SddType::Decision(decision.clone()),
-                            self.sdd_idx,
+                            self.id,
                             self.vtree.clone(),
                         )
                     }
@@ -251,7 +241,7 @@ impl Sdd {
     /// [SDD: A New Canonical Representation of Propositional Knowledge Bases](https://ai.dmi.unibas.ch/research/reading_group/darwiche-ijcai2011.pdf).
     pub(crate) fn unique_d(
         gamma: &BTreeSet<Element>,
-        vtree: VTreeRef,
+        vtree: &VTreeRef,
         manager: &SddManager,
     ) -> SddRef {
         // gamma == {(T, T)}?
@@ -284,7 +274,7 @@ impl Sdd {
             SddType::True => String::from("⊤"),
             SddType::False => String::from("⊥"),
             SddType::Literal(literal) => format!("{literal}"),
-            _ => String::new(),
+            SddType::Decision(..) => String::new(),
         }
     }
 
@@ -299,7 +289,7 @@ impl Sdd {
             panic!("cannot get dependence on anything other than decision node");
         };
 
-        let primes = decision.primes().to_vec();
+        let primes = decision.primes().clone();
         // No need to filter out constants from collected primes since they cannot
         // occur as primes of elements.
 
@@ -390,17 +380,19 @@ impl Sdd {
 #[cfg(test)]
 mod test {
     use crate::literal::Polarity;
-    use crate::manager::options::{vars, VTreeStrategy};
+    use crate::manager::options::VTreeStrategy;
     use crate::manager::{options::SddOptions, SddManager};
     use crate::vtree::LeftDependence;
+
+    use bon::arr;
 
     #[test]
     fn vtree_dependence() {
         let options = SddOptions::builder()
-            .variables(vars(vec!["A", "B", "C", "D"]))
+            .variables(arr!["A", "B", "C", "D"])
             .vtree_strategy(VTreeStrategy::RightLinear)
             .build();
-        let manager = SddManager::new(options);
+        let manager = SddManager::new(&options);
 
         let a = manager.literal("A", Polarity::Positive);
         let c = manager.literal("C", Polarity::Positive);

@@ -30,8 +30,8 @@ pub struct DotWriter {
 #[derive(Debug)]
 pub enum NodeType {
     Box(String),
-    Circle(u16, Option<usize>),
-    CircleStr(String, u16),
+    Circle(u32, Option<usize>),
+    CircleStr(String, u32),
     Record(String, String),
 }
 

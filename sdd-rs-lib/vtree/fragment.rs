@@ -1,3 +1,5 @@
+#![allow(clippy::many_single_char_names, clippy::similar_names)]
+
 use tracing::instrument;
 
 use crate::{
@@ -75,7 +77,7 @@ enum Linearity {
 }
 
 impl FragmentState {
-    fn new(linearity: Linearity) -> Self {
+    fn new(linearity: &Linearity) -> Self {
         let (forward_moves, backward_moves) = match linearity {
             Linearity::LeftLinear => (MOVES_LEFT_LINEAR, MOVES_RIGHT_LINEAR),
             Linearity::RightLinear => (MOVES_RIGHT_LINEAR, MOVES_LEFT_LINEAR),
@@ -151,7 +153,7 @@ pub(crate) enum RightDependence {
 
 impl Fragment {
     #[must_use]
-    pub(crate) fn new(root: VTreeRef, child: VTreeRef) -> Self {
+    pub(crate) fn new(root: &VTreeRef, child: &VTreeRef) -> Self {
         let linearity = match root.0.borrow().node.clone() {
             Node::Internal(lc, _) if Rc::ptr_eq(&lc.0, &child.0) => Linearity::LeftLinear,
             Node::Internal(_, rc) if Rc::ptr_eq(&rc.0, &child.0) => Linearity::RightLinear,
@@ -161,7 +163,7 @@ impl Fragment {
         Fragment {
             current_root: root.clone(),
             current_child: child.clone(),
-            state: FragmentState::new(linearity),
+            state: FragmentState::new(&linearity),
         }
     }
 
@@ -201,7 +203,7 @@ impl Fragment {
         assert!(self.state.index > state);
 
         while self.state.index > state {
-            self.next(&Direction::Backward, manager)
+            self.next(&Direction::Backward, manager);
         }
     }
 
@@ -257,7 +259,7 @@ pub(crate) fn split_nodes_for_left_rotate(
         }
     }
 
-    LeftRotateSplit { c_vec, bc_vec }
+    LeftRotateSplit { bc_vec, c_vec }
 }
 
 pub(crate) fn split_nodes_for_right_rotate(
@@ -290,7 +292,7 @@ pub(crate) fn split_nodes_for_right_rotate(
         }
     }
 
-    RightRotateSplit { a_vec, ab_vec }
+    RightRotateSplit { ab_vec, a_vec }
 }
 
 pub(crate) fn split_nodes_for_swap(v: &VTreeRef, manager: &SddManager) -> Vec<SddRef> {
@@ -327,7 +329,7 @@ pub(crate) fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddMa
                 panic!("node must be a decision node");
             };
 
-            for bc_element in bc_decision.elements.iter() {
+            for bc_element in &bc_decision.elements {
                 let (b, c) = bc_element.get_prime_sub();
                 // TODO: Once conjoin is able to do vtree search on it's own, turn it off in here.
                 // TODO: we could improve this since we already know LCA, which is x's left child.
@@ -401,7 +403,7 @@ pub(crate) fn rotate_partition_right(
             });
         }
 
-        elements = cartesian_product(elements.clone(), current_elements.clone(), manager);
+        elements = cartesian_product(&elements, &current_elements, manager);
     }
 
     Decision { elements }.canonicalize(manager)
@@ -429,15 +431,15 @@ pub(crate) fn swap_partition(node: &SddRef, manager: &SddManager) -> Decision {
             });
         }
 
-        elements = cartesian_product(current_elements, elements, manager);
+        elements = cartesian_product(&current_elements, &elements, manager);
     }
 
     Decision { elements }.canonicalize(manager)
 }
 
 fn cartesian_product(
-    fst: BTreeSet<Element>,
-    snd: BTreeSet<Element>,
+    fst: &BTreeSet<Element>,
+    snd: &BTreeSet<Element>,
     manager: &SddManager,
 ) -> BTreeSet<Element> {
     if fst.is_empty() {
@@ -450,8 +452,8 @@ fn cartesian_product(
 
     let mut out = BTreeSet::new();
 
-    for fst_element in &fst {
-        for snd_element in &snd {
+    for fst_element in fst {
+        for snd_element in snd {
             let (fst_prime, fst_sub) = fst_element.get_prime_sub();
             let (snd_prime, snd_sub) = snd_element.get_prime_sub();
 
@@ -475,7 +477,7 @@ mod test {
     use crate::{
         literal::Polarity,
         manager::{
-            options::{vars, SddOptions, VTreeStrategy},
+            options::{SddOptions, VTreeStrategy},
             SddManager,
         },
         vtree::fragment::{FragmentState, Linearity, Move},
@@ -483,6 +485,7 @@ mod test {
 
     use super::{Direction, Fragment};
 
+    use bon::arr;
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -491,9 +494,9 @@ mod test {
         // possible states while going forward.
         let options = SddOptions::builder()
             .vtree_strategy(VTreeStrategy::RightLinear)
-            .variables(vars(vec!["a", "b", "c"]))
+            .variables(arr!["a", "b", "c"])
             .build();
-        let manager = SddManager::new(options);
+        let manager = SddManager::new(&options);
 
         let lit_a = manager.literal("a", Polarity::Positive);
         let lit_b = manager.literal("b", Polarity::Positive);
@@ -511,7 +514,7 @@ mod test {
 
         let root = manager.root().unwrap();
         let rc = root.right_child();
-        let mut fragment = Fragment::new(root.clone(), rc.clone());
+        let mut fragment = Fragment::new(&root, &rc);
 
         for i in 0..=11 {
             let next_move = fragment.state.forward_moves[fragment.state.index];
@@ -539,7 +542,7 @@ mod test {
         // (inverse(RR) = LL, inverse(LL) = RR, inverse(SC) = SC) and in the
         // inverse order.
 
-        let mut state = FragmentState::new(Linearity::LeftLinear);
+        let mut state = FragmentState::new(&Linearity::LeftLinear);
         assert_eq!(state.next(&Forward), RightRotateRoot);
         assert_eq!(state.index, 1);
 

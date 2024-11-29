@@ -24,7 +24,7 @@ pub enum GarbageCollection {
 pub enum MinimizationCutoff {
     None,
     Iteration(usize),
-    Decrease(f32),
+    Decrease(f64),
     // TODO: Add variant for time elapsed.
 }
 
@@ -49,9 +49,4 @@ pub struct SddOptions {
 
     #[builder(default = GarbageCollection::Automatic(0.3))]
     pub garbage_collection: GarbageCollection,
-}
-
-/// TODO: This is an ugly hack, fix it.
-pub fn vars(variables: Vec<&str>) -> Vec<String> {
-    variables.iter().map(|v| v.to_string()).collect()
 }

@@ -24,35 +24,42 @@ impl SddRef {
         SddRef(Rc::new(RefCell::new(sdd)))
     }
 
+    #[must_use]
     pub fn vtree(&self) -> VTreeRef {
         self.0.borrow().vtree.clone()
     }
 
+    #[must_use]
     pub fn id(&self) -> SddId {
         self.0.borrow().id()
     }
 
     /// Check whether the SDD represent a true constant.
+    #[must_use]
     pub fn is_true(&self) -> bool {
         self.id() == TRUE_SDD_IDX
     }
 
     /// Check whether the SDD represent a false constant.
+    #[must_use]
     pub fn is_false(&self) -> bool {
         self.id() == FALSE_SDD_IDX
     }
 
     /// Check whether the SDD represents either the true or false constants.
+    #[must_use]
     pub fn is_constant(&self) -> bool {
         self.is_true() || self.is_false()
     }
 
     /// Check whether the SDD represents a literal.
+    #[must_use]
     pub fn is_literal(&self) -> bool {
         self.0.borrow().is_literal()
     }
 
     /// Check whether the SDD represents either a constant or literal.
+    #[must_use]
     pub fn is_constant_or_literal(&self) -> bool {
         self.is_constant() || self.is_literal()
     }
@@ -61,7 +68,7 @@ impl SddRef {
     ///
     /// This operation may create more SDDs in the unique table.
     pub(crate) fn eq_negated(&self, other: &SddRef, manager: &SddManager) -> bool {
-        if let Some(negation) = manager.get_cached_operation(CachedOperation::Neg(self.id())) {
+        if let Some(negation) = manager.get_cached_operation(&CachedOperation::Neg(self.id())) {
             return negation == other.id();
         }
 
@@ -84,7 +91,7 @@ impl SddRef {
     /// The computation works lazily - if the negation has been already computed,
     /// the value is just returned.
     pub(crate) fn negate(&self, manager: &SddManager) -> SddRef {
-        if let Some(negation) = manager.get_cached_operation(CachedOperation::Neg(self.id())) {
+        if let Some(negation) = manager.get_cached_operation(&CachedOperation::Neg(self.id())) {
             return manager.get_node(negation);
         }
 

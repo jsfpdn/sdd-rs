@@ -6,7 +6,7 @@ pub(crate) struct VariableIdx(pub(crate) u32);
 
 impl From<u16> for VariableIdx {
     fn from(value: u16) -> Self {
-        VariableIdx(value as u32)
+        VariableIdx(value.into())
     }
 }
 

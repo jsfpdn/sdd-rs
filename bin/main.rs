@@ -31,6 +31,7 @@ impl LogLevel {
     }
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Cli {
@@ -39,7 +40,7 @@ struct Cli {
     #[arg(short, long, value_name = "FILE.dot")]
     sdd_dot_path: Option<String>,
 
-    /// Where to store the DOT graph of the final VTree
+    /// Where to store the DOT graph of the final `VTree`
     #[arg(short, long, value_name = "FILE.dot")]
     vtree_dot_path: Option<String>,
 
@@ -107,7 +108,7 @@ impl Statistics {
     fn print(&self) {
         println!("compilation time: {:.2?}", self.compilation.unwrap());
         if let Some(model_count_time) = self.model_count_time {
-            println!("model count time: {:.2?}", model_count_time);
+            println!("model count time: {model_count_time:.2?}");
         }
 
         if self.minimization.is_some() {
@@ -167,7 +168,7 @@ fn main() -> Result<(), std::io::Error> {
         })
         .build();
 
-    let manager = SddManager::new(options.clone());
+    let manager = SddManager::new(&options);
 
     // We have read the preamble already so we have to rewind the cursor to the beginning
     // of the file.

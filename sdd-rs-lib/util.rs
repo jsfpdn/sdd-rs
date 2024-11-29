@@ -23,7 +23,7 @@ pub(crate) fn set_bits_indices(number: usize) -> Vec<usize> {
     let mut indices = Vec::new();
     for n in 0..number.count_ones() + number.count_zeros() {
         if (number >> n & 1) == 1 {
-            indices.push(n as usize)
+            indices.push(n as usize);
         }
     }
 
@@ -60,7 +60,7 @@ pub(crate) fn quick_draw_vtree(manager: &VTreeManager, path: &str) {
     let mut b = BufWriter::new(f);
     let mut dot_writer = DotWriter::new(String::from("vtree"), false);
     manager.draw(&mut dot_writer);
-    dot_writer.write(&mut b as &mut dyn std::io::Write).unwrap()
+    dot_writer.write(&mut b as &mut dyn std::io::Write).unwrap();
 }
 
 #[cfg(test)]
