@@ -70,7 +70,8 @@ impl Dot for Sdd {
                     elem.draw(writer);
                     writer.add_edge(Edge::Simple(idx, elem.hash()));
                 }
-                let node_type = NodeType::Circle(self.vtree.index().0, Some(self.id().0 as usize));
+                let node_type =
+                    NodeType::Circle(self.vtree.index().0.to_string(), Some(self.id().0 as usize));
                 writer.add_node(idx, node_type);
             }
         };
@@ -215,25 +216,25 @@ impl Sdd {
     /// and {(alpha, true), (!alpha, false)} with alpha. SDD is compressed by repeatedly
     /// replacing elements `(p, s)` and `(q, s)` with `(p || q, s)`.
     #[must_use]
-    pub(crate) fn canonicalize(&self, manager: &SddManager) -> Sdd {
+    pub(crate) fn canonicalize(&self, manager: &SddManager) -> SddRef {
         match &self.sdd_type {
             SddType::Decision(decision) => {
                 if let Some(trimmed_sdd) = decision.trim(manager) {
-                    trimmed_sdd.0.borrow().clone()
+                    trimmed_sdd.clone()
                 } else {
                     let decision = decision.compress(manager);
                     if let Some(trimmed_sdd) = decision.trim(manager) {
-                        trimmed_sdd.0.borrow().clone()
+                        trimmed_sdd.clone()
                     } else {
-                        Sdd::new(
+                        SddRef::new(Sdd::new(
                             SddType::Decision(decision.clone()),
                             self.id,
                             self.vtree.clone(),
-                        )
+                        ))
                     }
                 }
             }
-            _ => self.clone(),
+            _ => panic!("unexpected sdd_type"),
         }
     }
 

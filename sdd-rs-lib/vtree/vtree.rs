@@ -619,7 +619,7 @@ impl Dot for VTreeManager {
 
         // Get the total order first to neatly order the leaf nodes in the graph.
         for (variable, idx) in self.variables_total_order() {
-            writer.add_node(idx.0 as usize, NodeType::CircleStr(variable.label(), idx.0));
+            writer.add_node(idx.0 as usize, NodeType::Circle(variable.label(), None));
         }
 
         let mut nodes = vec![self.root.as_ref().unwrap().clone()];
@@ -631,7 +631,10 @@ impl Dot for VTreeManager {
                 nodes.push(lc.clone());
                 nodes.push(rc.clone());
 
-                writer.add_node(vtree.idx.0 as usize, NodeType::Circle(vtree.idx.0, None));
+                writer.add_node(
+                    vtree.idx.0 as usize,
+                    NodeType::Circle(vtree.idx.0.to_string(), None),
+                );
             };
         }
     }

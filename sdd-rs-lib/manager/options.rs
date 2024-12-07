@@ -1,6 +1,8 @@
 use bon::Builder;
 use clap::ValueEnum;
 
+use crate::vtree::{Linearity, VTreeIdx};
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum VTreeStrategy {
     Balanced,
@@ -8,10 +10,24 @@ pub enum VTreeStrategy {
     RightLinear,
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
+/// Describes how to pick a fragment in order to dynamically minimize SDDs.
+#[derive(Debug, Clone, Copy)]
 pub enum FragmentHeuristic {
+    /// Root of the fragment is vtree node `v` for which the most
+    /// SDDs are normalized. A child of this fragment is a
+    /// child of the `v` node for which more SDDs are normalized.
+    MostNormalized,
+    /// Pick a random internal vtree node. If its right child
+    /// is an intenral node, the fragment is right-linear.
+    /// It is left-linear otherwise.
     Random,
+    /// Choose the root of the vtree as root of the fragment.
+    /// If its right child is an internal node, the fragment is
+    /// right-linear. It is left-linear otherwise.
     Root,
+    /// Chooses vtree node with [`VTreeIdx`] as the root of the
+    /// fragment and makes it either left-linear or right-linear.
+    Custom(VTreeIdx, Linearity),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -43,7 +59,6 @@ pub struct SddOptions {
     #[builder(default = MinimizationCutoff::None)]
     pub minimization_cutoff: MinimizationCutoff,
 
-    #[builder(default = Vec::new())]
     #[builder(into)]
     pub variables: Vec<String>,
 

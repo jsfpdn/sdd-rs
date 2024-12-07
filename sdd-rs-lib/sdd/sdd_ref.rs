@@ -19,6 +19,18 @@ impl PartialEq for SddRef {
 
 impl Eq for SddRef {}
 
+impl Ord for SddRef {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.id().cmp(&other.id())
+    }
+}
+
+impl PartialOrd for SddRef {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 impl SddRef {
     pub(crate) fn new(sdd: Sdd) -> Self {
         SddRef(Rc::new(RefCell::new(sdd)))
@@ -118,10 +130,8 @@ impl SddRef {
         self.0.borrow_mut().model_count = Some(model_count);
     }
 
-    pub(crate) fn canonicalize(&self, manager: &SddManager) {
-        let canonicalized = self.0.borrow_mut().canonicalize(manager);
-        let mut old = self.0.borrow_mut();
-        *old = canonicalized;
+    pub(crate) fn canonicalize(&self, manager: &SddManager) -> SddRef {
+        self.0.borrow().canonicalize(manager)
     }
 
     /// Recursively check whether [`self`] and all its descendants are trimmed.
@@ -151,6 +161,10 @@ impl SddRef {
 
     pub(crate) fn set_vtree(&self, vtree: VTreeRef) {
         self.0.borrow_mut().vtree = vtree;
+    }
+
+    pub(crate) fn strong_count(&self) -> usize {
+        Rc::strong_count(&self.0)
     }
 
     pub(crate) fn elements(&self) -> Option<BTreeSet<Element>> {

@@ -96,9 +96,9 @@ struct Statistics {
     minimization: Option<Duration>,
     model_count_time: Option<Duration>,
 
-    compiled_sdd_size: Option<usize>,
-    compiled_sdd_size_after_minimization: Option<usize>,
-    all_sdds: Option<usize>,
+    compiled_sdd_size: Option<u64>,
+    compiled_sdd_size_after_minimization: Option<u64>,
+    all_sdds: Option<u64>,
 
     gc_trigger_ratio: Option<f64>,
     gc_stats: Option<GCStatistics>,

@@ -71,7 +71,9 @@ struct FragmentState {
     backward_moves: [Move; 12],
 }
 
-enum Linearity {
+/// Linearity of the fragment.
+#[derive(Debug, Clone, Copy)]
+pub enum Linearity {
     LeftLinear,
     RightLinear,
 }
@@ -530,6 +532,11 @@ mod test {
         // Try to roll back to the 5th state (e.g. RR, SC, LR, SC, RR)
         fragment.rewind(5, &manager);
         assert_eq!(fragment.state.index, 5);
+        assert_eq!(
+            models,
+            manager.model_enumeration(&a_and_b_or_c),
+            "rewinding back to state 5 failed",
+        );
     }
 
     #[test]

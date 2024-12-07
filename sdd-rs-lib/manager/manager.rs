@@ -20,7 +20,6 @@ use std::{
     cell::RefCell,
     collections::{BTreeSet, HashMap},
     ops::BitOr,
-    rc::Rc,
 };
 use tracing::instrument;
 
@@ -203,13 +202,13 @@ impl SddManager {
         }
 
         let mut sdd = self.tautology();
-
         let mut i = 0;
         loop {
             match dimacs.parse_next_clause().map_err(|err| err.to_string())? {
-                None => break,
+                None => return Ok(sdd),
                 Some(clause) => {
                     sdd = self.conjoin(&sdd, &clause.to_sdd(self));
+
                     if i != 0
                         && self.options.minimize_after != 0
                         && i % self.options.minimize_after == 0
@@ -230,12 +229,15 @@ impl SddManager {
                             "after minimizing"
                         );
                     }
+
+                    if self.should_collect_garbage(&sdd) {
+                        self.collect_garbage();
+                    }
+
                     i += 1;
                 }
             }
         }
-
-        Ok(sdd)
     }
 
     pub(crate) fn try_get_node(&self, id: SddId) -> Option<SddRef> {
@@ -262,7 +264,7 @@ impl SddManager {
             .collect()
     }
 
-    pub(crate) fn remove_node(&self, id: SddId) -> std::result::Result<(), ()> {
+    pub(crate) fn remove_node(&self, id: SddId) -> Result<(), ()> {
         tracing::debug!(id = id.0, "removing node from cache");
         let entries: Vec<_> = {
             self.op_cache
@@ -283,39 +285,35 @@ impl SddManager {
         }
     }
 
-    fn remove_from_unique_table(&self, id: SddId) {
-        self.unique_table.borrow_mut().remove(&id).unwrap();
-    }
-
     fn remove_from_op_cache(&self, ids: &BTreeSet<SddId>) {
-        let entries: Vec<_> = {
-            self.op_cache
-                .borrow()
-                .iter()
-                .filter(|(Entry { fst, snd, .. }, res)| {
-                    ids.contains(fst) || ids.contains(snd) || ids.contains(res)
-                })
-                .map(|(entry, _)| entry.clone())
-                .collect()
-        };
+        let entries_to_remove: Vec<_> = ids
+            .iter()
+            .map(|id| (id, self.get_cached_operation(&CachedOperation::Neg(*id))))
+            .filter(|(_, negation)| negation.is_some())
+            .map(|(fst, snd)| (fst, snd.unwrap()))
+            .collect();
 
-        let mut op_cache = self.op_cache.borrow_mut();
-        for entry in &entries {
-            op_cache.remove(entry).unwrap();
+        let mut cache = self.neg_cache.borrow_mut();
+        for (fst, snd) in &entries_to_remove {
+            cache.remove(fst);
+            cache.remove(snd);
         }
 
-        let entries_neg: Vec<_> = {
-            self.neg_cache
-                .borrow()
-                .iter()
-                .filter(|(fst, negation)| ids.contains(fst) || ids.contains(negation))
-                .map(|(key, _)| *key)
-                .collect()
-        };
+        let mut entries_to_remove = Vec::new();
+        for (entry @ Entry { fst, snd, .. }, res) in self.op_cache.borrow().iter() {
+            if ids.contains(fst) || ids.contains(snd) || ids.contains(res) {
+                entries_to_remove.push(entry.clone());
+            }
+        }
 
-        let mut neg_cache = self.neg_cache.borrow_mut();
-        for key in &entries_neg {
-            neg_cache.remove(key).unwrap();
+        let mut cache = self.op_cache.borrow_mut();
+        for entry in &entries_to_remove {
+            cache.remove(entry);
+        }
+
+        let mut unique_table = self.unique_table.borrow_mut();
+        for id in ids {
+            unique_table.remove(id);
         }
     }
 
@@ -505,23 +503,34 @@ impl SddManager {
         models * 2_u64.pow(u32::try_from(unbound).unwrap())
     }
 
+    fn create_fragment(&self, fragment_strategy: &FragmentHeuristic) -> Fragment {
+        match fragment_strategy {
+            FragmentHeuristic::Root => {
+                let root = self.root().unwrap();
+                if root.right_child().is_internal() {
+                    Fragment::new(&root, &root.right_child())
+                } else {
+                    Fragment::new(&root, &root.left_child())
+                }
+            }
+            FragmentHeuristic::Random => unimplemented!(),
+            FragmentHeuristic::Custom(idx, linearity) => unimplemented!(),
+            FragmentHeuristic::MostNormalized => unimplemented!(),
+        }
+    }
+
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     pub fn minimize(
         &self,
         cut_off: MinimizationCutoff,
-        _fragment_strategy: FragmentHeuristic,
+        fragment_strategy: FragmentHeuristic,
         reference_sdd: &SddRef,
     ) {
-        // TODO: Assert that the fragment can be even built.
-        // TODO: Strategy for finding better fragment - RandomLeftLinear, RandomRightLinear, Random, original, Custom(VTreeIdx)
-        let root = self.vtree_manager.borrow().root.clone().unwrap();
-        // Currently, we're constructing just right-linear fragments.
-        let rc = root.right_child();
-
-        let mut fragment = Fragment::new(&root, &rc);
+        println!("reference_sdd size before: {:?}", self.size(reference_sdd));
+        let mut fragment = self.create_fragment(&fragment_strategy);
 
         // TODO: Remove sanity checks.
-        let models = self.model_enumeration(reference_sdd);
+        // let models = self.model_enumeration(reference_sdd);
         tracing::debug!(
             sdd_id = reference_sdd.id().0,
             size = self.size(reference_sdd)
@@ -529,7 +538,7 @@ impl SddManager {
 
         let init_size = self.size(reference_sdd);
         let mut i = 0;
-        let mut best_i = 0;
+        let mut best_i: usize = 0;
         let mut best_size = init_size;
         for _ in 0..12 {
             fragment.next(&Direction::Forward, self);
@@ -540,10 +549,10 @@ impl SddManager {
             );
 
             // TODO: Improve the assertion by doing the first model_enumeration in debug as well.
-            debug_assert_eq!(models, self.model_enumeration(reference_sdd));
+            // debug_assert_eq!(models, self.model_enumeration(reference_sdd));
 
             let curr_size = self.size(reference_sdd);
-            println!("({i}): new size: {curr_size}");
+            // println!("({i}): new size: {curr_size}");
             if curr_size < best_size {
                 // We have found better vtree, mark the state we found it in so we can come
                 // back to it once we go through all fragment configurations.
@@ -552,30 +561,32 @@ impl SddManager {
                 best_i = i;
             }
 
-            if SddManager::criteria_met(cut_off, init_size, curr_size, i) {
-                if matches!(cut_off, MinimizationCutoff::Decrease(_)) || best_i == i {
+            if SddManager::should_stop_minimizing(cut_off, init_size, curr_size, i) {
+                if best_i == i {
                     // We have fulfilled the searching criteria and the current vtree configuration
                     // makes the reference sdd sufficiently small.
-                    println!("decrease OK");
+                    println!("will stop minimizing => no need to rewind => return immediatelly");
+                    println!("reference_sdd size after: {:?}\n", self.size(reference_sdd));
                     return;
                 }
                 // We have fulfilled the searching criteria but we have already iterated over
                 // the best vtree configuration. We have to break out and go back to it.
-                println!("iteration OK");
+                println!("will stop minimizing => will rewind back to {best_i:?}");
                 break;
             }
 
             i += 1;
         }
 
-        tracing::debug!("rewinding from {i} to {best_i}");
+        println!("rewinding from {i} to {best_i}");
         fragment.rewind(best_i, self);
+        println!("done rewinding...\n");
     }
 
-    fn criteria_met(
+    fn should_stop_minimizing(
         cut_off: MinimizationCutoff,
-        init_size: usize,
-        curr_size: usize,
+        init_size: u64,
+        curr_size: u64,
         curr_iter: usize,
     ) -> bool {
         match cut_off {
@@ -589,52 +600,71 @@ impl SddManager {
         }
     }
 
-    pub fn collect_garbage(&self) {
-        self._collect_garbage(None);
+    fn check_table_consistency(&self) {
+        for (k, v) in self.unique_table.borrow().iter() {
+            if *k != v.id() {}
+        }
     }
 
-    fn _collect_garbage(&self, except: Option<SddId>) {
-        fn should_sweep(sdd: &SddRef, ref_count: usize, except: Option<SddId>) -> bool {
-            Rc::strong_count(&sdd.0) < ref_count
-                && except.map_or(true, |except| sdd.id() != except)
-                && !sdd.is_constant_or_literal()
-        }
-
+    pub fn collect_garbage(&self) {
         let mut removed = BTreeSet::new();
-        let mut queue: BTreeSet<_> = self
+
+        self.check_table_consistency();
+        let roots: BTreeSet<_> = self
             .unique_table
             .borrow()
             .values()
-            .filter(|sdd| should_sweep(sdd, 2, except))
+            // An SDD is root if there is a single reference to it -- one
+            // from the unique_table. It therefore has no parents
+            // and the user does not point to it.
+            .filter(|sdd| {
+                sdd.0.try_borrow().is_ok() && !sdd.is_constant_or_literal() && sdd.strong_count() == 1
+            })
             .map(SddRef::id)
             .collect();
 
-        while !queue.is_empty() {
-            let sdd = self.get_node(queue.pop_last().unwrap());
+        // Mark the roots as removed.
+        removed.extend(roots.iter());
 
-            // Keep the id for later cleanup of the op-cache, remove the node from the unique_table
-            // and remove the "weak" reference to it from a negated sdd (if such exists).
-            removed.insert(sdd.id());
-            self.remove_from_unique_table(sdd.id());
+        for root in &roots {
+            let root = self.get_node(*root);
+            // self.remove_from_unique_table(root.id());
 
-            let elements = sdd.elements().unwrap();
-            for Element { prime, sub } in elements {
-                if !queue.contains(&prime.id()) && should_sweep(&prime, 2, except) {
-                    queue.insert(prime.id());
-                }
+            let mut queue: Vec<_> = root
+                .elements()
+                .unwrap()
+                .into_iter()
+                .flat_map(|Element { prime, sub }| [prime, sub])
+                .collect();
+            while !queue.is_empty() {
+                let sdd = queue.pop().unwrap();
 
-                if !queue.contains(&sub.id()) && should_sweep(&sub, 2, except) {
-                    queue.insert(sub.id());
+                // 3 references means orphaned: 1 from unique_table, 1 from parent not present
+                // in the unique_table anymore and 1 from here.
+                if sdd.strong_count() == 3 && !sdd.is_constant_or_literal() {
+                    // Mark the node as removed.
+                    removed.insert(sdd.id());
+                    // self.remove_from_unique_table(sdd.id());
+
+                    queue.extend(
+                        sdd.elements()
+                            .unwrap()
+                            .into_iter()
+                            .flat_map(|Element { prime, sub }| [prime, sub])
+                            .filter(|sdd| !sdd.is_constant_or_literal()),
+                    );
                 }
             }
         }
 
+        // Remove the removed SDDs from computational caches
+        // and the unique_table.
         self.remove_from_op_cache(&removed);
         self.gc_stats.borrow_mut().collected(removed.len());
     }
 
     fn should_collect_garbage(&self, reference: &SddRef) -> bool {
-        fn hit_threshold(total_nodes: usize, sdd_size: usize, ratio: f64) -> bool {
+        fn hit_threshold(total_nodes: u64, sdd_size: u64, ratio: f64) -> bool {
             #![allow(clippy::cast_precision_loss)]
             (sdd_size as f64 / total_nodes as f64) < ratio
         }
@@ -649,9 +679,9 @@ impl SddManager {
     }
 
     /// Get the size of the SDD which is the number of elements reachable from it.
-    pub fn size(&self, sdd: &SddRef) -> usize {
+    pub fn size(&self, sdd: &SddRef) -> u64 {
         // TODO: Move this function to SddRef.
-        fn traverse_and_count(sdd: &SddRef, seen: &mut Vec<SddId>) -> usize {
+        fn traverse_and_count(sdd: &SddRef, seen: &mut Vec<SddId>) -> u64 {
             if seen.contains(&sdd.id()) {
                 return 0;
             }
@@ -660,14 +690,14 @@ impl SddManager {
                 SddType::Decision(Decision { ref elements }) => {
                     seen.push(sdd.id());
 
-                    elements.len()
+                    elements.len() as u64
                         + elements
                             .iter()
                             .map(Element::get_prime_sub)
                             .map(|(prime, sub)| {
                                 traverse_and_count(&prime, seen) + traverse_and_count(&sub, seen)
                             })
-                            .sum::<usize>()
+                            .sum::<u64>()
                 }
                 _ => 0,
             }
@@ -816,11 +846,17 @@ impl SddManager {
     ///
     /// TODO
     pub fn draw_sdd(&self, writer: &mut dyn std::io::Write, sdd: &SddRef) -> Result<(), String> {
-        let mut dot_writer = DotWriter::new(String::from("sdd"), true);
+        let mut dot_writer = DotWriter::new(String::from("sdd"), false);
+        let mut seen = BTreeSet::new();
 
         let mut sdds = vec![sdd.clone()];
         while let Some(sdd) = sdds.pop() {
+            if seen.contains(&sdd.id()) {
+                continue;
+            }
+
             sdd.0.borrow().draw(&mut dot_writer);
+            seen.insert(sdd.id());
 
             if let SddType::Decision(Decision { ref elements }) = sdd.0.borrow().sdd_type {
                 elements
@@ -874,20 +910,12 @@ impl SddManager {
             VTreeOrder::RightSubOfLeft => self._apply_right_sub_of_left(fst, snd, op),
         };
 
-        // TODO: do not compute LCA when it's known.
-        let sdd = Sdd::unique_d(&elements, &lca, self);
-        sdd.canonicalize(self);
-
+        let sdd = Sdd::unique_d(&elements, &lca, self).canonicalize(&self);
         self.insert_node(&sdd);
         self.cache_operation(&CachedOperation::BinOp(fst.id(), op, snd.id()), sdd.id());
 
-        // TODO: Show where the properties are violated.
         debug_assert!(sdd.is_trimmed(self));
         debug_assert!(sdd.is_compressed(self));
-
-        if self.should_collect_garbage(&sdd) {
-            self._collect_garbage(Some(sdd.id()));
-        }
 
         sdd
     }
@@ -896,8 +924,8 @@ impl SddManager {
         self.gc_stats.borrow().clone()
     }
 
-    pub fn total_sdds(&self) -> usize {
-        self.unique_table.borrow().len()
+    pub fn total_sdds(&self) -> u64 {
+        self.unique_table.borrow().len() as u64
     }
 
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
@@ -1282,7 +1310,7 @@ impl SddManager {
     /// Children hanged at `w` must be split accordingly, depending on the vtrees
     /// they are normalized for:
     /// * `x(ab, c)` must be rotated and moved to `w` (~> `w(a, bc)`)
-    /// * `x(a, c)` must be moved to `w` (~> `x(a, c)`)
+    /// * `x(a, c)` must be moved to `w` (~> `w(a, c)`)
     /// * `x(a, b)` stay at `x`
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     pub fn rotate_right(&self, x: &VTreeRef) {

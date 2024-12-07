@@ -2,6 +2,7 @@ pub trait Dot {
     fn draw(&self, writer: &mut DotWriter);
 }
 
+#[derive(PartialEq)]
 pub enum Edge {
     Simple(usize, usize),
     Prime(usize, usize),
@@ -30,7 +31,7 @@ pub struct DotWriter {
 #[derive(Debug)]
 pub enum NodeType {
     Box(String),
-    Circle(u32, Option<usize>),
+    Circle(String, Option<usize>),
     CircleStr(String, u32),
     Record(String, String),
 }
@@ -51,7 +52,7 @@ impl NodeType {
         match self {
             NodeType::Record(fst, snd) => format!("label=\"<f0> {fst} | <f1> {snd}\""),
             NodeType::Circle(label, Some(idx)) if verbose => {
-                format!("label=<{label}>, xlabel=<<FONT POINT-SIZE=\"7\">{idx}</FONT>>, fillcolor=lightgray, style=filled")
+                format!("label=<{label}>, xlabel=<<FONT POINT-SIZE=\"7\">{idx}</FONT>>, fillcolor=white, style=filled")
             }
             NodeType::Circle(label, _) => format!("label=<{label}>"),
             NodeType::CircleStr(label, idx) => format!("label=\"{label} ({idx})\""),
@@ -79,6 +80,13 @@ impl DotWriter {
     }
 
     pub fn add_edge(&mut self, edge: Edge) {
+        for other in &self.edges {
+            if *other == edge {
+                // We have already added this edge.
+                return;
+            }
+        }
+
         self.edges.push(edge);
     }
 
