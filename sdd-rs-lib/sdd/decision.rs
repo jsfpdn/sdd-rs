@@ -132,7 +132,6 @@ impl Decision {
             let mut fst = elements.get(i).unwrap().clone();
             while j <= last_el_idx {
                 let snd = elements.get(j).unwrap();
-                // TODO: Does this equality actually work? Can we just compare ids?
                 if fst.sub != snd.sub {
                     j += 1;
                     continue;

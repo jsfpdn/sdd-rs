@@ -1378,7 +1378,6 @@ impl SddManager {
                 elements: rotate_partition_right(ab, &w, self).elements,
             }));
             ab.replace_contents(ab.canonicalize(&self).0.borrow().sdd_type.clone());
-
             ab.set_vtree(w.clone());
         }
 
@@ -1406,6 +1405,7 @@ impl SddManager {
         self.vtree_manager.borrow_mut().swap(&x);
 
         for sdd in &split {
+            // TODO: This can be not trimmed and not compressed!
             sdd.replace_contents(SddType::Decision(Decision {
                 elements: swap_partition(sdd, self).elements,
             }));

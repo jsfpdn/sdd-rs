@@ -451,8 +451,10 @@ impl VTreeManager {
         x.set_left_child(&w);
         x.set_parent(parent.as_ref());
 
-        if let Some(ref parent) = parent {
-            match parent.0.borrow().node.clone() {
+        if let Some(parent) = parent {
+            let insides = { parent.0.borrow().node.clone() };
+
+            match insides {
                 Node::Internal(lc, _) if lc == w => parent.set_left_child(x),
                 Node::Internal(_, rc) if rc == w => parent.set_right_child(x),
                 _ => unreachable!(),
@@ -498,8 +500,9 @@ impl VTreeManager {
         w.set_right_child(x);
         w.set_parent(parent.as_ref());
 
-        if let Some(ref parent) = parent {
-            match parent.0.borrow().node.clone() {
+        if let Some(parent) = parent {
+            let insides = { parent.0.borrow().node.clone() };
+            match insides {
                 Node::Internal(lc, _) if lc == *x => parent.set_left_child(&w),
                 Node::Internal(_, rc) if rc == *x => parent.set_right_child(&w),
                 _ => unreachable!(),
