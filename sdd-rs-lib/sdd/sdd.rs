@@ -299,8 +299,6 @@ impl Sdd {
         let w_idx = w.index();
 
         for prime in &primes {
-            assert!(!prime.is_constant());
-
             if prime.vtree().index() == w_idx {
                 return LeftDependence::AB;
             }

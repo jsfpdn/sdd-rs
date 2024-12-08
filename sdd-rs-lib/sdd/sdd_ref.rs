@@ -32,6 +32,7 @@ impl PartialOrd for SddRef {
 }
 
 impl SddRef {
+    #[must_use]
     pub(crate) fn new(sdd: Sdd) -> Self {
         SddRef(Rc::new(RefCell::new(sdd)))
     }

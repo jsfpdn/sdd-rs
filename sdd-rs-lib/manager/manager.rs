@@ -18,6 +18,7 @@ use crate::{
 use bitvec::prelude::*;
 use std::{
     cell::RefCell,
+    cmp::Ordering,
     collections::{BTreeSet, HashMap},
     ops::BitOr,
 };
@@ -515,7 +516,49 @@ impl SddManager {
             }
             FragmentHeuristic::Random => unimplemented!(),
             FragmentHeuristic::Custom(idx, linearity) => unimplemented!(),
-            FragmentHeuristic::MostNormalized => unimplemented!(),
+            FragmentHeuristic::MostNormalized => {
+                // There are 2n-1 nodes in the vtree where n is the number
+                // of variables.
+                let nodes = 2 * self.options.variables.len() - 1;
+                let mut frequency = vec![0; nodes];
+                for sdd in self.unique_table.borrow().values() {
+                    if sdd.is_constant_or_literal() {
+                        continue;
+                    }
+                    frequency[sdd.vtree().index().0 as usize] += 1;
+                }
+
+                let root_idx = frequency
+                    .iter()
+                    .enumerate()
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal))
+                    .map(|(index, _)| index)
+                    .unwrap();
+                let root = self
+                    .vtree_manager
+                    .borrow()
+                    .get_vtree(VTreeIdx(root_idx as u32))
+                    .unwrap();
+
+                assert!(root.is_internal());
+                let lc = root.left_child();
+                let rc = root.right_child();
+
+                let child = if frequency[lc.index().0 as usize] > frequency[rc.index().0 as usize]
+                    && lc.is_internal()
+                {
+                    lc
+                } else if rc.is_internal() {
+                    rc
+                } else {
+                    panic!("none of left and right child are internal nodes, we have to do something else here");
+                };
+
+                println!("frequencies: {frequency:?}");
+                println!("=> root {:?}, child {:?}", root.index(), child.index());
+
+                Fragment::new(&root, &child)
+            }
         }
     }
 
@@ -526,7 +569,10 @@ impl SddManager {
         fragment_strategy: FragmentHeuristic,
         reference_sdd: &SddRef,
     ) {
-        println!("reference_sdd size before: {:?}", self.size(reference_sdd));
+        println!(
+            "\nreference_sdd size before: {:?}",
+            self.size(reference_sdd)
+        );
         let mut fragment = self.create_fragment(&fragment_strategy);
 
         // TODO: Remove sanity checks.
@@ -540,6 +586,7 @@ impl SddManager {
         let mut i = 0;
         let mut best_i: usize = 0;
         let mut best_size = init_size;
+        let mut curr_size = init_size;
         for _ in 0..12 {
             fragment.next(&Direction::Forward, self);
             tracing::debug!(
@@ -548,11 +595,14 @@ impl SddManager {
                 size = self.size(reference_sdd)
             );
 
-            // TODO: Improve the assertion by doing the first model_enumeration in debug as well.
-            // debug_assert_eq!(models, self.model_enumeration(reference_sdd));
+            debug_assert!(reference_sdd.is_trimmed(&self));
+            debug_assert!(reference_sdd.is_compressed(&self));
 
-            let curr_size = self.size(reference_sdd);
-            // println!("({i}): new size: {curr_size}");
+            // TODO: Improve the assertion by doing the first model_enumeration in debug as well.
+            // println!("\n({i})\n{}", self.model_enumeration(reference_sdd));
+
+            curr_size = self.size(reference_sdd);
+            println!("({i}): new size: {curr_size}");
             if curr_size < best_size {
                 // We have found better vtree, mark the state we found it in so we can come
                 // back to it once we go through all fragment configurations.
@@ -562,7 +612,7 @@ impl SddManager {
             }
 
             if SddManager::should_stop_minimizing(cut_off, init_size, curr_size, i) {
-                if best_i == i {
+                if best_i == i || curr_size == best_size {
                     // We have fulfilled the searching criteria and the current vtree configuration
                     // makes the reference sdd sufficiently small.
                     println!("will stop minimizing => no need to rewind => return immediatelly");
@@ -578,8 +628,16 @@ impl SddManager {
             i += 1;
         }
 
+        if curr_size == best_size {
+            println!("tried all 12 and no need to rewind, returning");
+            return;
+        }
+
+        // TODO: Instead of rewinding e.g. to the back, select something that is
+        // "good enough" and not that far.
+
         println!("rewinding from {i} to {best_i}");
-        fragment.rewind(best_i, self);
+        fragment.rewind(best_i + 1, self);
         println!("done rewinding...\n");
     }
 
@@ -1259,24 +1317,19 @@ impl SddManager {
                 .get_parent()
                 .expect("invalid fragment: `x` does not have a parent");
 
-        self.vtree_manager.borrow_mut().rotate_left(x);
-
-        // TODO: Check that caches are correct (unique_table, op_cache, model_count and models).
         let LeftRotateSplit { bc_vec, c_vec } = split_nodes_for_left_rotate(&w, x, self);
 
-        for bc in &bc_vec {
-            bc.set_vtree(x.clone());
-            let decision = SddType::Decision(Decision {
-                elements: rotate_partition_left(bc, x, self).elements,
-            });
+        self.vtree_manager.borrow_mut().rotate_left(x);
 
-            bc.replace_contents(decision);
-            self.insert_node(bc);
+        for bc in &bc_vec {
+            bc.replace_contents(SddType::Decision(Decision {
+                elements: rotate_partition_left(bc, x, self).elements,
+            }));
+            bc.replace_contents(bc.canonicalize(&self).0.borrow().sdd_type.clone());
+            bc.set_vtree(x.clone());
         }
 
         self.finalize_vtree_op(&bc_vec, &c_vec, x);
-
-        // TODO: Make sure this is actually needed.
         self.invalidate_cached_models();
 
         self.rotating.replace(false);
@@ -1313,28 +1366,23 @@ impl SddManager {
     /// * `x(a, c)` must be moved to `w` (~> `w(a, c)`)
     /// * `x(a, b)` stay at `x`
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
-    pub fn rotate_right(&self, x: &VTreeRef) {
+    pub fn rotate_right(&self, x: VTreeRef) {
         self.rotating.replace(true);
-        // TODO: Double check all the vtree occurances.
-        // TODO: Double check computing the cartesian product.
+
         let w = x.left_child();
-
-        self.vtree_manager.borrow_mut().rotate_right(x);
-
-        // TODO: Check that caches are correct (unique_table, op_cache, model_count and models).
-        let RightRotateSplit { ab_vec, a_vec } = split_nodes_for_right_rotate(x, &w, self);
+        let RightRotateSplit { ab_vec, a_vec } = split_nodes_for_right_rotate(&x, &w, self);
+        self.vtree_manager.borrow_mut().rotate_right(&x);
 
         for ab in &ab_vec {
             ab.replace_contents(SddType::Decision(Decision {
                 elements: rotate_partition_right(ab, &w, self).elements,
             }));
+            ab.replace_contents(ab.canonicalize(&self).0.borrow().sdd_type.clone());
+
             ab.set_vtree(w.clone());
-            self.insert_node(ab);
         }
 
         self.finalize_vtree_op(&ab_vec, &a_vec, &w);
-
-        // TODO: Make sure this is actually needed.
         self.invalidate_cached_models();
 
         self.rotating.replace(false);
@@ -1351,21 +1399,20 @@ impl SddManager {
     /// This is a low-level operation working directly on a vtree. See
     /// [`SddManager::minimization`] for a more sophisticated way of finding better vtrees.
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
-    pub fn swap(&self, x: &VTreeRef) {
+    pub fn swap(&self, x: VTreeRef) {
         self.rotating.replace(true);
-        let split = split_nodes_for_swap(x, self);
 
-        self.vtree_manager.borrow_mut().swap(x);
+        let split = split_nodes_for_swap(&x, self);
+        self.vtree_manager.borrow_mut().swap(&x);
 
         for sdd in &split {
             sdd.replace_contents(SddType::Decision(Decision {
                 elements: swap_partition(sdd, self).elements,
             }));
             sdd.set_vtree(x.clone());
-            self.insert_node(sdd);
         }
 
-        // TODO: Make sure this is actually needed.
+        self.finalize_vtree_op(&split, &[], &x);
         self.invalidate_cached_models();
 
         self.rotating.replace(false);
@@ -1721,7 +1768,7 @@ mod test {
         let models_before = manager.model_enumeration(&a_and_d_and_b_and_c);
 
         // Rotating the root to the right makes the vtree balanced.
-        manager.rotate_right(&manager.root().unwrap());
+        manager.rotate_right(manager.root().unwrap());
 
         let models_after = manager.model_enumeration(&a_and_d_and_b_and_c);
         assert_eq!(models_before, models_after);
@@ -1748,7 +1795,7 @@ mod test {
 
         let models_before = manager.model_enumeration(&a_and_d_and_b_and_c);
 
-        manager.swap(&manager.root().unwrap());
+        manager.swap(manager.root().unwrap());
 
         let models_after = manager.model_enumeration(&a_and_d_and_b_and_c);
         assert_eq!(models_before, models_after);

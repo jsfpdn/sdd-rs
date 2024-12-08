@@ -1,14 +1,17 @@
 #![allow(clippy::many_single_char_names, clippy::similar_names)]
 
+use std::rc::Rc;
 use tracing::instrument;
 
 use crate::{
     manager::SddManager,
     sdd::{Decision, Element, SddRef, SddType},
-    vtree::{Node, VTreeRef},
+    vtree::Node,
 };
 
-use std::{collections::BTreeSet, rc::Rc};
+use std::collections::BTreeSet;
+
+use super::VTreeRef;
 
 #[derive(PartialEq, Debug)]
 pub(crate) enum Direction {
@@ -176,27 +179,15 @@ impl Fragment {
 
         match next_move {
             Move::LeftRotateChild => {
-                assert!(Rc::ptr_eq(
-                    &self.current_child.0,
-                    &self.current_root.right_child().0
-                ));
-                manager.rotate_left(&self.current_child.clone());
+                manager.rotate_left(&self.current_child);
                 self.swap();
             }
             Move::RightRotateRoot => {
-                assert!(Rc::ptr_eq(
-                    &self.current_child.0,
-                    &self.current_root.left_child().0
-                ));
-                manager.rotate_right(&self.current_root);
+                manager.rotate_right(self.current_root.clone());
                 self.swap();
             }
             Move::SwapChild => {
-                assert!(Rc::ptr_eq(
-                    &self.current_root.0,
-                    &self.current_child.parent().unwrap().0
-                ));
-                manager.swap(&self.current_child);
+                manager.swap(self.current_child.clone());
             }
         }
     }
@@ -356,7 +347,7 @@ pub(crate) fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddMa
         });
     }
 
-    Decision { elements }.canonicalize(manager)
+    Decision { elements }
 }
 
 /// Rotate partitions to the right.
@@ -408,7 +399,7 @@ pub(crate) fn rotate_partition_right(
         elements = cartesian_product(&elements, &current_elements, manager);
     }
 
-    Decision { elements }.canonicalize(manager)
+    Decision { elements }
 }
 
 pub(crate) fn swap_partition(node: &SddRef, manager: &SddManager) -> Decision {
@@ -436,7 +427,7 @@ pub(crate) fn swap_partition(node: &SddRef, manager: &SddManager) -> Decision {
         elements = cartesian_product(&current_elements, &elements, manager);
     }
 
-    Decision { elements }.canonicalize(manager)
+    Decision { elements }
 }
 
 fn cartesian_product(
@@ -522,6 +513,9 @@ mod test {
             let next_move = fragment.state.forward_moves[fragment.state.index];
             fragment.next(&Direction::Forward, &manager);
 
+            assert!(a_and_b_or_c.is_trimmed(&manager));
+            assert!(a_and_b_or_c.is_compressed(&manager));
+
             assert_eq!(
                 models,
                 manager.model_enumeration(&a_and_b_or_c),
@@ -537,6 +531,9 @@ mod test {
             manager.model_enumeration(&a_and_b_or_c),
             "rewinding back to state 5 failed",
         );
+
+        assert!(a_and_b_or_c.is_trimmed(&manager));
+        assert!(a_and_b_or_c.is_compressed(&manager));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use super::{SddId, SddType};
+use super::SddId;
 use crate::{
     manager::SddManager,
     sdd::{element::Element, SddRef},
@@ -161,26 +161,6 @@ impl Decision {
 
         Decision {
             elements: elements.iter().cloned().collect(),
-        }
-    }
-
-    pub(crate) fn canonicalize(&self, manager: &SddManager) -> Decision {
-        let unwrap_decision = |sdd: SddType| -> Decision {
-            let SddType::Decision(sdd) = sdd else {
-                panic!("expected the SDD to be a decision node");
-            };
-            sdd
-        };
-
-        if let Some(trimmed_sdd) = self.trim(manager) {
-            unwrap_decision(trimmed_sdd.0.borrow().sdd_type.clone())
-        } else {
-            let decision = self.compress(manager);
-            if let Some(trimmed_sdd) = decision.trim(manager) {
-                unwrap_decision(trimmed_sdd.0.borrow().sdd_type.clone())
-            } else {
-                decision
-            }
         }
     }
 

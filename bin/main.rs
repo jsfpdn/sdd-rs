@@ -155,9 +155,9 @@ fn main() -> Result<(), std::io::Error> {
     let mut statistics = Statistics::default();
     let options = SddOptions::builder()
         .vtree_strategy(args.vtree)
-        .fragment_heuristic(FragmentHeuristic::Root)
+        .fragment_heuristic(FragmentHeuristic::MostNormalized)
+        .minimization_cutoff(MinimizationCutoff::Iteration(3))
         .minimize_after(args.minimize_after_k_clauses)
-        .minimization_cutoff(MinimizationCutoff::None)
         .variables(variables)
         .garbage_collection(match args.collect_garbage {
             Some(ratio) => {

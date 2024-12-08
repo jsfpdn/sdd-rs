@@ -82,15 +82,14 @@ impl std::ops::Not for Polarity {
 }
 
 #[derive(Eq, PartialEq, Debug, Clone, PartialOrd, Ord)]
-pub struct Literal {
+pub(crate) struct Literal {
     variable: Variable,
     polarity: Polarity,
 }
 
 impl Literal {
     #[must_use]
-    pub fn new(polarity: Polarity, variable: &str, idx: VariableIdx) -> Literal {
-        // TODO: Get rid of this public constructor
+    pub(crate) fn new(polarity: Polarity, variable: &str, idx: VariableIdx) -> Literal {
         Literal {
             variable: Variable::new(variable, idx.0),
             polarity,
@@ -99,14 +98,6 @@ impl Literal {
 
     pub(crate) fn new_with_label(polarity: Polarity, variable: Variable) -> Literal {
         Literal { variable, polarity }
-    }
-
-    #[must_use]
-    pub fn negate(&self) -> Literal {
-        Literal {
-            variable: self.variable.clone(),
-            polarity: !self.polarity,
-        }
     }
 
     #[must_use]
