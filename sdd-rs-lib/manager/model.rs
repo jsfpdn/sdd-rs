@@ -2,6 +2,7 @@ use crate::literal::{Literal, Polarity, Variable};
 use bitvec::prelude::*;
 use std::fmt::Display;
 
+/// All models of the knowledge base.
 #[derive(Debug, PartialEq)]
 pub struct Models {
     models: Vec<BitVec>,
@@ -15,6 +16,7 @@ impl Models {
         Models { models, variables }
     }
 
+    /// Get all models of the knowledge base.
     #[must_use]
     pub fn all_models(&self) -> Vec<Model> {
         self.models
@@ -40,6 +42,8 @@ impl Display for Models {
     }
 }
 
+/// Single model of the knowledge base. The model
+/// is displayable.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Model {
     literals: Vec<Literal>,

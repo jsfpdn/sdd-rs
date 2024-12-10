@@ -197,6 +197,7 @@ impl Fragment {
 
         while self.state.index > state {
             self.next(&Direction::Backward, manager);
+            println!("rewound back to ({})", self.state.index);
         }
     }
 
@@ -324,9 +325,7 @@ pub(crate) fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddMa
 
             for bc_element in &bc_decision.elements {
                 let (b, c) = bc_element.get_prime_sub();
-                // TODO: Once conjoin is able to do vtree search on it's own, turn it off in here.
-                // TODO: we could improve this since we already know LCA, which is x's left child.
-                let ab = manager._conjoin_rotations(&a, &b, &w);
+                let ab = manager.conjoin(&a, &b);
                 elements.insert(Element { prime: ab, sub: c });
             }
 
@@ -336,13 +335,13 @@ pub(crate) fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddMa
         // last case: bc is normalized for vtree in b
         // Create element (a && bc, True).
         elements.insert(Element {
-            prime: manager._conjoin_rotations(&a, &bc, &w),
+            prime: manager.conjoin(&a, &bc),
             sub: manager.tautology(),
         });
 
         // Create element (a && !bc, False).
         elements.insert(Element {
-            prime: manager._conjoin_rotations(&a, &bc.negate(manager), &w),
+            prime: manager.conjoin(&a, &bc.negate(manager)),
             sub: manager.contradiction(),
         });
     }
@@ -372,7 +371,7 @@ pub(crate) fn rotate_partition_right(
         if ab.vtree().index() >= x.inorder_first() && ab.vtree().index() <= x.inorder_last() {
             current_elements.insert(Element {
                 prime: manager.tautology(),
-                sub: manager._conjoin_rotations(&ab, &c, &x),
+                sub: manager.conjoin(&ab, &c),
             });
         } else if ab.vtree().index() == w.index() {
             let SddType::Decision(ref ab_decision) = ab.0.borrow().sdd_type else {
@@ -381,7 +380,7 @@ pub(crate) fn rotate_partition_right(
 
             for ab_element in &ab_decision.elements {
                 let (a, b) = ab_element.get_prime_sub();
-                let bc = manager._conjoin_rotations(&b, &c, &x);
+                let bc = manager.conjoin(&b, &c);
                 current_elements.insert(Element { prime: a, sub: bc });
             }
         } else {
@@ -491,9 +490,9 @@ mod test {
             .build();
         let manager = SddManager::new(&options);
 
-        let lit_a = manager.literal("a", Polarity::Positive);
-        let lit_b = manager.literal("b", Polarity::Positive);
-        let lit_c = manager.literal("c", Polarity::Positive);
+        let lit_a = manager.literal("a", Polarity::Positive).unwrap();
+        let lit_b = manager.literal("b", Polarity::Positive).unwrap();
+        let lit_c = manager.literal("c", Polarity::Positive).unwrap();
 
         //           1
         //         /   \
@@ -505,7 +504,7 @@ mod test {
         let a_and_b_or_c = manager.disjoin(&a_and_b, &lit_c);
         let models = manager.model_enumeration(&a_and_b_or_c);
 
-        let root = manager.root().unwrap();
+        let root = manager.root();
         let rc = root.right_child();
         let mut fragment = Fragment::new(&root, &rc);
 

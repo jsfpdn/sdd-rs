@@ -4,7 +4,7 @@ use crate::{
     sdd::{Sdd, SddId, SddRef, SddType},
 };
 
-// Element node (a paired box) is a conjunction of prime and sub.
+/// Element node (a paired box) is a conjunction of prime and sub.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub(crate) struct Element {
     pub(crate) prime: SddRef,
@@ -29,11 +29,13 @@ impl Ord for Element {
 }
 
 impl Element {
+    /// Check whether prime and sub are trimmed.
     pub(super) fn is_trimmed(&self, manager: &SddManager) -> bool {
         let (prime, sub) = self.get_prime_sub();
         prime.is_trimmed(manager) && sub.is_trimmed(manager)
     }
 
+    /// Check whether prime and sub are compressed.
     pub(super) fn is_compressed(&self, manager: &SddManager) -> bool {
         let (prime, sub) = self.get_prime_sub();
         prime.is_compressed(manager) && sub.is_compressed(manager)
@@ -43,6 +45,8 @@ impl Element {
         (self.prime.clone(), self.sub.clone())
     }
 
+    /// Compute the hash of an element. This is supposed to
+    /// be used only for drawing Graphviz graphs.
     pub(crate) fn hash(&self) -> usize {
         #[derive(Hash)]
         struct PrimeSub {
@@ -59,7 +63,6 @@ impl Element {
 
 impl Dot for Element {
     fn draw<'a>(&self, writer: &mut DotWriter) {
-        // TODO: Remove unused manager.
         let idx = self.hash();
         let (prime, sub) = self.get_prime_sub();
 

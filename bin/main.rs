@@ -83,11 +83,9 @@ struct Cli {
     #[arg(short, long)]
     print_statistics: bool,
 
-    /// Collect dead nodes. The provided number denotes the ratio of dead-to-live nodes
-    /// when the garbage collection kicks in. When set to 0, garbage collection is performed
-    /// after every apply operation.
+    /// Collect garbage (dead nodes) after every apply operation.
     #[arg(long)]
-    collect_garbage: Option<f64>,
+    collect_garbage: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -100,7 +98,6 @@ struct Statistics {
     compiled_sdd_size_after_minimization: Option<u64>,
     all_sdds: Option<u64>,
 
-    gc_trigger_ratio: Option<f64>,
     gc_stats: Option<GCStatistics>,
 }
 
@@ -127,7 +124,6 @@ impl Statistics {
         }
 
         if let Some(ref gc_stats) = self.gc_stats {
-            println!("gc trigger ratio: {}", self.gc_trigger_ratio.unwrap());
             println!("nodes collected : {}", gc_stats.nodes_collected);
             println!("gc triggered    : {}", gc_stats.gc_triggered);
         }
@@ -156,15 +152,13 @@ fn main() -> Result<(), std::io::Error> {
     let options = SddOptions::builder()
         .vtree_strategy(args.vtree)
         .fragment_heuristic(FragmentHeuristic::MostNormalized)
-        .minimization_cutoff(MinimizationCutoff::Iteration(6))
+        .minimization_cutoff(MinimizationCutoff::None)
         .minimize_after(args.minimize_after_k_clauses)
         .variables(variables)
-        .garbage_collection(match args.collect_garbage {
-            Some(ratio) => {
-                statistics.gc_trigger_ratio = Some(ratio);
-                GarbageCollection::Automatic(ratio)
-            }
-            None => GarbageCollection::Off,
+        .garbage_collection(if args.collect_garbage {
+            GarbageCollection::Automatic
+        } else {
+            GarbageCollection::Off
         })
         .build();
 
@@ -175,7 +169,7 @@ fn main() -> Result<(), std::io::Error> {
     f.rewind()?;
 
     let compilation_start = Instant::now();
-    let result = manager.from_dimacs(&mut f, true);
+    let result = manager.from_dimacs(&mut f);
     statistics.compilation = Some(compilation_start.elapsed());
 
     let sdd = match result {
@@ -212,7 +206,7 @@ fn main() -> Result<(), std::io::Error> {
         println!("{}", manager.model_enumeration(&sdd));
     }
 
-    if args.collect_garbage.is_some() {
+    if args.collect_garbage {
         statistics.gc_stats = Some(manager.gc_statistics());
     }
 
@@ -255,7 +249,7 @@ fn write_to_file(
 
 fn get_variables(reader: &mut dyn std::io::Read) -> Result<Vec<String>, String> {
     let mut buffer = std::io::BufReader::new(reader);
-    let mut dimacs = dimacs::DimacsReader::new(&mut buffer);
+    let mut dimacs = dimacs::DimacsParser::new(&mut buffer);
     let preamble = dimacs.parse_preamble()?;
 
     Ok((1..=preamble.variables)

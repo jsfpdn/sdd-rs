@@ -4,6 +4,8 @@ use std::collections::{BTreeSet, HashMap};
 use crate::literal::{Polarity, Variable, VariableIdx};
 use crate::sdd::SddRef;
 
+/// Literal variants holds references to both positive and negative
+/// variants of a given literal.
 #[derive(Clone, Debug)]
 pub(crate) struct LiteralVariants {
     positive_literal: SddRef,
@@ -19,6 +21,7 @@ impl LiteralVariants {
     }
 }
 
+/// Literal manager is a store for literals.
 #[derive(Debug)]
 pub(crate) struct LiteralManager {
     literals: RefCell<HashMap<Variable, LiteralVariants>>,
@@ -31,6 +34,7 @@ impl LiteralManager {
         }
     }
 
+    /// Keep track of a new literal.
     pub(crate) fn add_variable(
         &self,
         variable: &Variable,
@@ -46,10 +50,12 @@ impl LiteralManager {
         );
     }
 
+    /// Get the number of all literals irrespective of polarities.
     pub(crate) fn len(&self) -> usize {
         self.literals.borrow().len()
     }
 
+    /// List all variables.
     pub(crate) fn all_variables(&self) -> BTreeSet<Variable> {
         self.literals
             .borrow()
@@ -59,6 +65,8 @@ impl LiteralManager {
             .collect()
     }
 
+    /// Find a literal and its variants by a variable index. Returns [`Option::None`]
+    /// if no such literal exists.
     pub(crate) fn find_by_index(&self, index: VariableIdx) -> Option<(Variable, LiteralVariants)> {
         self.literals
             .borrow()
@@ -67,6 +75,8 @@ impl LiteralManager {
             .map(|(variable, variants)| (variable.clone(), variants.clone()))
     }
 
+    /// Find a literal and its variants by a label of a variable. Retuurns [`Option::None`]
+    /// if no such literal exists.
     pub(crate) fn find_by_label(&self, label: &str) -> Option<(Variable, LiteralVariants)> {
         self.literals
             .borrow()

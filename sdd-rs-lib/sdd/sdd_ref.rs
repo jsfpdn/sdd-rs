@@ -8,6 +8,9 @@ use std::rc::Rc;
 
 use super::Element;
 
+/// A Sentential Decision Diagram that can be queried and manipulated.
+/// This can be either a constant (true or false), a literal (!A, B, etc.)
+/// or a more complicated Boolean function. See [`SddManager`] for more information.
 #[derive(Debug, Clone)]
 pub struct SddRef(pub(crate) Rc<RefCell<Sdd>>);
 
@@ -32,11 +35,13 @@ impl PartialOrd for SddRef {
 }
 
 impl SddRef {
+    /// Wrap [`Sdd`] into `Rc<RefCell<Sdd>>`.
     #[must_use]
     pub(crate) fn new(sdd: Sdd) -> Self {
         SddRef(Rc::new(RefCell::new(sdd)))
     }
 
+    /// Get the vtree for which this SDD is normalized.
     #[must_use]
     pub fn vtree(&self) -> VTreeRef {
         self.0.borrow().vtree.clone()

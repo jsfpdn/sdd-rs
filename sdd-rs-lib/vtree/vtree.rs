@@ -242,26 +242,23 @@ impl VTreeRef {
 
 #[derive(Debug)]
 pub(crate) struct VTreeManager {
-    pub(crate) root: Option<VTreeRef>,
+    pub(crate) root: VTreeRef,
 }
 
 impl VTreeManager {
     #[must_use]
     pub(crate) fn new(strategy: VTreeStrategy, variables: &[Variable]) -> VTreeManager {
-        VTreeManager {
-            root: if variables.is_empty() {
-                None
-            } else {
-                let root = match strategy {
-                    VTreeStrategy::Balanced => VTreeManager::balanced(variables),
-                    VTreeStrategy::RightLinear => VTreeManager::right_linear(variables),
-                    VTreeStrategy::LeftLinear => VTreeManager::left_linear(variables),
-                };
+        let root = match strategy {
+            VTreeStrategy::Balanced => VTreeManager::balanced(variables),
+            VTreeStrategy::RightLinear => VTreeManager::right_linear(variables),
+            VTreeStrategy::LeftLinear => VTreeManager::left_linear(variables),
+        };
+        VTreeManager::set_inorder_indices(&root, VTreeIdx(0));
+        VTreeManager { root }
+    }
 
-                VTreeManager::set_inorder_indices(&root, VTreeIdx(0));
-                Some(root)
-            },
-        }
+    pub(crate) fn root(&self) -> VTreeRef {
+        self.root.clone()
     }
 
     /// Construct a balanced vtree.
@@ -364,10 +361,6 @@ impl VTreeManager {
         nodes.pop_front().unwrap().clone()
     }
 
-    pub(crate) fn root_idx(&self) -> Option<VTreeIdx> {
-        self.root.clone().map(|root| root.0.borrow().idx)
-    }
-
     fn set_inorder_indices(
         node: &VTreeRef,
         idx: VTreeIdx,
@@ -409,9 +402,7 @@ impl VTreeManager {
         }
 
         let mut order = Vec::new();
-        if let Some(root) = self.root.as_ref() {
-            dfs(root, &mut order);
-        }
+        dfs(&self.root, &mut order);
 
         order
     }
@@ -460,10 +451,10 @@ impl VTreeManager {
                 _ => unreachable!(),
             }
         } else {
-            self.root = Some(x.clone());
+            self.root = x.clone();
         }
 
-        VTreeManager::set_inorder_indices(self.root.as_ref().unwrap(), VTreeIdx(0));
+        VTreeManager::set_inorder_indices(&self.root, VTreeIdx(0));
     }
 
     /// Rotates the vtree to the right. Given the following tree,
@@ -508,10 +499,10 @@ impl VTreeManager {
                 _ => unreachable!(),
             }
         } else {
-            self.root = Some(w.clone());
+            self.root = w.clone();
         }
 
-        VTreeManager::set_inorder_indices(self.root.as_ref().unwrap(), VTreeIdx(0));
+        VTreeManager::set_inorder_indices(&self.root, VTreeIdx(0));
     }
 
     /// Swaps children of internal node.
@@ -530,7 +521,7 @@ impl VTreeManager {
             }
         }
 
-        VTreeManager::set_inorder_indices(self.root.as_ref().unwrap(), VTreeIdx(0));
+        VTreeManager::set_inorder_indices(&self.root, VTreeIdx(0));
     }
 
     pub(crate) fn get_variable_vtree(&self, variable: &Variable) -> Option<VTreeRef> {
@@ -549,12 +540,11 @@ impl VTreeManager {
             }
         }
 
-        find_vtree(&self.root.clone().unwrap(), variable)
+        find_vtree(&self.root, variable)
     }
 
     pub(crate) fn get_vtree(&self, index: VTreeIdx) -> Option<VTreeRef> {
-        // TODO: This will get obsolete once VTrees are stored in a single hashmap.
-        let mut current = self.root.clone()?;
+        let mut current = self.root.clone();
         loop {
             let current_index = current.index();
             if current_index == index {
@@ -616,16 +606,12 @@ impl VTreeManager {
 
 impl Dot for VTreeManager {
     fn draw(&self, writer: &mut DotWriter) {
-        if self.root.is_none() {
-            return;
-        }
-
         // Get the total order first to neatly order the leaf nodes in the graph.
         for (variable, idx) in self.variables_total_order() {
             writer.add_node(idx.0 as usize, NodeType::Circle(variable.label(), None));
         }
 
-        let mut nodes = vec![self.root.as_ref().unwrap().clone()];
+        let mut nodes = vec![self.root.clone()];
         while let Some(vtree) = nodes.pop() {
             let vtree = vtree.0.borrow();
             if let Node::Internal(lc, rc) = vtree.node.clone() {
@@ -685,7 +671,7 @@ pub(crate) mod test {
             ],
         );
 
-        let root = manager.root.unwrap().clone();
+        let root = manager.root.clone();
         assert_eq!(root.index().0, 3);
         assert_eq!(get_inorder_first(root.clone()).0, 0);
         assert_eq!(get_inorder_last(root.clone()).0, 6);
@@ -742,7 +728,7 @@ pub(crate) mod test {
         //  A   *
         //     / \
         //    B  C
-        if let Node::Internal(lc, rc) = manager.root.unwrap().0.borrow().node.clone() {
+        if let Node::Internal(lc, rc) = manager.root.0.clone().borrow().node.clone() {
             let a = lc.0.borrow().node.clone();
             assert!(matches!(a, Node::Leaf(label) if label.eq(&Variable::new("A", 1))));
 
@@ -785,7 +771,7 @@ pub(crate) mod test {
             VTreeStrategy::Balanced,
             &[Variable::new("A", 0), Variable::new("B", 1)],
         );
-        let root = manager.root.clone().unwrap();
+        let root = manager.root.clone();
 
         // <A, B> ~> <B, A>
         manager.swap(&root);
@@ -825,7 +811,7 @@ pub(crate) mod test {
         //     / \
         //    B   C
 
-        let x = manager.root.clone().unwrap().0.borrow().node.clone();
+        let x = manager.root.clone().0.borrow().node.clone();
 
         let y = match x {
             Node::Leaf(_) => panic!("cannot happen"),
@@ -844,7 +830,7 @@ pub(crate) mod test {
         //  / \
         // A   B
 
-        let y = manager.root.as_ref().unwrap().clone();
+        let y = manager.root.clone();
         let x = match y.0.borrow().node {
             Node::Leaf(_) => panic!("root cannot be currently a leaf"),
             Node::Internal(ref lc, ref rc) => {
@@ -879,7 +865,7 @@ pub(crate) mod test {
         //     / \
         //    B   C
 
-        let x = manager.root.unwrap().0.borrow().node.clone();
+        let x = manager.root.0.borrow().node.clone();
         let y = match x {
             Node::Leaf(_) => panic!("root cannot be currently a leaf"),
             Node::Internal(lc, rc) => {
@@ -921,7 +907,7 @@ pub(crate) mod test {
         //     0  2     4  6
         //     A  B     C  D
 
-        let root = manager.root.clone().unwrap();
+        let root = manager.root.clone();
         let root_idx = root.index();
 
         // root has index of 3
@@ -997,7 +983,7 @@ pub(crate) mod test {
             ],
         );
 
-        let variables = manager.root.unwrap().0.borrow().get_variables();
+        let variables = manager.root.0.borrow().get_variables();
         assert_eq!(
             variables,
             btreeset!(

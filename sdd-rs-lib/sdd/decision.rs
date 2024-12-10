@@ -5,6 +5,8 @@ use crate::{
 };
 use std::collections::{BTreeSet, HashSet};
 
+/// Decision represents an X-partition: a set of elements (conjunctions)
+/// maintaining the strong determinism and (X,Y)-decomposition properties.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub(crate) struct Decision {
     pub(crate) elements: BTreeSet<Element>,
@@ -16,11 +18,6 @@ impl Decision {
     /// `{(A, True), (!A, False)}`.
     ///
     /// See definition 8 in [SDD: A New Canonical Representation of Propositional Knowledge Bases](https://ai.dmi.unibas.ch/research/reading_group/darwiche-ijcai2011.pdf).
-    ///
-    /// # Panics
-    /// Function panics if
-    /// * elements are not stored in the SDD manager,
-    /// * the decision node contains something else than boxed elements.
     #[must_use]
     pub(crate) fn is_trimmed(&self, manager: &SddManager) -> bool {
         let mut primes: HashSet<SddId> = HashSet::new();
@@ -60,11 +57,6 @@ impl Decision {
     /// it holds that `s_i != s_j`.
     ///
     /// See definition 8 in [SDD: A New Canonical Representation of Propositional Knowledge Bases](https://ai.dmi.unibas.ch/research/reading_group/darwiche-ijcai2011.pdf).
-    ///
-    /// # Panics
-    /// Function panics if
-    /// * elements are not stored in the SDD manager,
-    /// * the decision node contains something else than boxed elements.
     #[must_use]
     pub(super) fn is_compressed(&self, manager: &SddManager) -> bool {
         let mut subs: HashSet<SddId> = HashSet::new();
@@ -163,14 +155,7 @@ impl Decision {
         }
     }
 
-    pub(super) fn subs(&self) -> Vec<SddRef> {
-        self.elements
-            .iter()
-            .map(|Element { sub, .. }| sub)
-            .cloned()
-            .collect()
-    }
-
+    /// Get all primes of a decision node.
     pub(super) fn primes(&self) -> Vec<SddRef> {
         self.elements
             .iter()
@@ -179,6 +164,17 @@ impl Decision {
             .collect()
     }
 
+    /// Get all subs of a decision node.
+    pub(super) fn subs(&self) -> Vec<SddRef> {
+        self.elements
+            .iter()
+            .map(|Element { sub, .. }| sub)
+            .cloned()
+            .collect()
+    }
+
+    /// Compute the hash of a decision node. This is supposed to
+    /// be used only for drawing Graphviz graphs.
     pub(crate) fn hash(&self) -> usize {
         let elements: BTreeSet<(SddId, SddId)> = self
             .elements

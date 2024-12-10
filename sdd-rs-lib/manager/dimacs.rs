@@ -2,12 +2,14 @@ use crate::literal::{Polarity, VariableIdx};
 use crate::manager::SddManager;
 use crate::sdd::SddRef;
 
+/// Preamble of the DIMACS file.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Preamble {
     pub clauses: usize,
     pub variables: usize,
 }
 
+/// Single clause -- disjunction of literals.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Clause {
     pub(crate) var_label_polarities: Vec<Polarity>,
@@ -33,34 +35,42 @@ impl Clause {
     }
 }
 
+/// Current state of the DIMACS reader.
 #[derive(PartialEq, Eq)]
-enum DimacsReaderState {
+enum DimacsParserState {
     Initialized,
     PreambleParsed,
     ParsingClauses,
     Finished,
 }
 
+/// DIMACS parser.
 #[allow(clippy::module_name_repetitions)]
-pub struct DimacsReader<'a> {
+pub struct DimacsParser<'a> {
     reader: &'a mut dyn std::io::BufRead,
-    state: DimacsReaderState,
+    state: DimacsParserState,
 }
 
-impl<'a> DimacsReader<'a> {
+impl<'a> DimacsParser<'a> {
     #[must_use]
     pub fn new(reader: &'a mut dyn std::io::BufRead) -> Self {
-        DimacsReader {
-            state: DimacsReaderState::Initialized,
+        DimacsParser {
+            state: DimacsParserState::Initialized,
             reader,
         }
     }
 
+    /// Parse preamble of the DIMACS file.
+    ///
     /// # Errors
     ///
-    /// TODO
+    /// Returns an error if:
+    /// * the preamble has already been parsed,
+    /// * the preamble is missing a 'problem line',
+    /// * could not skip over comments in the preamble
+    /// * could not parse a 'problem line'
     pub fn parse_preamble(&mut self) -> Result<Preamble, String> {
-        if self.state != DimacsReaderState::Initialized {
+        if self.state != DimacsParserState::Initialized {
             return Err(String::from("preamble already parsed"));
         }
 
@@ -83,10 +93,11 @@ impl<'a> DimacsReader<'a> {
         }
     }
 
+    /// Parse the next clause.
     pub(crate) fn parse_next_clause(&mut self) -> Result<Option<Clause>, String> {
-        assert!(self.state != DimacsReaderState::Initialized);
+        assert!(self.state != DimacsParserState::Initialized);
 
-        if self.state == DimacsReaderState::Finished {
+        if self.state == DimacsParserState::Finished {
             return Ok(None);
         }
 
@@ -94,10 +105,10 @@ impl<'a> DimacsReader<'a> {
         match self.reader.read_line(&mut clause) {
             Ok(read) => {
                 if read == 0 {
-                    self.state = DimacsReaderState::Finished;
+                    self.state = DimacsParserState::Finished;
                     Ok(None)
                 } else {
-                    self.state = DimacsReaderState::ParsingClauses;
+                    self.state = DimacsParserState::ParsingClauses;
                     let clause = clause.trim().to_owned();
                     if clause == "%" {
                         let mut zero = String::new();
@@ -108,7 +119,7 @@ impl<'a> DimacsReader<'a> {
                         return Err(format!("expected '0' after '%' but found '{zero}' instead"));
                     }
 
-                    DimacsReader::parse_clause_line(&clause)
+                    DimacsParser::parse_clause_line(&clause)
                 }
             }
             Err(err) => Err(format!("could not parse clause: {err}")),
@@ -144,7 +155,7 @@ impl<'a> DimacsReader<'a> {
             Err(err) => return Err(format!("could not parse number of clauses: {err}")),
         };
 
-        self.state = DimacsReaderState::PreambleParsed;
+        self.state = DimacsParserState::PreambleParsed;
         Ok(Preamble { clauses, variables })
     }
 
@@ -194,10 +205,10 @@ mod test {
 
     use std::io::BufReader;
 
-    use super::{DimacsReader, Preamble};
+    use super::{DimacsParser, Preamble};
     use crate::{literal::Polarity, manager::dimacs::Clause};
 
-    fn collect_clauses(dimacs: &mut DimacsReader) -> Vec<Clause> {
+    fn collect_clauses(dimacs: &mut DimacsParser) -> Vec<Clause> {
         let mut clauses = Vec::new();
 
         loop {
@@ -220,7 +231,7 @@ p cnf 4 3
 4 0
 2 -3 0";
         let mut reader = BufReader::new(contents.as_bytes());
-        let mut dimacs = DimacsReader::new(&mut reader);
+        let mut dimacs = DimacsParser::new(&mut reader);
 
         assert_eq!(
             dimacs.parse_preamble(),
@@ -264,7 +275,7 @@ p   cnf  4   3
 4 0 2
 -3 0";
         let mut reader = BufReader::new(contents.as_bytes());
-        let mut dimacs = DimacsReader::new(&mut reader);
+        let mut dimacs = DimacsParser::new(&mut reader);
 
         assert_eq!(
             dimacs.parse_preamble(),
@@ -284,7 +295,7 @@ p cnf 4 2
   4 0
 ";
         let mut reader = BufReader::new(contents.as_bytes());
-        let mut dimacs = DimacsReader::new(&mut reader);
+        let mut dimacs = DimacsParser::new(&mut reader);
 
         assert_eq!(
             dimacs.parse_preamble(),
@@ -307,7 +318,7 @@ p cnf 4 2
 0
 ";
         let mut reader = BufReader::new(contents.as_bytes());
-        let mut dimacs = DimacsReader::new(&mut reader);
+        let mut dimacs = DimacsParser::new(&mut reader);
 
         assert_eq!(
             dimacs.parse_preamble(),
@@ -347,7 +358,7 @@ p cnf 4 2
 4 0
 ";
         let mut reader = BufReader::new(contents.as_bytes());
-        let mut dimacs = DimacsReader::new(&mut reader);
+        let mut dimacs = DimacsParser::new(&mut reader);
 
         assert_eq!(
             dimacs.parse_preamble(),

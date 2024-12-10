@@ -1,6 +1,9 @@
 use derive_more::derive::From;
 use std::{convert::From, fmt::Display};
 
+/// Index of a variable. This corresponds to the order in which
+/// the variable was defined in [`crate::manager::SddManager`] during
+/// initialization, not an SDD ID or vtree index.
 #[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Debug, Copy, Hash, From)]
 pub(crate) struct VariableIdx(pub(crate) u32);
 
@@ -16,6 +19,7 @@ impl From<usize> for VariableIdx {
     }
 }
 
+/// Variable given by its name (label) and index.
 #[derive(Eq, PartialEq, Debug, Clone, Hash)]
 pub(crate) struct Variable {
     label: String,
@@ -31,11 +35,13 @@ impl Variable {
         }
     }
 
+    /// Get the name (label) of a variable.
     #[must_use]
     pub fn label(&self) -> String {
         self.label.clone()
     }
 
+    /// Get the index of a variable.
     pub(crate) fn index(&self) -> VariableIdx {
         self.idx
     }
@@ -53,7 +59,7 @@ impl Ord for Variable {
     }
 }
 
-// Either true or false
+/// Polarity of a variable.
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Copy)]
 pub enum Polarity {
     Positive,
@@ -81,6 +87,7 @@ impl std::ops::Not for Polarity {
     }
 }
 
+/// Literal given by [`Variable`] and [`Polarity`].
 #[derive(Eq, PartialEq, Debug, Clone, PartialOrd, Ord)]
 pub(crate) struct Literal {
     variable: Variable,
@@ -88,6 +95,8 @@ pub(crate) struct Literal {
 }
 
 impl Literal {
+    /// Create a new [`Literal`].
+    #[allow(dead_code)]
     #[must_use]
     pub(crate) fn new(polarity: Polarity, variable: &str, idx: VariableIdx) -> Literal {
         Literal {
@@ -96,17 +105,19 @@ impl Literal {
         }
     }
 
+    /// Create a new [`Literal`] from a [`Variable`].
     pub(crate) fn new_with_label(polarity: Polarity, variable: Variable) -> Literal {
         Literal { variable, polarity }
     }
 
+    /// Check whether [`self`] is negated [`other`].
     #[must_use]
-    pub fn eq_negated(&self, other: &Literal) -> bool {
+    pub(crate) fn eq_negated(&self, other: &Literal) -> bool {
         self.variable == other.variable && self.polarity != other.polarity
     }
 
     #[must_use]
-    pub fn polarity(&self) -> Polarity {
+    pub(crate) fn polarity(&self) -> Polarity {
         self.polarity
     }
 

@@ -12,6 +12,7 @@ use crate::{
     vtree::{LeftDependence, Node, RightDependence, VTreeIdx, VTreeRef},
 };
 
+/// [`SddId`] is a unique ID of an SDD.
 #[allow(clippy::module_name_repetitions)]
 #[derive(Eq, PartialEq, Hash, Debug, PartialOrd, Ord, Clone, Copy, AddAssign)]
 pub struct SddId(pub u32);
@@ -22,6 +23,8 @@ impl Display for SddId {
     }
 }
 
+/// An SDD node can be either a terminal (constant or literal)
+/// or a decision node.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub(crate) enum SddType {
     True,
@@ -48,6 +51,8 @@ impl SddType {
     }
 }
 
+/// [`Sdd`] is the main structure encompassing all relevant
+/// information about an SDD node.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub(crate) struct Sdd {
     pub(crate) id: SddId,
@@ -79,6 +84,7 @@ impl Dot for Sdd {
 }
 
 impl Sdd {
+    /// Create a new [`Sdd`].
     #[must_use]
     pub(crate) fn new(sdd_type: SddType, id: SddId, vtree: VTreeRef) -> Sdd {
         let (model_count, models) = match sdd_type.clone() {
@@ -96,6 +102,7 @@ impl Sdd {
         }
     }
 
+    /// Create a new [`Sdd`] representing `true`.
     #[must_use]
     pub(crate) fn new_true() -> Sdd {
         Self::new(
@@ -105,6 +112,7 @@ impl Sdd {
         )
     }
 
+    /// Create a new [`Sdd`] representing `false`.
     #[must_use]
     pub(crate) fn new_false() -> Sdd {
         Self::new(
@@ -181,9 +189,9 @@ impl Sdd {
         match self.sdd_type {
             SddType::True => manager.contradiction(),
             SddType::False => manager.tautology(),
-            SddType::Literal(ref literal) => {
-                manager.literal(&literal.var_label().label(), !literal.polarity())
-            }
+            SddType::Literal(ref literal) => manager
+                .literal(&literal.var_label().label(), !literal.polarity())
+                .unwrap(),
             SddType::Decision(..) => {
                 panic!("cannot happen - bug in the if expression's condition")
             }
@@ -270,6 +278,7 @@ impl Sdd {
         )
     }
 
+    /// Get the representation of the SDD for the .DOT format.
     pub(super) fn dot_repr(&self) -> String {
         match self.sdd_type.clone() {
             SddType::True => String::from("⊤"),
@@ -279,6 +288,12 @@ impl Sdd {
         }
     }
 
+    /// Get for which vtrees are primes of this Sdd normalized.
+    /// See [`LeftDependence`] for more information.
+    ///
+    /// # Panics
+    ///
+    /// The function panics if [`self`] is anything other than [`SddType::Decision`].
     #[must_use]
     #[allow(unused)]
     pub(crate) fn dependence_on_left_vtree(
@@ -324,6 +339,12 @@ impl Sdd {
         LeftDependence::B
     }
 
+    /// Get for which vtrees are subs of this Sdd normalized.
+    /// See [`RightDependence`] for more information.
+    ///
+    /// # Panics
+    ///
+    /// The function panics if [`self`] is anything other than [`SddType::Decision`].
     #[must_use]
     #[allow(unused)]
     pub(crate) fn dependence_on_right_vtree(
@@ -369,6 +390,8 @@ impl Sdd {
         RightDependence::C
     }
 
+    /// Invalidate cached models and model counts.
+    /// TODO: Check whether this can be removed.
     pub(crate) fn invalidate_cache(&mut self) {
         tracing::debug!(sddId = self.id().0, "invalidating cache");
         self.models = None;
@@ -393,9 +416,9 @@ mod test {
             .build();
         let manager = SddManager::new(&options);
 
-        let a = manager.literal("A", Polarity::Positive);
-        let c = manager.literal("C", Polarity::Positive);
-        let d = manager.literal("D", Polarity::Positive);
+        let a = manager.literal("A", Polarity::Positive).unwrap();
+        let c = manager.literal("C", Polarity::Positive).unwrap();
+        let d = manager.literal("D", Polarity::Positive).unwrap();
         // The vtree looks like this:
         //   (1)
         //   / \
@@ -411,7 +434,7 @@ mod test {
         let c_and_d_and_a = manager.conjoin(&c_and_d, &a);
         assert_eq!(manager.model_count(&c_and_d_and_a), 2); // Sanity check
 
-        let root = manager.root().unwrap();
+        let root = manager.root();
 
         // `c && d && a` must be normalized for root.
         assert_eq!(c_and_d_and_a.vtree().index(), root.index());
@@ -421,7 +444,5 @@ mod test {
             .borrow()
             .dependence_on_left_vtree(&root, &manager);
         assert_eq!(dep, LeftDependence::A);
-
-        // TODO: Test dependencies more - try to capture all possible cases.
     }
 }
