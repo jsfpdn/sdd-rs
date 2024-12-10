@@ -585,15 +585,26 @@ impl SddManager {
 
     /// Enumerate models of the SDD.
     pub fn model_enumeration(&self, sdd: &SddRef) -> Models {
-        let mut models: Vec<BitVec> = Vec::new();
-        self._model_enumeration(sdd, &mut models);
-
         let all_variables: BTreeSet<_> = self.literal_manager.borrow().all_variables();
-        let unbound_variables: Vec<_> = all_variables
-            .difference(&self.get_variables(sdd))
-            .cloned()
-            .collect();
-        SddManager::expand_models(&mut models, &unbound_variables);
+        let mut models: Vec<BitVec> = Vec::new();
+
+        if sdd.is_true() {
+            let all_variables: Vec<_> = all_variables.iter().cloned().collect();
+            SddManager::expand_models(&mut models, &all_variables);
+            return Models::new(&models, all_variables.clone());
+        } else if !sdd.is_false() {
+            // In the case of False, we do not add any models.
+            self.model_enumeration_rec(sdd, &mut models);
+
+            let all_variables: BTreeSet<_> = self.literal_manager.borrow().all_variables();
+            let unbound_variables: Vec<_> = all_variables
+                .difference(&self.get_variables(sdd))
+                .cloned()
+                .collect();
+
+            SddManager::expand_models(&mut models, &unbound_variables);
+        }
+
         Models::new(&models, all_variables.iter().cloned().collect())
     }
 
@@ -612,7 +623,7 @@ impl SddManager {
             return 0;
         }
 
-        let models = self._model_count(sdd);
+        let models = self.model_count_rec(sdd);
 
         if self.root().index() == sdd.vtree().unwrap().index() {
             return models;
@@ -870,7 +881,7 @@ impl SddManager {
     }
 
     #[instrument(skip_all, level = tracing::Level::DEBUG)]
-    fn _model_enumeration(&self, sdd: &SddRef, bitvecs: &mut Vec<BitVec>) {
+    fn model_enumeration_rec(&self, sdd: &SddRef, bitvecs: &mut Vec<BitVec>) {
         tracing::debug!(sdd_id = sdd.id().0);
         // Return the cached value if it already exists.
         if let Some(ref mut models) = sdd.models() {
@@ -912,16 +923,16 @@ impl SddManager {
 
                 if prime.is_true() || sub.is_true() {
                     if prime.is_true() {
-                        self._model_enumeration(sub, &mut models);
+                        self.model_enumeration_rec(sub, &mut models);
                     } else {
-                        self._model_enumeration(prime, &mut models);
+                        self.model_enumeration_rec(prime, &mut models);
                     }
                 } else {
                     let mut fst = Vec::new();
                     let mut snd = Vec::new();
 
-                    self._model_enumeration(prime, &mut fst);
-                    self._model_enumeration(sub, &mut snd);
+                    self.model_enumeration_rec(prime, &mut fst);
+                    self.model_enumeration_rec(sub, &mut snd);
 
                     for fst_bv in &fst {
                         for snd_bv in &snd {
@@ -950,7 +961,7 @@ impl SddManager {
     }
 
     /// Count number of models for this SDD.
-    fn _model_count(&self, sdd: &SddRef) -> u64 {
+    fn model_count_rec(&self, sdd: &SddRef) -> u64 {
         // Return the cached value if it already exists.
         if let Some(model_count) = sdd.model_count() {
             return model_count;
@@ -969,7 +980,7 @@ impl SddManager {
                 } else if sdd.is_false() {
                     0
                 } else {
-                    self._model_count(sdd)
+                    self.model_count_rec(sdd)
                 }
             };
 
