@@ -16,12 +16,9 @@ use crate::{
     },
 };
 use bitvec::prelude::*;
-use std::{
-    cell::RefCell,
-    cmp::Ordering,
-    collections::{BTreeSet, HashMap},
-    ops::BitOr,
-};
+use rustc_hash::{FxHashMap, FxHashSet};
+use std::{cell::RefCell, cmp::Ordering, collections::BTreeSet, ops::BitOr};
+
 use tracing::instrument;
 
 use super::options::{FragmentHeuristic, MinimizationCutoff};
@@ -107,11 +104,11 @@ pub struct SddManager {
 
     // Unique table holding all the decision nodes.
     // More details can be found in [Algorithms and Data Structures in VLSI Design](https://link.springer.com/book/10.1007/978-3-642-58940-9).
-    unique_table: RefCell<HashMap<SddId, SddRef>>,
+    unique_table: RefCell<FxHashMap<SddId, SddRef>>,
 
     // Caches all the computations.
-    op_cache: RefCell<HashMap<Entry, SddId>>,
-    neg_cache: RefCell<HashMap<SddId, SddId>>,
+    op_cache: RefCell<FxHashMap<Entry, SddId>>,
+    neg_cache: RefCell<FxHashMap<SddId, SddId>>,
 
     next_idx: RefCell<SddId>,
 
@@ -141,7 +138,7 @@ impl SddManager {
             panic!("SddManager must be initialized with at least one variable!");
         }
 
-        let mut unique_table = RefCell::new(HashMap::new());
+        let mut unique_table = RefCell::new(FxHashMap::default());
         let ff = SddRef::new(Sdd::new_false());
         let tt = SddRef::new(Sdd::new_true());
 
@@ -162,8 +159,8 @@ impl SddManager {
         // TODO: Refactor all the RefCells into single SddManagerState.
         let manager = SddManager {
             options: options.clone(),
-            op_cache: RefCell::new(HashMap::new()),
-            neg_cache: RefCell::new(HashMap::new()),
+            op_cache: RefCell::new(FxHashMap::default()),
+            neg_cache: RefCell::new(FxHashMap::default()),
             next_idx: RefCell::new(SddId(2)), // Account for ff and tt created earlier which have indices 0 and 1.
             vtree_manager: RefCell::new(VTreeManager::new(options.vtree_strategy, &variables)),
             literal_manager: RefCell::new(LiteralManager::new()),
@@ -322,7 +319,7 @@ impl SddManager {
     }
 
     /// Remove a nodes from unique table and caches.
-    fn remove_from_op_cache(&self, ids: &BTreeSet<SddId>) {
+    fn remove_from_op_cache(&self, ids: &FxHashSet<SddId>) {
         let entries_to_remove: Vec<_> = ids
             .iter()
             .map(|id| (id, self.get_cached_operation(&CachedOperation::Neg(*id))))
@@ -765,9 +762,9 @@ impl SddManager {
     }
 
     pub fn collect_garbage(&self) {
-        let mut removed = BTreeSet::new();
+        let mut removed = FxHashSet::default();
 
-        let roots: BTreeSet<_> = self
+        let roots: FxHashSet<_> = self
             .unique_table
             .borrow()
             .values()
@@ -996,7 +993,7 @@ impl SddManager {
     /// TODO: Fix error types.
     pub fn draw_sdd(&self, writer: &mut dyn std::io::Write, sdd: &SddRef) -> Result<(), String> {
         let mut dot_writer = DotWriter::new(String::from("sdd"), false);
-        let mut seen = BTreeSet::new();
+        let mut seen = FxHashSet::default();
 
         let mut sdds = vec![sdd.clone()];
         while let Some(sdd) = sdds.pop() {

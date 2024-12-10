@@ -1,6 +1,6 @@
 # :books: sddrs: Bottom-Up Sentential Decision Diagram Compiler
 
-<img align="right" margin="10px 0 10px 10px" width="130" height="200" src="static/sdd.png" alt="SDD for (A ∧ B) ∨ C">
+<img align="right"  width="130" height="200" src="static/sdd.png" alt="SDD for (A ∧ B) ∨ C">
 
 **Incrementally build, manipualate, and optimize
 [Sentential Decision Diagrams (SDD)](https://en.wikipedia.org/wiki/Sentential_decision_diagram):

@@ -18,6 +18,7 @@ derive_more = { version = "1", features = ["from", "add", "add_assign"] }
 thiserror = "2"
 clap = { version = "4.5.4", features = ["derive"] }
 bon = "3"
+rustc-hash = "2.1"
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
