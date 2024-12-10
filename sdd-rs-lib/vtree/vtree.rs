@@ -13,12 +13,14 @@ use std::{
     rc::Rc,
 };
 
+/// Node of a full binary tree.
 #[derive(Clone, PartialEq)]
 pub(crate) enum Node {
     Leaf(Variable),
     Internal(VTreeRef, VTreeRef),
 }
 
+/// Index of a vtree node given by the inorder traversal starting from the root.
 #[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Debug, Copy, Add, AddAssign, Sub, From)]
 pub struct VTreeIdx(pub u32);
 
@@ -28,14 +30,13 @@ impl Display for VTreeIdx {
     }
 }
 
+/// Vtree is a node of a full binary tree.
 #[derive(PartialEq, Clone)]
-pub struct VTree {
+pub(crate) struct VTree {
     parent: Option<VTreeRef>,
     // Index according to the inorder traversal of the VTree. Can change when manipulating the tree in any way,
     // e.g. adding/removing variables and swapping or rotating nodes.
     idx: VTreeIdx,
-
-    pub(super) node: Node,
 
     // Pointer to first vtree node in the subtree given by the current node
     // according to the inorder.
@@ -43,7 +44,8 @@ pub struct VTree {
     // Pointer to first vtree node in the subtree given by the current node
     // according to the inorder.
     inorder_last: Option<VTreeRef>,
-    // TODO: Add pointer to the next vtree node according to inorder traversal.
+
+    pub(crate) node: Node,
 }
 
 impl Debug for VTree {
@@ -149,6 +151,7 @@ pub(crate) enum VTreeOrder {
     RightSubOfLeft,
 }
 
+/// Vtree is a node of a full binary tree.
 #[derive(Debug, Clone)]
 pub struct VTreeRef(pub(crate) Rc<RefCell<VTree>>);
 
@@ -177,43 +180,45 @@ impl VTreeRef {
         VTreeRef(Rc::new(RefCell::new(VTree::new(parent, idx, node))))
     }
 
+    /// Returns true if the vtree is a leaf node.
     #[must_use]
     pub fn is_leaf(&self) -> bool {
         matches!(self.0.borrow().node, Node::Leaf(..))
     }
 
+    /// Returns true if the vtree is an internal node.
     #[must_use]
     pub fn is_internal(&self) -> bool {
         matches!(self.0.borrow().node, Node::Internal(..))
     }
 
-    /// # Panics
-    ///
-    /// TODO
+    /// Returns its left child if the vtree is an internal node.
+    /// Otherwise returns [`Option::None`].
     #[must_use]
-    pub fn left_child(&self) -> VTreeRef {
+    pub fn left_child(&self) -> Option<VTreeRef> {
         match self.0.borrow().node {
-            Node::Leaf(_) => panic!("vtree node must be internal in order to have children"),
-            Node::Internal(ref lc, _) => lc.clone(),
+            Node::Leaf(_) => None,
+            Node::Internal(ref lc, _) => Some(lc.clone()),
         }
     }
 
-    /// # Panics
-    ///
-    /// TODO
+    /// Returns its right child if the vtree is an internal node.
+    /// Otherwise returns [`Option::None`].
     #[must_use]
-    pub fn right_child(&self) -> VTreeRef {
+    pub fn right_child(&self) -> Option<VTreeRef> {
         match self.0.borrow().node {
-            Node::Leaf(_) => panic!("vtree node must be internal in order to have children"),
-            Node::Internal(_, ref rc) => rc.clone(),
+            Node::Leaf(_) => None,
+            Node::Internal(_, ref rc) => Some(rc.clone()),
         }
     }
 
+    /// Returns its parent if the vtree has one.
     #[must_use]
     pub fn parent(&self) -> Option<VTreeRef> {
         self.0.borrow().parent.clone()
     }
 
+    /// Returns index of the vtree given by inorder traversal starting from the root.
     #[must_use]
     pub fn index(&self) -> VTreeIdx {
         self.0.borrow().idx
@@ -240,12 +245,17 @@ impl VTreeRef {
     }
 }
 
+/// [`VTreeManager`] is responsible for storing, indexing, retrieving
+/// and manipulating vtrees.
 #[derive(Debug)]
 pub(crate) struct VTreeManager {
     pub(crate) root: VTreeRef,
 }
 
 impl VTreeManager {
+    /// Create a new [`VTreeManager`] and construct an initial vtree covering [`variables`].
+    /// The order of [`variables`] is respected by the initial vtree. [`VTreeStrategy`]
+    /// dictates the dissection of this total order.
     #[must_use]
     pub(crate) fn new(strategy: VTreeStrategy, variables: &[Variable]) -> VTreeManager {
         let root = match strategy {
@@ -342,6 +352,7 @@ impl VTreeManager {
         VTreeManager::linear(variables, combine_leftmost)
     }
 
+    /// Construct a {left,right}-linear vtree depending on the [`combine_in_place`] function povided.
     fn linear(variables: &[Variable], combine_in_place: fn(&mut VecDeque<VTreeRef>)) -> VTreeRef {
         let mut nodes: VecDeque<_> = variables
                    .iter()
@@ -388,6 +399,7 @@ impl VTreeManager {
         (par_idx, fst, last)
     }
 
+    /// Get total variable order given by the vtree.
     #[must_use]
     pub(crate) fn variables_total_order(&self) -> Vec<(Variable, VTreeIdx)> {
         fn dfs(vtree: &VTreeRef, order: &mut Vec<(Variable, VTreeIdx)>) {
@@ -426,12 +438,16 @@ impl VTreeManager {
     ///    / \
     ///   a   b
     /// ```
+    ///
+    /// User must make sure that the vtree `x` is 'rotatable',
+    /// i.e. `x` is an internal node and has a parent.
+    ///
     /// # Panics
     ///
     /// Panics if called on a vtree that cannot be rotated.
-    pub fn rotate_left(&mut self, x: &VTreeRef) {
+    pub(crate) fn rotate_left(&mut self, x: &VTreeRef) {
         let w = x.parent().unwrap();
-        let b = x.left_child();
+        let b = x.left_child().unwrap();
         let parent = w.parent();
 
         w.set_right_child(&b);
@@ -476,12 +492,17 @@ impl VTreeManager {
     ///       / \
     ///      b   c
     /// ```
+    ///
+    /// User must make sure that the vtree `x` is 'rotatable',
+    /// i.e. `x` is an internal node and its left child `w`
+    /// is also an internal node.
+    ///
     /// # Panics
     ///
     /// Panics if called on a vtree that cannot be rotated.
-    pub fn rotate_right(&mut self, x: &VTreeRef) {
-        let w = x.left_child();
-        let b = w.right_child();
+    pub(crate) fn rotate_right(&mut self, x: &VTreeRef) {
+        let w = x.left_child().unwrap();
+        let b = w.right_child().unwrap();
         let parent = x.parent();
 
         x.set_parent(Some(&w));
@@ -524,7 +545,13 @@ impl VTreeManager {
         VTreeManager::set_inorder_indices(&self.root, VTreeIdx(0));
     }
 
-    pub(crate) fn get_variable_vtree(&self, variable: &Variable) -> Option<VTreeRef> {
+    /// Get a leaf vtree given the variable it covers.
+    ///
+    /// # Panics
+    ///
+    /// Function panics if no such vtree exists which suggests a bug
+    /// in [`SddManager`] initialization.
+    pub(crate) fn get_variable_vtree(&self, variable: &Variable) -> VTreeRef {
         fn find_vtree(vtree: &VTreeRef, variable: &Variable) -> Option<VTreeRef> {
             match vtree.0.borrow().node.clone() {
                 Node::Internal(lc, rc) => find_vtree(&lc, variable)
@@ -540,9 +567,12 @@ impl VTreeManager {
             }
         }
 
-        find_vtree(&self.root, variable)
+        find_vtree(&self.root, variable).unwrap()
     }
 
+    /// Get a vtree given its index. Returns [`Options::None`] if no such
+    /// vtree exists. This happens only when there's a bug in [`SddManager`]
+    /// initialization but we return it instead of panicking for better error reporting.
     pub(crate) fn get_vtree(&self, index: VTreeIdx) -> Option<VTreeRef> {
         let mut current = self.root.clone();
         loop {
@@ -558,11 +588,12 @@ impl VTreeManager {
                     current = rc.clone();
                 }
             } else {
-                panic!("vtree is malformed or vtree with index {index} does not exist");
+                return None;
             }
         }
     }
 
+    /// Compute the closest common ancestor of two vtrees.
     pub(crate) fn least_common_ancestor(
         &self,
         fst_idx: VTreeIdx,
@@ -933,7 +964,7 @@ pub(crate) mod test {
 
     #[test]
     fn literal_indices() {
-        let var_label_index = |vtree: Option<VTreeRef>| -> VTreeIdx { vtree.unwrap().index() };
+        let var_label_index = |vtree: VTreeRef| -> VTreeIdx { vtree.index() };
         let manager = VTreeManager::new(
             VTreeStrategy::RightLinear,
             &[
@@ -968,7 +999,6 @@ pub(crate) mod test {
             var_label_index(manager.get_variable_vtree(&Variable::new("D", 3))).0,
             6
         );
-        assert_eq!(manager.get_variable_vtree(&Variable::new("E", 4)), None);
     }
 
     #[test]

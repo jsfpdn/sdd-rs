@@ -20,6 +20,7 @@ Cargo.lock
 
 # Generated .dot files for Graphviz
 *.dot
+*.svg
 
 # PGO profiling data
 *.profdata

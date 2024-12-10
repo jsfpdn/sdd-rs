@@ -43,8 +43,11 @@ impl SddRef {
 
     /// Get the vtree for which this SDD is normalized.
     #[must_use]
-    pub fn vtree(&self) -> VTreeRef {
-        self.0.borrow().vtree.clone()
+    pub fn vtree(&self) -> Option<VTreeRef> {
+        if self.is_constant() {
+            return None;
+        }
+        Some(self.0.borrow().vtree.clone())
     }
 
     #[must_use]

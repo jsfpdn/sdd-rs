@@ -302,8 +302,6 @@ pub(crate) fn split_nodes_for_swap(v: &VTreeRef, manager: &SddManager) -> Vec<Sd
 /// Rotate partitions to the left.
 #[must_use]
 pub(crate) fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddManager) -> Decision {
-    let w = x.left_child();
-
     // This function assumes that `x` has been already rotated and `w` is it's left child.
     let SddType::Decision(ref decision) = node.0.borrow().sdd_type else {
         panic!("node must be a decision node");
@@ -313,12 +311,12 @@ pub(crate) fn rotate_partition_left(node: &SddRef, x: &VTreeRef, manager: &SddMa
     for element in &decision.elements {
         let (a, bc) = element.get_prime_sub();
 
-        if bc.is_constant() || bc.vtree().index() > x.index() {
+        if bc.is_constant() || bc.vtree().unwrap().index() > x.index() {
             elements.insert(Element { prime: a, sub: bc });
             continue;
         }
 
-        if bc.vtree().index() == x.index() {
+        if bc.vtree().unwrap().index() == x.index() {
             let SddType::Decision(ref bc_decision) = bc.0.borrow().sdd_type else {
                 panic!("node must be a decision node");
             };
@@ -356,7 +354,7 @@ pub(crate) fn rotate_partition_right(
     w: &VTreeRef,
     manager: &SddManager,
 ) -> Decision {
-    let x = w.right_child();
+    let x = w.right_child().unwrap();
     let SddType::Decision(ref decision) = node.0.borrow().sdd_type else {
         panic!("node must be a decision node");
     };
@@ -368,12 +366,14 @@ pub(crate) fn rotate_partition_right(
         let (ab, c) = element.get_prime_sub();
         assert!(!ab.is_constant());
 
-        if ab.vtree().index() >= x.inorder_first() && ab.vtree().index() <= x.inorder_last() {
+        if ab.vtree().unwrap().index() >= x.inorder_first()
+            && ab.vtree().unwrap().index() <= x.inorder_last()
+        {
             current_elements.insert(Element {
                 prime: manager.tautology(),
                 sub: manager.conjoin(&ab, &c),
             });
-        } else if ab.vtree().index() == w.index() {
+        } else if ab.vtree().unwrap().index() == w.index() {
             let SddType::Decision(ref ab_decision) = ab.0.borrow().sdd_type else {
                 panic!("node must be a decision node");
             };
@@ -505,7 +505,7 @@ mod test {
         let models = manager.model_enumeration(&a_and_b_or_c);
 
         let root = manager.root();
-        let rc = root.right_child();
+        let rc = root.right_child().unwrap();
         let mut fragment = Fragment::new(&root, &rc);
 
         for i in 0..=11 {

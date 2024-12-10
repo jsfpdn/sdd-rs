@@ -19,6 +19,8 @@ impl std::fmt::Display for Edge {
     }
 }
 
+/// [`DotWriter`] is responsible for drawing SDDs and vtrees
+/// in the .DOT Graphviz format.
 #[derive(Default)]
 pub struct DotWriter {
     graph_name: String,
@@ -29,19 +31,17 @@ pub struct DotWriter {
 }
 
 #[derive(Debug)]
-pub enum NodeType {
-    Box(String),
+pub(crate) enum NodeType {
     Circle(String, Option<usize>),
-    CircleStr(String, u32),
     Record(String, String),
 }
 
 impl NodeType {
     fn shape(&self) -> String {
         let shape_type = match self {
-            NodeType::Box(_) => "box",
+            // NodeType::Box(_) => "box",
             NodeType::Record(_, _) => "record",
-            NodeType::Circle(_, _) | NodeType::CircleStr(_, _) => "circle",
+            NodeType::Circle(_, _) => "circle",
         }
         .to_owned();
 
@@ -55,8 +55,6 @@ impl NodeType {
                 format!("label=<{label}>, xlabel=<<FONT POINT-SIZE=\"7\">{idx}</FONT>>, fillcolor=white, style=filled")
             }
             NodeType::Circle(label, _) => format!("label=<{label}>"),
-            NodeType::CircleStr(label, idx) => format!("label=\"{label} ({idx})\""),
-            NodeType::Box(_) => String::new(),
         }
     }
 
@@ -67,7 +65,7 @@ impl NodeType {
 
 impl DotWriter {
     #[must_use]
-    pub fn new(graph_name: String, show_ids: bool) -> DotWriter {
+    pub(crate) fn new(graph_name: String, show_ids: bool) -> DotWriter {
         DotWriter {
             graph_name,
             show_ids,
@@ -75,11 +73,11 @@ impl DotWriter {
         }
     }
 
-    pub fn add_node(&mut self, node_idx: usize, node_type: NodeType) {
+    pub(crate) fn add_node(&mut self, node_idx: usize, node_type: NodeType) {
         self.nodes.push((node_idx, node_type));
     }
 
-    pub fn add_edge(&mut self, edge: Edge) {
+    pub(crate) fn add_edge(&mut self, edge: Edge) {
         for other in &self.edges {
             if *other == edge {
                 // We have already added this edge.
@@ -92,7 +90,7 @@ impl DotWriter {
 
     /// # Errors
     /// Function returns an error if the writing to a file or flushing fails.
-    pub fn write(&self, writer: &mut dyn std::io::Write) -> Result<(), String> {
+    pub(crate) fn write(&self, writer: &mut dyn std::io::Write) -> Result<(), String> {
         write!(
             writer,
             "digraph {} {{\n  overlap=false\n  ordering=out",

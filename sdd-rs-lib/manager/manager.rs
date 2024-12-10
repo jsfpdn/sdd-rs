@@ -176,11 +176,7 @@ impl SddManager {
         };
 
         for variable in variables {
-            let vtree = manager
-                .vtree_manager
-                .borrow()
-                .get_variable_vtree(&variable)
-                .unwrap();
+            let vtree = manager.vtree_manager.borrow().get_variable_vtree(&variable);
 
             let positive_literal = manager.new_sdd_from_type(
                 SddType::Literal(Literal::new_with_label(
@@ -296,7 +292,7 @@ impl SddManager {
         self.unique_table
             .borrow()
             .iter()
-            .filter(|(_, sdd)| sdd.vtree().index() == vtree_idx)
+            .filter(|(_, sdd)| !sdd.is_constant() && sdd.vtree().unwrap().index() == vtree_idx)
             .map(|(id, sdd)| (*id, sdd.clone()))
             .collect()
     }
@@ -508,6 +504,13 @@ impl SddManager {
     #[must_use]
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     pub fn negate(&self, fst: &SddRef) -> SddRef {
+        if fst.is_true() {
+            return self.contradiction();
+        }
+        if fst.is_false() {
+            return self.tautology();
+        }
+
         tracing::debug!(fst_id = fst.id().0);
         fst.clone().negate(self)
     }
@@ -600,14 +603,14 @@ impl SddManager {
     pub fn model_count(&self, sdd: &SddRef) -> u64 {
         let models = self._model_count(sdd);
 
-        if self.root().index() == sdd.vtree().index() {
+        if self.root().index() == sdd.vtree().unwrap().index() {
             return models;
         }
 
         let sdd_variables = self
             .vtree_manager
             .borrow()
-            .get_vtree(sdd.vtree().index())
+            .get_vtree(sdd.vtree().unwrap().index())
             .unwrap()
             .0
             .borrow()
@@ -623,14 +626,14 @@ impl SddManager {
         match fragment_strategy {
             FragmentHeuristic::Root => {
                 let root = self.root();
-                if root.right_child().is_internal() {
-                    Fragment::new(&root, &root.right_child())
+                if root.right_child().unwrap().is_internal() {
+                    Fragment::new(&root, &root.right_child().unwrap())
                 } else {
-                    Fragment::new(&root, &root.left_child())
+                    Fragment::new(&root, &root.left_child().unwrap())
                 }
             }
             FragmentHeuristic::Random => unimplemented!(),
-            FragmentHeuristic::Custom(idx, linearity) => unimplemented!(),
+            FragmentHeuristic::Custom(_idx, _linearity) => unimplemented!(),
             FragmentHeuristic::MostNormalized => {
                 // There are 2n-1 nodes in the vtree where n is the number
                 // of variables.
@@ -640,7 +643,7 @@ impl SddManager {
                     if sdd.is_constant_or_literal() {
                         continue;
                     }
-                    frequency[sdd.vtree().index().0 as usize] += 1;
+                    frequency[sdd.vtree().unwrap().index().0 as usize] += 1;
                 }
 
                 let root_idx = frequency
@@ -656,8 +659,8 @@ impl SddManager {
                     .unwrap();
 
                 assert!(root.is_internal());
-                let lc = root.left_child();
-                let rc = root.right_child();
+                let lc = root.left_child().unwrap();
+                let rc = root.right_child().unwrap();
 
                 let child = if frequency[lc.index().0 as usize] > frequency[rc.index().0 as usize]
                     && lc.is_internal()
@@ -700,11 +703,10 @@ impl SddManager {
         );
 
         let init_size = self.size(reference_sdd);
-        let mut i = 0;
         let mut best_i: usize = 0;
         let mut best_size = init_size;
         let mut curr_size = init_size;
-        for _ in 0..12 {
+        for (i, _) in (0..12).enumerate() {
             fragment.next(&Direction::Forward, self);
             tracing::debug!(
                 iteration = i,
@@ -712,8 +714,8 @@ impl SddManager {
                 size = self.size(reference_sdd)
             );
 
-            debug_assert!(reference_sdd.is_trimmed(&self));
-            debug_assert!(reference_sdd.is_compressed(&self));
+            debug_assert!(reference_sdd.is_trimmed(self));
+            debug_assert!(reference_sdd.is_compressed(self));
 
             curr_size = self.size(reference_sdd);
             if curr_size <= best_size {
@@ -733,8 +735,6 @@ impl SddManager {
                 // the best vtree configuration. We have to break out and rewind to it.
                 break;
             }
-
-            i += 1;
         }
 
         // The last iteration is when we found the best fragment.
@@ -792,9 +792,7 @@ impl SddManager {
                 .into_iter()
                 .flat_map(|Element { prime, sub }| [prime, sub])
                 .collect();
-            while !queue.is_empty() {
-                let sdd = queue.pop().unwrap();
-
+            while let Some(sdd) = queue.pop() {
                 // 3 references means orphaned: 1 from unique_table, 1 from parent not present
                 // in the unique_table anymore and 1 from here.
                 if sdd.strong_count() == 3 && !sdd.is_constant_or_literal() {
@@ -1039,7 +1037,7 @@ impl SddManager {
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     fn apply(&self, fst: &SddRef, snd: &SddRef, op: Operation) -> SddRef {
         tracing::debug!(fst_id = fst.id().0, snd_id = snd.id().0, ?op, "apply");
-        let (fst, snd) = if fst.vtree().index() < snd.vtree().index() {
+        let (fst, snd) = if fst.vtree().unwrap().index() < snd.vtree().unwrap().index() {
             (fst, snd)
         } else {
             (snd, fst)
@@ -1055,7 +1053,7 @@ impl SddManager {
         let (lca, order) = self
             .vtree_manager
             .borrow()
-            .least_common_ancestor(fst.vtree().index(), snd.vtree().index());
+            .least_common_ancestor(fst.vtree().unwrap().index(), snd.vtree().unwrap().index());
 
         let elements = match order {
             VTreeOrder::Equal => self._apply_eq(fst, snd, op),
@@ -1064,7 +1062,7 @@ impl SddManager {
             VTreeOrder::RightSubOfLeft => self._apply_right_sub_of_left(fst, snd, op),
         };
 
-        let sdd = Sdd::unique_d(&elements, &lca, self).canonicalize(&self);
+        let sdd = Sdd::unique_d(&elements, &lca, self).canonicalize(self);
         self.insert_node(&sdd);
         self.cache_operation(&CachedOperation::BinOp(fst.id(), op, snd.id()), sdd.id());
 
@@ -1091,7 +1089,7 @@ impl SddManager {
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     fn _apply_eq(&self, fst: &SddRef, snd: &SddRef, op: Operation) -> BTreeSet<Element> {
         tracing::debug!(fst_id = fst.id().0, snd_id = snd.id().0, ?op, "apply_eq");
-        assert_eq!(fst.vtree().index(), snd.vtree().index());
+        assert_eq!(fst.vtree().unwrap().index(), snd.vtree().unwrap().index());
         assert!(!fst.is_constant());
         assert!(!snd.is_constant());
 
@@ -1135,7 +1133,7 @@ impl SddManager {
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     fn _apply_ineq(&self, fst: &SddRef, snd: &SddRef, op: Operation) -> BTreeSet<Element> {
         tracing::debug!(fst_id = fst.id().0, snd_id = snd.id().0, ?op, "apply_ineq");
-        assert!(fst.vtree().index() < snd.vtree().index());
+        assert!(fst.vtree().unwrap().index() < snd.vtree().unwrap().index());
         assert!(!fst.is_constant());
         assert!(!snd.is_constant());
 
@@ -1179,7 +1177,7 @@ impl SddManager {
             ?op,
             "apply_left_sub_of_right"
         );
-        assert!(fst.vtree().index() < snd.vtree().index());
+        assert!(fst.vtree().unwrap().index() < snd.vtree().unwrap().index());
         assert!(!fst.is_constant());
         assert!(!snd.is_constant());
 
@@ -1233,7 +1231,7 @@ impl SddManager {
             ?op,
             "apply_right_sub_of_left"
         );
-        assert!(fst.vtree().index() < snd.vtree().index());
+        assert!(fst.vtree().unwrap().index() < snd.vtree().unwrap().index());
         assert!(!fst.is_constant());
         assert!(!snd.is_constant());
 
@@ -1310,7 +1308,7 @@ impl SddManager {
 
         self.vtree_manager
             .borrow()
-            .get_vtree(sdd.vtree().index())
+            .get_vtree(sdd.vtree().unwrap().index())
             .unwrap()
             .0
             .borrow()
@@ -1357,6 +1355,8 @@ impl SddManager {
     }
 
     /// Rotate the vtree [`x`] to the left and adjust SDDs accordingly.
+    /// The user must make sure that [`x`] is 'rotatable', i.e., [`x`]
+    /// is an internal node and has a parent.
     ///
     /// ```ignore
     ///      w                x
@@ -1391,7 +1391,7 @@ impl SddManager {
             bc.replace_contents(SddType::Decision(Decision {
                 elements: rotate_partition_left(bc, x, self).elements,
             }));
-            bc.replace_contents(bc.canonicalize(&self).0.borrow().sdd_type.clone());
+            bc.replace_contents(bc.canonicalize(self).0.borrow().sdd_type.clone());
             bc.set_vtree(x.clone());
         }
 
@@ -1413,7 +1413,8 @@ impl SddManager {
     }
 
     /// Rotate the vtree [`x`] to the right and adjust SDDs accordingly.
-    ///
+    /// The user must make sure that [`x`] is 'rotatable', i.e., [`x`]
+    /// is an internal node an its left child `w` is an internal node as well.
     ///
     /// ```ignore
     ///       x                w
@@ -1431,11 +1432,15 @@ impl SddManager {
     /// * `x(ab, c)` must be rotated and moved to `w` (~> `w(a, bc)`)
     /// * `x(a, c)` must be moved to `w` (~> `w(a, c)`)
     /// * `x(a, b)` stay at `x`
+    ///
+    /// # Panics
+    ///
+    /// The function panics if the node is not rotatable.
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     pub fn rotate_right(&self, x: VTreeRef) {
         self.rotating.replace(true);
 
-        let w = x.left_child();
+        let w = x.left_child().unwrap();
         let RightRotateSplit { ab_vec, a_vec } = split_nodes_for_right_rotate(&x, &w, self);
         self.vtree_manager.borrow_mut().rotate_right(&x);
 
@@ -1443,7 +1448,7 @@ impl SddManager {
             ab.replace_contents(SddType::Decision(Decision {
                 elements: rotate_partition_right(ab, &w, self).elements,
             }));
-            ab.replace_contents(ab.canonicalize(&self).0.borrow().sdd_type.clone());
+            ab.replace_contents(ab.canonicalize(self).0.borrow().sdd_type.clone());
             ab.set_vtree(w.clone());
         }
 
@@ -1454,6 +1459,8 @@ impl SddManager {
     }
 
     /// Swap children of the given vtree [`x`] and adjust SDDs accordingly.
+    /// The user must make sure that [`x`] is 'swappable', i.e., it is
+    /// an internal node.
     ///
     /// ```ignore
     ///     x          x
@@ -1463,6 +1470,10 @@ impl SddManager {
     ///
     /// This is a low-level operation working directly on a vtree. See
     /// [`SddManager::minimization`] for a more sophisticated way of finding better vtrees.
+    ///
+    /// # Panics
+    ///
+    /// The function panics if the node's children cannot be swapped.
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
     pub fn swap(&self, x: VTreeRef) {
         self.rotating.replace(true);
@@ -1650,11 +1661,11 @@ mod test {
 
         // Resulting SDD must be normalized w.r.t. vtree with index 3.
         let a_and_d = manager.conjoin(&lit_a, &lit_d);
-        assert_eq!(a_and_d.vtree().index().0, 3);
+        assert_eq!(a_and_d.vtree().unwrap().index().0, 3);
 
         // Resulting SDD must be normalized w.r.t. vtree with index 3.
         let a_and_d__and_b = manager.conjoin(&a_and_d, &lit_b);
-        assert_eq!(a_and_d__and_b.vtree().index().0, 3);
+        assert_eq!(a_and_d__and_b.vtree().unwrap().index().0, 3);
     }
 
     #[test]
@@ -1811,7 +1822,7 @@ mod test {
         let models_before = manager.model_enumeration(&a_and_d_and_b_and_c);
 
         // Rotating right child of the root to the left makes the vtree balanced.
-        manager.rotate_left(&manager.root().right_child());
+        manager.rotate_left(&manager.root().right_child().unwrap());
 
         let models_after = manager.model_enumeration(&a_and_d_and_b_and_c);
         assert_eq!(models_before, models_after);

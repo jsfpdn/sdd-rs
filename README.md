@@ -1,6 +1,6 @@
 # :books: sddrs: Bottom-Up Sentential Decision Diagram Compiler
 
-<img align="right" width="150" height="200" src="static/sdd.svg" alt="SDD for (A ∧ B) ∨ C">
+<img align="right" margin="10px 0 10px 10px" width="130" height="200" src="static/sdd.png" alt="SDD for (A ∧ B) ∨ C">
 
 **Incrementally build, manipualate, and optimize
 [Sentential Decision Diagrams (SDD)](https://en.wikipedia.org/wiki/Sentential_decision_diagram):
@@ -20,7 +20,6 @@ The compiler currently supports:
 * garbage collection of dead nodes,
 * SDD compilation from CNF in
   [DIMACS](https://www21.in.tum.de/~lammich/2015_SS_Seminar_SAT/resources/dimacs-cnf.pdf) format
-
 
 ## Usage
 
@@ -48,7 +47,7 @@ fn main() {
         // Create right-linear vtree.
         .vtree_strategy(options::VTreeStragey::RightLinear)
         // Initialize the manager with variables A, B, and C.
-        .variables(!arr["A", "B", "C"])
+        .variables(["A".to_string(), "B".to_string(), "C"])
         .build();
     let manager = SddManager::new(options);
 
