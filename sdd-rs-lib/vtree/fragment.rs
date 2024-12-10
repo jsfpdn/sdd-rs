@@ -82,7 +82,7 @@ pub enum Linearity {
 }
 
 impl FragmentState {
-    fn new(linearity: &Linearity) -> Self {
+    fn new(linearity: Linearity) -> Self {
         let (forward_moves, backward_moves) = match linearity {
             Linearity::LeftLinear => (MOVES_LEFT_LINEAR, MOVES_RIGHT_LINEAR),
             Linearity::RightLinear => (MOVES_RIGHT_LINEAR, MOVES_LEFT_LINEAR),
@@ -168,7 +168,7 @@ impl Fragment {
         Fragment {
             current_root: root.clone(),
             current_child: child.clone(),
-            state: FragmentState::new(&linearity),
+            state: FragmentState::new(linearity),
         }
     }
 
@@ -545,7 +545,7 @@ mod test {
         // (inverse(RR) = LL, inverse(LL) = RR, inverse(SC) = SC) and in the
         // inverse order.
 
-        let mut state = FragmentState::new(&Linearity::LeftLinear);
+        let mut state = FragmentState::new(Linearity::LeftLinear);
         assert_eq!(state.next(&Forward), RightRotateRoot);
         assert_eq!(state.index, 1);
 

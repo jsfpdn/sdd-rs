@@ -50,7 +50,7 @@ impl LiteralManager {
         );
     }
 
-    /// Get the number of all literals irrespective of polarities.
+    /// Get the number of all variables irrespective of polarities.
     pub(crate) fn len(&self) -> usize {
         self.literals.borrow().len()
     }

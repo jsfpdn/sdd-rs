@@ -53,7 +53,7 @@ struct Entry {
     op: Operation,
 }
 
-/// Key into the op_cache.
+/// Key into the `op_cache`.
 impl Entry {
     fn contains_id(&self, id: SddId) -> bool {
         self.fst == id || self.snd == id
@@ -134,9 +134,10 @@ impl SddManager {
     /// contain any variables.
     #[must_use]
     pub fn new(options: &SddOptions) -> SddManager {
-        if options.variables.is_empty() {
-            panic!("SddManager must be initialized with at least one variable!");
-        }
+        assert!(
+            !options.variables.is_empty(),
+            "SddManager must be initialized with at least one variable!"
+        );
 
         let mut unique_table = RefCell::new(FxHashMap::default());
         let ff = SddRef::new(Sdd::new_false());
@@ -296,7 +297,7 @@ impl SddManager {
 
     /// Remove a node from unique table. Result denotes whether the node
     /// was present and therefore successfully removed.
-    /// TODO: This should be superseded by remove_from_op_cache.
+    /// TODO: This should be superseded by `remove_from_op_cache`.
     pub(crate) fn remove_node(&self, id: SddId) -> Result<(), ()> {
         tracing::debug!(id = id.0, "removing node from cache");
         let entries: Vec<_> = {
@@ -597,7 +598,20 @@ impl SddManager {
     }
 
     /// Count models of the SDD.
+    ///
+    /// # Panics
+    ///
+    /// Function panics if the number of variables cannot fit into u32.
     pub fn model_count(&self, sdd: &SddRef) -> u64 {
+        if sdd.is_true() {
+            let all_variables = self.literal_manager.borrow().len();
+            return 2_u64.pow(u32::try_from(all_variables).unwrap());
+        }
+
+        if sdd.is_false() {
+            return 0;
+        }
+
         let models = self._model_count(sdd);
 
         if self.root().index() == sdd.vtree().unwrap().index() {
@@ -619,7 +633,7 @@ impl SddManager {
     }
 
     /// Create a fragment given a heuristic [`FragmentHeuristic`].
-    fn create_fragment(&self, fragment_strategy: &FragmentHeuristic) -> Fragment {
+    fn create_fragment(&self, fragment_strategy: FragmentHeuristic) -> Fragment {
         match fragment_strategy {
             FragmentHeuristic::Root => {
                 let root = self.root();
@@ -652,7 +666,7 @@ impl SddManager {
                 let root = self
                     .vtree_manager
                     .borrow()
-                    .get_vtree(VTreeIdx(root_idx as u32))
+                    .get_vtree(VTreeIdx(u32::try_from(root_idx).unwrap()))
                     .unwrap();
 
                 assert!(root.is_internal());
@@ -692,7 +706,7 @@ impl SddManager {
             "\nreference_sdd size before: {:?}",
             self.size(reference_sdd)
         );
-        let mut fragment = self.create_fragment(&fragment_strategy);
+        let mut fragment = self.create_fragment(fragment_strategy);
 
         tracing::debug!(
             sdd_id = reference_sdd.id().0,
@@ -761,6 +775,12 @@ impl SddManager {
         }
     }
 
+    /// Collect dead SDD nodes.
+    ///
+    /// # Panics
+    ///
+    /// Function panics if trying to collect nodes which are terminals, which
+    /// would mean bug in GC.
     pub fn collect_garbage(&self) {
         let mut removed = FxHashSet::default();
 
@@ -1698,6 +1718,9 @@ mod test {
 
         let a_and_b_and_c_or_d = manager.disjoin(&a_and_b_and_c, &lit_d);
         assert_eq!(manager.model_count(&a_and_b_and_c_or_d), 9);
+
+        assert_eq!(manager.model_count(&manager.tautology()), 2_u64.pow(4));
+        assert_eq!(manager.model_count(&manager.contradiction()), 0);
     }
 
     #[test]
