@@ -199,7 +199,6 @@ impl Fragment {
 
         while self.state.index > state {
             self.next(&Direction::Backward, manager);
-            println!("rewound back to ({})", self.state.index);
         }
     }
 

@@ -685,9 +685,6 @@ impl SddManager {
                     panic!("none of left and right child are internal nodes, we have to do something else here");
                 };
 
-                println!("frequencies: {frequency:?}");
-                println!("=> root {:?}, child {:?}", root.index(), child.index());
-
                 Fragment::new(&root, &child)
             }
         }
@@ -704,7 +701,6 @@ impl SddManager {
         fragment_strategy: &FragmentHeuristic,
         reference_sdd: &SddRef,
     ) {
-        println!("\nreference_sdd size before: {:?}", reference_sdd.size());
         let mut fragment = self.create_fragment(fragment_strategy);
 
         tracing::debug!(sdd_id = reference_sdd.id().0, size = reference_sdd.size());
@@ -749,8 +745,6 @@ impl SddManager {
             return;
         }
 
-        // TODO: Instead of rewinding e.g. to the back, select something that is
-        // "good enough" and not that far.
         fragment.rewind(best_i + 1, self);
     }
 
