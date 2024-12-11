@@ -134,7 +134,9 @@ impl SddRef {
     /// the value is just returned.
     pub(crate) fn negate(&self, manager: &SddManager) -> SddRef {
         if let Some(negation) = manager.get_cached_operation(&CachedOperation::Neg(self.id())) {
-            return manager.get_node(negation);
+            if let Some(negation) = manager.try_get_node(negation) {
+                return negation;
+            }
         }
 
         let negation = self.0.borrow_mut().negate(manager);
@@ -187,6 +189,10 @@ impl SddRef {
 
     pub(crate) fn replace_contents(&self, other: SddType) {
         self.0.borrow_mut().sdd_type = other;
+    }
+
+    pub(crate) fn set_id(&self, new_id: SddId) {
+        self.0.borrow_mut().id = new_id;
     }
 
     pub(crate) fn set_vtree(&self, vtree: VTreeRef) {

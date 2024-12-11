@@ -312,17 +312,17 @@ impl SddManager {
 
     /// Remove a nodes from unique table and caches.
     fn remove_from_op_cache(&self, ids: &FxHashSet<SddId>) {
-        let entries_to_remove: Vec<_> = ids
-            .iter()
-            .map(|id| (id, self.get_cached_operation(&CachedOperation::Neg(*id))))
-            .filter(|(_, negation)| negation.is_some())
-            .map(|(fst, snd)| (fst, snd.unwrap()))
-            .collect();
+        let mut entries_to_remove = Vec::new();
+        for (fst, snd) in self.neg_cache.borrow().iter() {
+            if ids.contains(fst) || ids.contains(snd) {
+                entries_to_remove.push(*fst);
+                entries_to_remove.push(*snd);
+            }
+        }
 
         let mut cache = self.neg_cache.borrow_mut();
-        for (fst, snd) in &entries_to_remove {
-            cache.remove(fst);
-            cache.remove(snd);
+        for id in &entries_to_remove {
+            cache.remove(id);
         }
 
         let mut entries_to_remove = Vec::new();
@@ -745,7 +745,7 @@ impl SddManager {
             return;
         }
 
-        fragment.rewind(best_i + 1, self);
+        fragment.rewind(best_i, self);
     }
 
     fn should_stop_minimizing(
@@ -1041,11 +1041,12 @@ impl SddManager {
         };
 
         let sdd = Sdd::unique_d(&elements, &lca, self).canonicalize(self);
-        self.insert_node(&sdd);
-        self.cache_operation(&CachedOperation::BinOp(fst.id(), op, snd.id()), sdd.id());
 
         debug_assert!(sdd.is_trimmed(self));
         debug_assert!(sdd.is_compressed(self));
+
+        self.insert_node(&sdd);
+        self.cache_operation(&CachedOperation::BinOp(fst.id(), op, snd.id()), sdd.id());
 
         // TODO: collect garbage for top-level apply if conditions are met.
 
@@ -1244,6 +1245,9 @@ impl SddManager {
 
     /// Insert a new [`SddRef`] into the unique table.
     pub(crate) fn insert_node(&self, sdd: &SddRef) {
+        debug_assert!(sdd.is_trimmed(self));
+        debug_assert!(sdd.is_compressed(self));
+
         self.unique_table.borrow_mut().insert(sdd.id(), sdd.clone());
     }
 
@@ -1371,6 +1375,9 @@ impl SddManager {
             }));
             bc.replace_contents(bc.canonicalize(self).0.borrow().sdd_type.clone());
             bc.set_vtree(x.clone());
+
+            debug_assert!(bc.is_compressed(self));
+            debug_assert!(bc.is_trimmed(self));
         }
 
         self.finalize_vtree_op(&bc_vec, &c_vec, x);
@@ -1428,6 +1435,9 @@ impl SddManager {
             }));
             ab.replace_contents(ab.canonicalize(self).0.borrow().sdd_type.clone());
             ab.set_vtree(w.clone());
+
+            debug_assert!(ab.is_compressed(self));
+            debug_assert!(ab.is_trimmed(self));
         }
 
         self.finalize_vtree_op(&ab_vec, &a_vec, &w);
@@ -1460,11 +1470,23 @@ impl SddManager {
         self.vtree_manager.borrow_mut().swap(&x);
 
         for sdd in &split {
-            // TODO: This can be not trimmed and not compressed!
-            sdd.replace_contents(SddType::Decision(Decision {
+            let dec = Decision {
                 elements: swap_partition(sdd, self).elements,
-            }));
-            sdd.set_vtree(x.clone());
+            };
+
+            if let Some(trimmed) = dec.trim(self) {
+                sdd.replace_contents(trimmed.0.borrow().sdd_type.clone());
+                sdd.set_id(trimmed.id());
+                if !sdd.is_constant() {
+                    sdd.set_vtree(trimmed.vtree().unwrap());
+                }
+            } else {
+                sdd.replace_contents(SddType::Decision(dec));
+                sdd.set_vtree(x.clone());
+            }
+
+            debug_assert!(sdd.is_compressed(self));
+            debug_assert!(sdd.is_trimmed(self));
         }
 
         self.finalize_vtree_op(&split, &[], &x);
@@ -1497,8 +1519,12 @@ impl SddManager {
         sdd
     }
 
+    pub(crate) fn idx(&self) -> SddId {
+        *self.next_idx.borrow()
+    }
+
     /// Move ID of the next SDD.
-    fn move_idx(&self) {
+    pub(crate) fn move_idx(&self) {
         let mut idx = self.next_idx.borrow_mut();
         *idx += SddId(1);
     }

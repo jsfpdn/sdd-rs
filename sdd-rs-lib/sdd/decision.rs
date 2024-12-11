@@ -26,13 +26,15 @@ impl Decision {
             return true;
         }
 
+        // Check for `{(true, A)}`.
+        if self.elements.len() == 1 {
+            let (prime, _) = self.elements.first().unwrap().get_prime_sub();
+            return !prime.is_true();
+        }
+
+        // Check for `{(A, true), (!A, false)}`.
         for element in &self.elements {
             let (prime, sub) = element.get_prime_sub();
-
-            // Check for `{(true, A)}`.
-            if prime.is_true() {
-                return false;
-            }
 
             // Check for elements `(A, True)` and `(!A, False)`. We can continue with the next iteration
             // if the sub is not True or False.
@@ -76,7 +78,8 @@ impl Decision {
     /// Trim decision node by replacing decompositions {(true, alpha)}
     /// and {(alpha, true), (!alpha, false)} with alpha. Returns a Boolean
     /// denoting whether the decision node had to be trimmed.
-    pub(super) fn trim(&self, manager: &SddManager) -> Option<SddRef> {
+    #[must_use]
+    pub(crate) fn trim(&self, manager: &SddManager) -> Option<SddRef> {
         let elements: Vec<&Element> = self.elements.iter().collect();
         if self.elements.len() == 1 {
             let el = elements.first().unwrap();
@@ -150,9 +153,12 @@ impl Decision {
             i += 1;
         }
 
-        Decision {
+        let d = Decision {
             elements: elements.iter().cloned().collect(),
-        }
+        };
+
+        debug_assert!(d.is_compressed(manager));
+        d
     }
 
     /// Get all primes of a decision node.

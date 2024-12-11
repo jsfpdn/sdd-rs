@@ -176,10 +176,18 @@ impl Sdd {
             }
 
             let negated_sdd = manager.new_sdd_from_type(
-                SddType::Decision(Decision { elements }),
+                SddType::Decision(
+                    Decision {
+                        elements: elements.clone(),
+                    }
+                    .compress(manager),
+                ),
                 self.vtree.clone(),
                 Some(self.id()),
             );
+
+            debug_assert!(negated_sdd.is_compressed(manager));
+            debug_assert!(negated_sdd.is_trimmed(manager));
 
             // Cache the negation for this SDD.
             manager.cache_operation(&CachedOperation::Neg(self.id()), negated_sdd.id());
@@ -269,13 +277,15 @@ impl Sdd {
             return manager.contradiction();
         }
 
-        manager.new_sdd_from_type(
+        let sdd = SddRef::new(Sdd::new(
             SddType::Decision(Decision {
                 elements: gamma.clone(),
             }),
+            manager.idx(),
             vtree.clone(),
-            None,
-        )
+        ));
+        manager.move_idx();
+        sdd
     }
 
     /// Get the representation of the SDD for the .DOT format.
