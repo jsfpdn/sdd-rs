@@ -60,13 +60,15 @@ const MOVES_RIGHT_LINEAR: [Move; 12] = [
     Move::SwapChild,
 ];
 
-pub(crate) struct Fragment {
+#[derive(Debug, Clone)]
+pub struct Fragment {
     current_root: VTreeRef,
     current_child: VTreeRef,
 
     state: FragmentState,
 }
 
+#[derive(Debug, Clone)]
 struct FragmentState {
     // Index points to the `forward_moves` array to the next move to be performed.
     index: usize,

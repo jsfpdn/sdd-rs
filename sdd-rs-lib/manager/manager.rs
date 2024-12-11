@@ -157,7 +157,6 @@ impl SddManager {
             .map(|(idx, variable)| Variable::new(variable, u32::try_from(idx).unwrap()))
             .collect();
 
-        // TODO: Refactor all the RefCells into single SddManagerState.
         let manager = SddManager {
             options: options.clone(),
             op_cache: RefCell::new(FxHashMap::default()),
@@ -242,7 +241,7 @@ impl SddManager {
                         tracing::info!(sdd_id = sdd.id().0, size = sdd.size(), "before minimizing");
                         self.minimize(
                             self.options.minimization_cutoff,
-                            self.options.fragment_heuristic,
+                            &self.options.fragment_heuristic,
                             &sdd,
                         );
                         tracing::info!(sdd_id = sdd.id().0, size = sdd.size(), "after minimizing");
@@ -636,7 +635,7 @@ impl SddManager {
     }
 
     /// Create a fragment given a heuristic [`FragmentHeuristic`].
-    fn create_fragment(&self, fragment_strategy: FragmentHeuristic) -> Fragment {
+    fn create_fragment(&self, fragment_strategy: &FragmentHeuristic) -> Fragment {
         match fragment_strategy {
             FragmentHeuristic::Root => {
                 let root = self.root();
@@ -647,7 +646,7 @@ impl SddManager {
                 }
             }
             FragmentHeuristic::Random => unimplemented!(),
-            FragmentHeuristic::Custom(_idx, _linearity) => unimplemented!(),
+            FragmentHeuristic::Custom(fragment) => fragment.clone(),
             FragmentHeuristic::MostNormalized => {
                 // There are 2n-1 nodes in the vtree where n is the number
                 // of variables.
@@ -702,7 +701,7 @@ impl SddManager {
     pub fn minimize(
         &self,
         cut_off: MinimizationCutoff,
-        fragment_strategy: FragmentHeuristic,
+        fragment_strategy: &FragmentHeuristic,
         reference_sdd: &SddRef,
     ) {
         println!("\nreference_sdd size before: {:?}", reference_sdd.size());

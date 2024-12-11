@@ -1,7 +1,7 @@
 use bon::Builder;
 use clap::ValueEnum;
 
-use crate::vtree::{Linearity, VTreeIdx};
+use crate::vtree::Fragment;
 
 /// How to construct an initial vtree.
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -15,7 +15,7 @@ pub enum VTreeStrategy {
 }
 
 /// Describes how to pick a fragment in order to dynamically minimize SDDs.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum FragmentHeuristic {
     /// Root of the fragment is vtree node `v` for which the most
     /// SDDs are normalized. A child of this fragment is a
@@ -31,7 +31,7 @@ pub enum FragmentHeuristic {
     Root,
     /// Chooses vtree node with [`VTreeIdx`] as the root of the
     /// fragment and makes it either left-linear or right-linear.
-    Custom(VTreeIdx, Linearity),
+    Custom(Fragment),
 }
 
 /// Whether to automatically collect garbage.

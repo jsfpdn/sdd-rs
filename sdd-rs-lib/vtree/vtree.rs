@@ -13,6 +13,8 @@ use std::{
     rc::Rc,
 };
 
+use super::{Fragment, Linearity};
+
 /// Node of a full binary tree.
 #[derive(Clone, PartialEq)]
 pub(crate) enum Node {
@@ -222,6 +224,28 @@ impl VTreeRef {
     #[must_use]
     pub fn index(&self) -> VTreeIdx {
         self.0.borrow().idx
+    }
+
+    /// Create {left,right}-linear fragment with [`self`] as the fragment root.
+    /// Returns none if the fragment cannot be created (when either [`self`] or
+    /// its child depending on [`linearity`] are not internal nodes)
+    #[must_use]
+    pub fn fragment(&self, linearity: Linearity) -> Option<Fragment> {
+        match self.0.borrow().node {
+            Node::Leaf(..) => None,
+            Node::Internal(ref lc, ref rc) => {
+                let child = match linearity {
+                    Linearity::LeftLinear => lc.clone(),
+                    Linearity::RightLinear => rc.clone(),
+                };
+
+                if child.is_internal() {
+                    Some(Fragment::new(self, &child))
+                } else {
+                    None
+                }
+            }
+        }
     }
 
     pub(crate) fn inorder_first(&self) -> VTreeIdx {

@@ -187,7 +187,7 @@ fn main() -> Result<(), std::io::Error> {
         let minimization_start = Instant::now();
         manager.minimize(
             options.minimization_cutoff,
-            options.fragment_heuristic,
+            &options.fragment_heuristic,
             &sdd,
         );
 
