@@ -97,8 +97,9 @@ cargo build --release
     --vtree right-linear \
     --minimize-after-k-clauses 2 \
     --print-statistics \
-    --collect-garbage 0.01 \
+    --collect-garbage  \
     --sdd.dot \
+    --dimacs-path ./static/datasets/easy.cnf
 ```
 
 To render the SDD, install [Graphviz](https://graphviz.org/) and run
