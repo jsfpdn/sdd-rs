@@ -1,5 +1,5 @@
 use crate::manager::{CachedOperation, SddManager, FALSE_SDD_IDX, TRUE_SDD_IDX};
-use crate::sdd::{Sdd, SddId, SddType};
+use crate::sdd::{Decision, Sdd, SddId, SddType};
 use crate::vtree::VTreeRef;
 use bitvec::prelude::*;
 use std::cell::RefCell;
@@ -83,6 +83,27 @@ impl SddRef {
     #[must_use]
     pub fn is_constant_or_literal(&self) -> bool {
         self.is_constant() || self.is_literal()
+    }
+
+    /// Get the size of the SDD which is the number of elements reachable from it.
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
+    pub fn size(&self) -> u64 {
+        let mut q = vec![self.clone()];
+
+        let mut size: u64 = 0;
+        while let Some(sdd) = q.pop() {
+            if let SddType::Decision(Decision { ref elements }) = sdd.0.borrow().sdd_type {
+                size += u64::try_from(elements.len()).unwrap();
+
+                for Element { prime, sub } in elements {
+                    q.push(prime.clone());
+                    q.push(sub.clone());
+                }
+            }
+        }
+
+        size
     }
 
     /// Check whether [`self`] equals to the negated [`other`].

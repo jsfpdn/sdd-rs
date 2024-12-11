@@ -182,7 +182,7 @@ fn main() -> Result<(), std::io::Error> {
         Ok(sdd) => sdd,
     };
 
-    statistics.compiled_sdd_size = Some(manager.size(&sdd));
+    statistics.compiled_sdd_size = Some(sdd.size());
     if args.minimize_after_compiling {
         let minimization_start = Instant::now();
         manager.minimize(
@@ -191,7 +191,7 @@ fn main() -> Result<(), std::io::Error> {
             &sdd,
         );
 
-        statistics.compiled_sdd_size_after_minimization = Some(manager.size(&sdd));
+        statistics.compiled_sdd_size_after_minimization = Some(sdd.size());
         statistics.minimization = Some(minimization_start.elapsed());
     }
 

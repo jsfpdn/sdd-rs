@@ -239,21 +239,13 @@ impl SddManager {
                         && self.options.minimize_after != 0
                         && i % self.options.minimize_after == 0
                     {
-                        tracing::info!(
-                            sdd_id = sdd.id().0,
-                            size = self.size(&sdd),
-                            "before minimizing"
-                        );
+                        tracing::info!(sdd_id = sdd.id().0, size = sdd.size(), "before minimizing");
                         self.minimize(
                             self.options.minimization_cutoff,
                             self.options.fragment_heuristic,
                             &sdd,
                         );
-                        tracing::info!(
-                            sdd_id = sdd.id().0,
-                            size = self.size(&sdd),
-                            "after minimizing"
-                        );
+                        tracing::info!(sdd_id = sdd.id().0, size = sdd.size(), "after minimizing");
                     }
 
                     // TODO: Remove this once garbage is collected from within
@@ -713,18 +705,12 @@ impl SddManager {
         fragment_strategy: FragmentHeuristic,
         reference_sdd: &SddRef,
     ) {
-        println!(
-            "\nreference_sdd size before: {:?}",
-            self.size(reference_sdd)
-        );
+        println!("\nreference_sdd size before: {:?}", reference_sdd.size());
         let mut fragment = self.create_fragment(fragment_strategy);
 
-        tracing::debug!(
-            sdd_id = reference_sdd.id().0,
-            size = self.size(reference_sdd)
-        );
+        tracing::debug!(sdd_id = reference_sdd.id().0, size = reference_sdd.size());
 
-        let init_size = self.size(reference_sdd);
+        let init_size = reference_sdd.size();
         let mut best_i: usize = 0;
         let mut best_size = init_size;
         let mut curr_size = init_size;
@@ -733,13 +719,13 @@ impl SddManager {
             tracing::debug!(
                 iteration = i,
                 sdd_id = reference_sdd.id().0,
-                size = self.size(reference_sdd)
+                size = reference_sdd.size()
             );
 
             debug_assert!(reference_sdd.is_trimmed(self));
             debug_assert!(reference_sdd.is_compressed(self));
 
-            curr_size = self.size(reference_sdd);
+            curr_size = reference_sdd.size();
             if curr_size <= best_size {
                 // We have found better (or equal) fragment state, mark the state we found it in
                 // so we can come back to it once we go through all fragment configurations.
@@ -849,35 +835,6 @@ impl SddManager {
             self.options.garbage_collection,
             GarbageCollection::Automatic
         )
-    }
-
-    /// Get the size of the SDD which is the number of elements reachable from it.
-    pub fn size(&self, sdd: &SddRef) -> u64 {
-        // TODO: Move this function to SddRef.
-        fn traverse_and_count(sdd: &SddRef, seen: &mut Vec<SddId>) -> u64 {
-            if seen.contains(&sdd.id()) {
-                return 0;
-            }
-
-            match sdd.0.borrow().sdd_type {
-                SddType::Decision(Decision { ref elements }) => {
-                    seen.push(sdd.id());
-
-                    elements.len() as u64
-                        + elements
-                            .iter()
-                            .map(Element::get_prime_sub)
-                            .map(|(prime, sub)| {
-                                traverse_and_count(&prime, seen) + traverse_and_count(&sub, seen)
-                            })
-                            .sum::<u64>()
-                }
-                _ => 0,
-            }
-        }
-
-        let mut seen: Vec<SddId> = Vec::new();
-        traverse_and_count(sdd, &mut seen)
     }
 
     #[instrument(skip_all, level = tracing::Level::DEBUG)]
@@ -1565,6 +1522,7 @@ mod test {
             model::Model,
             options::{GarbageCollection, VTreeStrategy},
         },
+        util::quick_draw,
     };
     use bon::arr;
     use pretty_assertions::assert_eq;
@@ -1902,7 +1860,8 @@ mod test {
         let a_and_d = manager.conjoin(&lit_a, &lit_d);
         let a_and_d_and_b = manager.conjoin(&a_and_d, &lit_b);
         let a_and_d_and_b_and_c = manager.conjoin(&a_and_d_and_b, &lit_c);
-        assert_eq!(manager.size(&a_and_d_and_b_and_c), 8);
+        quick_draw(&manager, &a_and_d_and_b_and_c, "easy");
+        assert_eq!(a_and_d_and_b_and_c.size(), 8);
 
         let models_before = manager.model_enumeration(&a_and_d_and_b_and_c);
 
