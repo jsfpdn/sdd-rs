@@ -1,3 +1,5 @@
+use anyhow::Result;
+
 pub trait Dot {
     fn draw(&self, writer: &mut DotWriter);
 }
@@ -90,13 +92,12 @@ impl DotWriter {
 
     /// # Errors
     /// Function returns an error if the writing to a file or flushing fails.
-    pub(crate) fn write(&self, writer: &mut dyn std::io::Write) -> Result<(), String> {
+    pub(crate) fn write(&self, writer: &mut dyn std::io::Write) -> Result<()> {
         write!(
             writer,
             "digraph {} {{\n  overlap=false\n  ordering=out",
             self.graph_name
-        )
-        .map_err(|err| err.to_string())?;
+        )?;
 
         for (node, node_type) in &self.nodes {
             write!(
@@ -105,17 +106,16 @@ impl DotWriter {
                 node_type.shape(),
                 node_type.label(self.show_ids),
                 NodeType::metadata(),
-            )
-            .map_err(|err| err.to_string())?;
+            )?;
         }
 
+        // TODO: Make the edge begin in the middle of the child.
         for edge in &self.edges {
-            // TODO: Make the edge begin in the middle of the child.
-            write!(writer, "\n  {edge} [arrowsize=.50]").map_err(|err| err.to_string())?;
+            write!(writer, "\n  {edge} [arrowsize=.50]")?;
         }
 
-        write!(writer, "\n}}").map_err(|err| err.to_string())?;
-        writer.flush().map_err(|err| err.to_string())?;
+        write!(writer, "\n}}")?;
+        writer.flush()?;
         Ok(())
     }
 }

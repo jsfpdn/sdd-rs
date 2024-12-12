@@ -1,7 +1,8 @@
 use std::fs::File;
-use std::io::{BufWriter, Error, Seek};
+use std::io::{BufWriter, Seek};
 use std::time::{Duration, Instant};
 
+use anyhow::{bail, Context, Result};
 use clap::{Parser, ValueEnum};
 use sddrs::manager::dimacs::{self};
 use sddrs::manager::options::{
@@ -130,21 +131,19 @@ impl Statistics {
     }
 }
 
-fn main() -> Result<(), std::io::Error> {
+fn main() -> Result<()> {
     let args = Cli::parse();
 
     if let Some(level) = args.verbosity.to_trace() {
         tracing_subscriber::fmt().with_max_level(level).init();
     }
 
-    let mut f = File::open(args.dimacs_path)?;
+    let mut f = File::open(&args.dimacs_path)
+        .with_context(|| format!("Could not open DIMACS file {}", args.dimacs_path))?;
     let variables = match get_variables(&mut f) {
         Ok(variables) => variables,
         Err(err) => {
-            return Err(Error::new(
-                std::io::ErrorKind::Other,
-                format!("could not construct variables for DIMACS file : {err}"),
-            ))
+            bail!(err.context("could not construct variables for clauses in the DIMACS file"))
         }
     };
 
@@ -173,12 +172,7 @@ fn main() -> Result<(), std::io::Error> {
     statistics.compilation = Some(compilation_start.elapsed());
 
     let sdd = match result {
-        Err(err) => {
-            return Err(Error::new(
-                std::io::ErrorKind::Other,
-                format!("could not construct SDD from the DIMACS file: {err}"),
-            ));
-        }
+        Err(err) => bail!(err.context("could not construct SDD from the DIMACS file")),
         Ok(sdd) => sdd,
     };
 
@@ -189,7 +183,7 @@ fn main() -> Result<(), std::io::Error> {
             options.minimization_cutoff,
             &options.fragment_heuristic,
             &sdd,
-        );
+        )?;
 
         statistics.compiled_sdd_size_after_minimization = Some(sdd.size());
         statistics.minimization = Some(minimization_start.elapsed());
@@ -236,10 +230,10 @@ fn main() -> Result<(), std::io::Error> {
 
 fn write_to_file(
     path: Option<&str>,
-    writer: impl Fn(&mut dyn std::io::Write) -> Result<(), String>,
-) -> Result<(), String> {
+    writer: impl Fn(&mut dyn std::io::Write) -> Result<()>,
+) -> Result<()> {
     if let Some(path) = path {
-        let f = File::create(path).map_err(|err| err.to_string())?;
+        let f = File::create(path)?;
         let mut b = BufWriter::new(f);
         writer(&mut b as &mut dyn std::io::Write)?;
     };
@@ -247,7 +241,7 @@ fn write_to_file(
     Ok(())
 }
 
-fn get_variables(reader: &mut dyn std::io::Read) -> Result<Vec<String>, String> {
+fn get_variables(reader: &mut dyn std::io::Read) -> Result<Vec<String>> {
     let mut buffer = std::io::BufReader::new(reader);
     let mut dimacs = dimacs::DimacsParser::new(&mut buffer);
     let preamble = dimacs.parse_preamble()?;

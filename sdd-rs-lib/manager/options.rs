@@ -21,10 +21,6 @@ pub enum FragmentHeuristic {
     /// SDDs are normalized. A child of this fragment is a
     /// child of the `v` node for which more SDDs are normalized.
     MostNormalized,
-    /// Pick a random internal vtree node. If its right child
-    /// is an intenral node, the fragment is right-linear.
-    /// It is left-linear otherwise.
-    Random,
     /// Choose the root of the vtree as root of the fragment.
     /// If its right child is an internal node, the fragment is
     /// right-linear. It is left-linear otherwise.

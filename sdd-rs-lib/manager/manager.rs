@@ -19,6 +19,7 @@ use bitvec::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::{cell::RefCell, cmp::Ordering, collections::BTreeSet, ops::BitOr};
 
+use anyhow::{anyhow, bail, Result};
 use tracing::instrument;
 
 use super::options::{FragmentHeuristic, MinimizationCutoff};
@@ -214,22 +215,20 @@ impl SddManager {
     /// * DIMACS cannot be parsed.
     ///
     /// [DIMACS]: https://www21.in.tum.de/~lammich/2015_SS_Seminar_SAT/resources/dimacs-cnf.pdf
-    pub fn from_dimacs(&self, reader: &mut dyn std::io::Read) -> Result<SddRef, String> {
+    pub fn from_dimacs(&self, reader: &mut dyn std::io::Read) -> Result<SddRef> {
         let mut reader = std::io::BufReader::new(reader);
         let mut dimacs = dimacs::DimacsParser::new(&mut reader);
 
-        let preamble = dimacs.parse_preamble().map_err(|err| err.to_string())?;
+        let preamble = dimacs.parse_preamble()?;
         let num_variables = self.literal_manager.borrow().len();
         if preamble.variables > num_variables {
-            return Err(String::from(
-                "preamble specifies more variables than those present in the manager",
-            ));
+            bail!("preamble specifies more variables than those present in the manager",);
         }
 
         let mut sdd = self.tautology();
         let mut i = 0;
         loop {
-            match dimacs.parse_next_clause().map_err(|err| err.to_string())? {
+            match dimacs.parse_next_clause()? {
                 None => return Ok(sdd),
                 Some(clause) => {
                     sdd = self.conjoin(&sdd, &clause.to_sdd(self));
@@ -243,7 +242,7 @@ impl SddManager {
                             self.options.minimization_cutoff,
                             &self.options.fragment_heuristic,
                             &sdd,
-                        );
+                        )?;
                         tracing::info!(sdd_id = sdd.id().0, size = sdd.size(), "after minimizing");
                     }
 
@@ -635,57 +634,87 @@ impl SddManager {
     }
 
     /// Create a fragment given a heuristic [`FragmentHeuristic`].
-    fn create_fragment(&self, fragment_strategy: &FragmentHeuristic) -> Fragment {
+    fn create_fragment(&self, fragment_strategy: &FragmentHeuristic) -> Result<Fragment> {
+        let variables = self.literal_manager.borrow().len();
+        if variables <= 2 {
+            bail!("cannot construct a fragment: SddManager has only {variables} variables");
+        }
+
         match fragment_strategy {
+            FragmentHeuristic::Custom(fragment) => Ok(fragment.clone()),
             FragmentHeuristic::Root => {
                 let root = self.root();
                 if root.right_child().unwrap().is_internal() {
-                    Fragment::new(&root, &root.right_child().unwrap())
+                    Ok(Fragment::new(&root, &root.right_child().unwrap()))
+                } else if root.left_child().unwrap().is_internal() {
+                    Ok(Fragment::new(&root, &root.left_child().unwrap()))
                 } else {
-                    Fragment::new(&root, &root.left_child().unwrap())
+                    Err(anyhow!("cannot construct fragment from root since neither children are internal nodes"))
                 }
             }
-            FragmentHeuristic::Random => unimplemented!(),
-            FragmentHeuristic::Custom(fragment) => fragment.clone(),
             FragmentHeuristic::MostNormalized => {
                 // There are 2n-1 nodes in the vtree where n is the number
                 // of variables.
                 let nodes = 2 * self.options.variables.len() - 1;
-                let mut frequency = vec![0; nodes];
+                let mut frequencies = vec![0; nodes];
                 for sdd in self.unique_table.borrow().values() {
                     if sdd.is_constant_or_literal() {
                         continue;
                     }
-                    frequency[sdd.vtree().unwrap().index().0 as usize] += 1;
+                    frequencies[sdd.vtree().unwrap().index().0 as usize] += 1;
                 }
 
-                let root_idx = frequency
-                    .iter()
-                    .enumerate()
-                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal))
-                    .map(|(index, _)| index)
-                    .unwrap();
-                let root = self
-                    .vtree_manager
-                    .borrow()
-                    .get_vtree(VTreeIdx(u32::try_from(root_idx).unwrap()))
-                    .unwrap();
+                fn find_root(manager: &SddManager, frequencies: &[i32]) -> VTreeRef {
+                    let root = frequencies
+                        .iter()
+                        .enumerate()
+                        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal))
+                        .map(|(index, _)| index)
+                        .unwrap();
 
-                assert!(root.is_internal());
-                let lc = root.left_child().unwrap();
-                let rc = root.right_child().unwrap();
+                    let root = manager
+                        .vtree_manager
+                        .borrow()
+                        .get_vtree(VTreeIdx(u32::try_from(root).unwrap()))
+                        .unwrap();
 
-                let child = if frequency[lc.index().0 as usize] > frequency[rc.index().0 as usize]
-                    && lc.is_internal()
-                {
-                    lc
-                } else if rc.is_internal() {
-                    rc
-                } else {
-                    panic!("none of left and right child are internal nodes, we have to do something else here");
-                };
+                    assert!(root.is_internal());
 
-                Fragment::new(&root, &child)
+                    root
+                }
+
+                let mut fragment = None;
+                loop {
+                    let root = find_root(self, &frequencies);
+                    let lc = root.left_child().unwrap();
+                    let rc = root.right_child().unwrap();
+
+                    if frequencies.iter().all(|freq| *freq == -1) {
+                        // We have explored all the nodes and none were suitable.
+                        break;
+                    }
+
+                    if frequencies[lc.index().0 as usize] > frequencies[rc.index().0 as usize]
+                        && lc.is_internal()
+                    {
+                        fragment = Some((root.clone(), lc.clone()));
+                        break;
+                    } else if rc.is_internal() {
+                        fragment = Some((root.clone(), rc.clone()));
+                        break;
+                    }
+
+                    // This root cannot be fragment's root since its children are not internal nodes.
+                    // Mark them as explored.
+                    frequencies[lc.index().0 as usize] = -1;
+                    frequencies[rc.index().0 as usize] = -1;
+                    frequencies[root.index().0 as usize] = 1;
+                }
+
+                match fragment {
+                    Some((root, child)) => Ok(Fragment::new(&root, &child)),
+                    None => Err(anyhow!("no suitable fragment found")),
+                }
             }
         }
     }
@@ -700,8 +729,11 @@ impl SddManager {
         cut_off: MinimizationCutoff,
         fragment_strategy: &FragmentHeuristic,
         reference_sdd: &SddRef,
-    ) {
-        let mut fragment = self.create_fragment(fragment_strategy);
+    ) -> Result<()> {
+        let mut fragment = match self.create_fragment(fragment_strategy) {
+            Ok(fragment) => fragment,
+            Err(err) => bail!(err.context("could not minize")),
+        };
 
         tracing::debug!(sdd_id = reference_sdd.id().0, size = reference_sdd.size());
 
@@ -732,7 +764,7 @@ impl SddManager {
                 if best_i == i || curr_size == best_size {
                     // We have fulfilled the searching criteria and the current vtree configuration
                     // makes the reference sdd sufficiently small.
-                    return;
+                    return Ok(());
                 }
                 // We have fulfilled the searching criteria but we have already iterated over
                 // the best vtree configuration. We have to break out and rewind to it.
@@ -742,10 +774,11 @@ impl SddManager {
 
         // The last iteration is when we found the best fragment.
         if curr_size == best_size {
-            return;
+            return Ok(());
         }
 
         fragment.rewind(best_i, self);
+        Ok(())
     }
 
     fn should_stop_minimizing(
@@ -960,7 +993,7 @@ impl SddManager {
     /// # Errors
     ///
     /// TODO: Fix error types.
-    pub fn draw_all_sdds(&self, writer: &mut dyn std::io::Write) -> Result<(), String> {
+    pub fn draw_all_sdds(&self, writer: &mut dyn std::io::Write) -> Result<()> {
         let mut dot_writer = DotWriter::new(String::from("sdd"), true);
         for node in self.unique_table.borrow().values() {
             node.0.borrow().draw(&mut dot_writer);
@@ -973,7 +1006,7 @@ impl SddManager {
     /// # Errors
     ///
     /// TODO: Fix error types.
-    pub fn draw_sdd(&self, writer: &mut dyn std::io::Write, sdd: &SddRef) -> Result<(), String> {
+    pub fn draw_sdd(&self, writer: &mut dyn std::io::Write, sdd: &SddRef) -> Result<()> {
         let mut dot_writer = DotWriter::new(String::from("sdd"), false);
         let mut seen = FxHashSet::default();
 
@@ -1005,7 +1038,7 @@ impl SddManager {
     /// # Errors
     ///
     /// TODO: Fix error types.
-    pub fn draw_vtree_graph(&self, writer: &mut dyn std::io::Write) -> Result<(), String> {
+    pub fn draw_vtree_graph(&self, writer: &mut dyn std::io::Write) -> Result<()> {
         let mut dot_writer = DotWriter::new(String::from("vtree"), false);
         self.vtree_manager.borrow().draw(&mut dot_writer);
         dot_writer.write(writer)

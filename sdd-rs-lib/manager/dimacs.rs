@@ -2,6 +2,8 @@ use crate::literal::{Polarity, VariableIdx};
 use crate::manager::SddManager;
 use crate::sdd::SddRef;
 
+use anyhow::{bail, Result};
+
 /// Preamble of the DIMACS file.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Preamble {
@@ -69,32 +71,32 @@ impl<'a> DimacsParser<'a> {
     /// * the preamble is missing a 'problem line',
     /// * could not skip over comments in the preamble
     /// * could not parse a 'problem line'
-    pub fn parse_preamble(&mut self) -> Result<Preamble, String> {
+    pub fn parse_preamble(&mut self) -> Result<Preamble> {
         if self.state != DimacsParserState::Initialized {
-            return Err(String::from("preamble already parsed"));
+            bail!("preamble already parsed");
         }
 
         // Consume comments and advance to the problem line.
         while match peek_line(self.reader).get(0..1) {
-            None => return Err(String::from("preamble is missing a problem line")),
+            None => bail!("preamble is missing a problem line"),
             Some(first_char) => first_char == "c",
         } {
             let mut buf = String::new();
             match self.reader.read_line(&mut buf) {
                 Ok(..) => {}
-                Err(err) => return Err(format!("could not parse preamble comment: {err}")),
+                Err(err) => bail!("could not parse preamble comment: {err}"),
             }
         }
 
         let mut problem = String::new();
         match self.reader.read_line(&mut problem) {
             Ok(..) => self.parse_problem_line(problem.trim()),
-            Err(err) => Err(format!("could not parse problem line: {err}")),
+            Err(err) => bail!("could not parse problem line: {err}"),
         }
     }
 
     /// Parse the next clause.
-    pub(crate) fn parse_next_clause(&mut self) -> Result<Option<Clause>, String> {
+    pub(crate) fn parse_next_clause(&mut self) -> Result<Option<Clause>> {
         assert!(self.state != DimacsParserState::Initialized);
 
         if self.state == DimacsParserState::Finished {
@@ -116,56 +118,54 @@ impl<'a> DimacsParser<'a> {
                         if zero.trim() == "0" {
                             return Ok(None);
                         }
-                        return Err(format!("expected '0' after '%' but found '{zero}' instead"));
+                        bail!("expected '0' after '%' but found '{zero}' instead");
                     }
 
                     DimacsParser::parse_clause_line(&clause)
                 }
             }
-            Err(err) => Err(format!("could not parse clause: {err}")),
+            Err(err) => bail!("could not parse clause: {err}"),
         }
     }
 
-    fn parse_problem_line(&mut self, line: &str) -> Result<Preamble, String> {
+    fn parse_problem_line(&mut self, line: &str) -> Result<Preamble> {
         let items: Vec<_> = line
             .split(' ')
             .filter(|element| !element.trim().is_empty())
             .collect();
         if items.len() != 4 {
-            return Err(String::from(
-                "problem line must contain exactly 4 fields: 'p cnf VARIABLES CLAUSES'",
-            ));
+            bail!("problem line must contain exactly 4 fields: 'p cnf VARIABLES CLAUSES'");
         }
 
         if *items.first().unwrap() != "p" {
-            return Err(String::from("first field of problem line must be 'p'"));
+            bail!("first field of problem line must be 'p'");
         }
 
         if *items.get(1).unwrap() != "cnf" {
-            return Err(String::from("second field of problem line must be 'cnf'"));
+            bail!("second field of problem line must be 'cnf'");
         }
 
         let variables = match items.get(2).unwrap().parse::<usize>() {
             Ok(variables) => variables,
-            Err(err) => return Err(format!("could not parse number of variables: {err}")),
+            Err(err) => bail!("could not parse number of variables: {err}"),
         };
 
         let clauses = match items.get(3).unwrap().parse::<usize>() {
             Ok(variables) => variables,
-            Err(err) => return Err(format!("could not parse number of clauses: {err}")),
+            Err(err) => bail!("could not parse number of clauses: {err}"),
         };
 
         self.state = DimacsParserState::PreambleParsed;
         Ok(Preamble { clauses, variables })
     }
 
-    fn parse_clause_line(line: &str) -> Result<Option<Clause>, String> {
+    fn parse_clause_line(line: &str) -> Result<Option<Clause>> {
         let tokens: Vec<_> = line.split(' ').filter(|token| *token != "0").collect();
 
         let literals: Vec<_> = tokens
             .iter()
             .map(|variable_idx| match variable_idx.trim().parse::<i32>() {
-                Err(err) => Err(format!("literal '{variable_idx}' is invalid: {err}")),
+                Err(err) => bail!("literal '{variable_idx}' is invalid: {err}"),
                 Ok(idx) => Ok((Polarity::from(!variable_idx.starts_with('-')), idx)),
             })
             .collect();
@@ -186,7 +186,7 @@ impl<'a> DimacsParser<'a> {
                     clause.var_label_indices.push(idx.unsigned_abs());
                     clause.var_label_polarities.push(*polarity);
                 }
-                Err(err) => return Err(format!("could not parse clause: {err}")),
+                Err(err) => bail!("could not parse clause: {err}"),
             }
         }
 
@@ -234,11 +234,11 @@ p cnf 4 3
         let mut dimacs = DimacsParser::new(&mut reader);
 
         assert_eq!(
-            dimacs.parse_preamble(),
-            Ok(Preamble {
+            dimacs.parse_preamble().unwrap(),
+            Preamble {
                 variables: 4,
                 clauses: 3
-            })
+            }
         );
 
         let clauses = collect_clauses(&mut dimacs);
@@ -278,11 +278,11 @@ p   cnf  4   3
         let mut dimacs = DimacsParser::new(&mut reader);
 
         assert_eq!(
-            dimacs.parse_preamble(),
-            Ok(Preamble {
+            dimacs.parse_preamble().unwrap(),
+            Preamble {
                 variables: 4,
                 clauses: 3
-            })
+            }
         );
     }
 
@@ -298,11 +298,11 @@ p cnf 4 2
         let mut dimacs = DimacsParser::new(&mut reader);
 
         assert_eq!(
-            dimacs.parse_preamble(),
-            Ok(Preamble {
+            dimacs.parse_preamble().unwrap(),
+            Preamble {
                 variables: 4,
                 clauses: 2
-            })
+            }
         );
     }
 
@@ -321,11 +321,11 @@ p cnf 4 2
         let mut dimacs = DimacsParser::new(&mut reader);
 
         assert_eq!(
-            dimacs.parse_preamble(),
-            Ok(Preamble {
+            dimacs.parse_preamble().unwrap(),
+            Preamble {
                 variables: 4,
                 clauses: 2
-            })
+            }
         );
 
         let clauses = collect_clauses(&mut dimacs);
@@ -361,11 +361,11 @@ p cnf 4 2
         let mut dimacs = DimacsParser::new(&mut reader);
 
         assert_eq!(
-            dimacs.parse_preamble(),
-            Ok(Preamble {
+            dimacs.parse_preamble().unwrap(),
+            Preamble {
                 variables: 4,
                 clauses: 2
-            })
+            }
         );
 
         let clauses = collect_clauses(&mut dimacs);
