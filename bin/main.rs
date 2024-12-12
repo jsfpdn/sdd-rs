@@ -152,7 +152,7 @@ fn main() -> Result<(), std::io::Error> {
     let options = SddOptions::builder()
         .vtree_strategy(args.vtree)
         .fragment_heuristic(FragmentHeuristic::MostNormalized)
-        .minimization_cutoff(MinimizationCutoff::None)
+        .minimization_cutoff(MinimizationCutoff::BreakAfterFirstImprovement)
         .minimize_after(args.minimize_after_k_clauses)
         .variables(variables)
         .garbage_collection(if args.collect_garbage {

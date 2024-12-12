@@ -57,6 +57,10 @@ pub enum MinimizationCutoff {
     /// from 150 to 100 and the threshold is set to 0.8, the search terminates
     /// since `100/150 = 0.66 <= 0.8`.
     Decrease(f64),
+
+    /// Stop minimizing right after encountering first fragment state
+    /// that improves the size of the referentail SDD.
+    BreakAfterFirstImprovement,
 }
 
 /// [`sddrs::manager::SddManager`] configuration options. See individual

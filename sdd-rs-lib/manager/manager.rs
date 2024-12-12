@@ -756,6 +756,7 @@ impl SddManager {
     ) -> bool {
         match cut_off {
             MinimizationCutoff::Iteration(after_iter) => curr_iter >= after_iter,
+            MinimizationCutoff::BreakAfterFirstImprovement => curr_size <= init_size,
             MinimizationCutoff::Decrease(decrease) => {
                 #[allow(clippy::cast_precision_loss)]
                 let ratio = curr_size as f64 / init_size as f64;
