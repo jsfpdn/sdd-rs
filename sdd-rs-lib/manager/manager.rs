@@ -232,6 +232,9 @@ impl SddManager {
                 None => return Ok(sdd),
                 Some(clause) => {
                     sdd = self.conjoin(&sdd, &clause.to_sdd(self));
+                    if sdd.is_false() {
+                        return Ok(sdd);
+                    }
 
                     if i != 0
                         && self.options.minimize_after != 0

@@ -160,7 +160,10 @@ impl<'a> DimacsParser<'a> {
     }
 
     fn parse_clause_line(line: &str) -> Result<Option<Clause>> {
-        let tokens: Vec<_> = line.split(' ').filter(|token| *token != "0").collect();
+        let tokens: Vec<_> = line
+            .split(' ')
+            .filter(|token| *token != "0" && token.trim() != "")
+            .collect();
 
         let literals: Vec<_> = tokens
             .iter()
