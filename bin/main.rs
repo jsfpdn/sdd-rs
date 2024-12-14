@@ -222,7 +222,7 @@ fn main() -> Result<()> {
 
     let _ = write_to_file(
         args.vtree_dot_path.as_deref(),
-        |writer: &mut dyn std::io::Write| manager.draw_vtree_graph(writer),
+        |writer: &mut dyn std::io::Write| manager.draw_vtree(writer),
     );
 
     Ok(())

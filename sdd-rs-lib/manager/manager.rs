@@ -19,7 +19,7 @@ use bitvec::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::{cell::RefCell, cmp::Ordering, collections::BTreeSet, ops::BitOr};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use tracing::instrument;
 
 use super::options::{FragmentHeuristic, MinimizationCutoff};
@@ -656,17 +656,6 @@ impl SddManager {
                 }
             }
             FragmentHeuristic::MostNormalized => {
-                // There are 2n-1 nodes in the vtree where n is the number
-                // of variables.
-                let nodes = 2 * self.options.variables.len() - 1;
-                let mut frequencies = vec![0; nodes];
-                for sdd in self.unique_table.borrow().values() {
-                    if sdd.is_constant_or_literal() {
-                        continue;
-                    }
-                    frequencies[sdd.vtree().unwrap().index().0 as usize] += 1;
-                }
-
                 fn find_root(manager: &SddManager, frequencies: &[i32]) -> VTreeRef {
                     let root = frequencies
                         .iter()
@@ -684,6 +673,17 @@ impl SddManager {
                     assert!(root.is_internal());
 
                     root
+                }
+
+                // There are 2n-1 nodes in the vtree where n is the number
+                // of variables.
+                let nodes = 2 * self.options.variables.len() - 1;
+                let mut frequencies = vec![0; nodes];
+                for sdd in self.unique_table.borrow().values() {
+                    if sdd.is_constant_or_literal() {
+                        continue;
+                    }
+                    frequencies[sdd.vtree().unwrap().index().0 as usize] += 1;
                 }
 
                 let mut fragment = None;
@@ -745,7 +745,10 @@ impl SddManager {
         let mut best_size = init_size;
         let mut curr_size = init_size;
         for (i, _) in (0..12).enumerate() {
-            fragment.next(&Direction::Forward, self);
+            fragment
+                .next(&Direction::Forward, self)
+                .with_context(|| format!("couild not move to {i}th fragment state"))?;
+
             tracing::debug!(
                 iteration = i,
                 sdd_id = reference_sdd.id().0,
@@ -780,7 +783,9 @@ impl SddManager {
             return Ok(());
         }
 
-        fragment.rewind(best_i, self);
+        fragment
+            .rewind(best_i, self)
+            .with_context(|| format!("could not rewind to {best_i}th state"))?;
         Ok(())
     }
 
@@ -995,11 +1000,11 @@ impl SddManager {
     ///
     /// # Errors
     ///
-    /// TODO: Fix error types.
+    /// Function returns an error if the writing to a file or flushing fails.
     pub fn draw_all_sdds(&self, writer: &mut dyn std::io::Write) -> Result<()> {
         let mut dot_writer = DotWriter::new(String::from("sdd"), true);
-        for node in self.unique_table.borrow().values() {
-            node.0.borrow().draw(&mut dot_writer);
+        for sdd in self.unique_table.borrow().values() {
+            sdd.draw(&mut dot_writer);
         }
         dot_writer.write(writer)
     }
@@ -1008,7 +1013,7 @@ impl SddManager {
     ///
     /// # Errors
     ///
-    /// TODO: Fix error types.
+    /// Function returns an error if the writing to a file or flushing fails.
     pub fn draw_sdd(&self, writer: &mut dyn std::io::Write, sdd: &SddRef) -> Result<()> {
         let mut dot_writer = DotWriter::new(String::from("sdd"), false);
         let mut seen = FxHashSet::default();
@@ -1019,7 +1024,7 @@ impl SddManager {
                 continue;
             }
 
-            sdd.0.borrow().draw(&mut dot_writer);
+            sdd.draw(&mut dot_writer);
             seen.insert(sdd.id());
 
             if let SddType::Decision(Decision { ref elements }) = sdd.0.borrow().sdd_type {
@@ -1041,7 +1046,7 @@ impl SddManager {
     /// # Errors
     ///
     /// TODO: Fix error types.
-    pub fn draw_vtree_graph(&self, writer: &mut dyn std::io::Write) -> Result<()> {
+    pub fn draw_vtree(&self, writer: &mut dyn std::io::Write) -> Result<()> {
         let mut dot_writer = DotWriter::new(String::from("vtree"), false);
         self.vtree_manager.borrow().draw(&mut dot_writer);
         dot_writer.write(writer)
@@ -1393,8 +1398,12 @@ impl SddManager {
     /// * `w(a, bc)` must be rotated and moved to `x` (~> `x(ab, c)`)
     /// * `w(a, c)` must be moved to `x` (~> `x(a, c)`)
     /// * `w(a, b)` stay at `w`
+    ///
+    /// # Errors
+    ///
+    /// The function returns an error if the node is not rotatable to the left.
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
-    pub fn rotate_left(&self, x: &VTreeRef) {
+    pub fn rotate_left(&self, x: &VTreeRef) -> Result<()> {
         self.rotating.replace(true);
 
         let w =
@@ -1404,7 +1413,7 @@ impl SddManager {
 
         let LeftRotateSplit { bc_vec, c_vec } = split_nodes_for_left_rotate(&w, x, self);
 
-        self.vtree_manager.borrow_mut().rotate_left(x);
+        self.vtree_manager.borrow_mut().rotate_left(x)?;
 
         for bc in &bc_vec {
             bc.replace_contents(SddType::Decision(Decision {
@@ -1421,6 +1430,7 @@ impl SddManager {
         self.invalidate_cached_models();
 
         self.rotating.replace(false);
+        Ok(())
     }
 
     fn finalize_vtree_op(&self, replaced: &[SddRef], moved: &[SddRef], vtree: &VTreeRef) {
@@ -1455,16 +1465,16 @@ impl SddManager {
     /// * `x(a, c)` must be moved to `w` (~> `w(a, c)`)
     /// * `x(a, b)` stay at `x`
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// The function panics if the node is not rotatable.
+    /// The function returns an error if the node is not rotatable to the right.
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
-    pub fn rotate_right(&self, x: VTreeRef) {
+    pub fn rotate_right(&self, x: &VTreeRef) -> Result<()> {
         self.rotating.replace(true);
 
         let w = x.left_child().unwrap();
-        let RightRotateSplit { ab_vec, a_vec } = split_nodes_for_right_rotate(&x, &w, self);
-        self.vtree_manager.borrow_mut().rotate_right(&x);
+        let RightRotateSplit { ab_vec, a_vec } = split_nodes_for_right_rotate(x, &w, self);
+        self.vtree_manager.borrow_mut().rotate_right(x)?;
 
         for ab in &ab_vec {
             ab.replace_contents(SddType::Decision(Decision {
@@ -1481,6 +1491,7 @@ impl SddManager {
         self.invalidate_cached_models();
 
         self.rotating.replace(false);
+        Ok(())
     }
 
     /// Swap children of the given vtree [`x`] and adjust SDDs accordingly.
@@ -1496,15 +1507,15 @@ impl SddManager {
     /// This is a low-level operation working directly on a vtree. See
     /// [`SddManager::minimization`] for a more sophisticated way of finding better vtrees.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// The function panics if the node's children cannot be swapped.
+    /// The function retursn an error if the node's children cannot be swapped.
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
-    pub fn swap(&self, x: VTreeRef) {
+    pub fn swap(&self, x: &VTreeRef) -> Result<()> {
         self.rotating.replace(true);
 
-        let split = split_nodes_for_swap(&x, self);
-        self.vtree_manager.borrow_mut().swap(&x);
+        let split = split_nodes_for_swap(x, self);
+        self.vtree_manager.borrow_mut().swap(x)?;
 
         for sdd in &split {
             let dec = Decision {
@@ -1526,10 +1537,12 @@ impl SddManager {
             debug_assert!(sdd.is_trimmed(self));
         }
 
-        self.finalize_vtree_op(&split, &[], &x);
+        self.finalize_vtree_op(&split, &[], x);
         self.invalidate_cached_models();
 
         self.rotating.replace(false);
+
+        Ok(())
     }
 
     fn invalidate_cached_models(&self) {
@@ -1867,7 +1880,9 @@ mod test {
         let models_before = manager.model_enumeration(&a_and_d_and_b_and_c);
 
         // Rotating right child of the root to the left makes the vtree balanced.
-        manager.rotate_left(&manager.root().right_child().unwrap());
+        manager
+            .rotate_left(&manager.root().right_child().unwrap())
+            .unwrap();
 
         let models_after = manager.model_enumeration(&a_and_d_and_b_and_c);
         assert_eq!(models_before, models_after);
@@ -1893,7 +1908,7 @@ mod test {
         let models_before = manager.model_enumeration(&a_and_d_and_b_and_c);
 
         // Rotating the root to the right makes the vtree balanced.
-        manager.rotate_right(manager.root());
+        manager.rotate_right(&manager.root()).unwrap();
 
         let models_after = manager.model_enumeration(&a_and_d_and_b_and_c);
         assert_eq!(models_before, models_after);
@@ -1921,7 +1936,7 @@ mod test {
 
         let models_before = manager.model_enumeration(&a_and_d_and_b_and_c);
 
-        manager.swap(manager.root());
+        manager.swap(&manager.root()).unwrap();
 
         let models_after = manager.model_enumeration(&a_and_d_and_b_and_c);
         assert_eq!(models_before, models_after);

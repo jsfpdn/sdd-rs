@@ -1,10 +1,11 @@
 #![allow(clippy::non_canonical_partial_ord_impl, clippy::similar_names)]
 
 use crate::{
-    dot_writer::{Dot, DotWriter, Edge, NodeType},
+    dot_writer::{Dot, DotWriter, EdgeType, NodeType},
     literal::Variable,
     manager::options::VTreeStrategy,
 };
+use anyhow::{bail, Result};
 use derive_more::derive::{Add, AddAssign, From, Sub};
 use std::{
     cell::RefCell,
@@ -466,12 +467,17 @@ impl VTreeManager {
     /// User must make sure that the vtree `x` is 'rotatable',
     /// i.e. `x` is an internal node and has a parent.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if called on a vtree that cannot be rotated.
-    pub(crate) fn rotate_left(&mut self, x: &VTreeRef) {
-        let w = x.parent().unwrap();
-        let b = x.left_child().unwrap();
+    /// Returns an error if called on a vtree that cannot be rotated.
+    pub(crate) fn rotate_left(&mut self, x: &VTreeRef) -> Result<()> {
+        let Some(w) = x.parent() else {
+            bail!("{} must not be a root", x.index())
+        };
+
+        let Some(b) = x.left_child() else {
+            bail!("{} must be an internal node", x.index())
+        };
         let parent = w.parent();
 
         w.set_right_child(&b);
@@ -495,6 +501,7 @@ impl VTreeManager {
         }
 
         VTreeManager::set_inorder_indices(&self.root, VTreeIdx(0));
+        Ok(())
     }
 
     /// Rotates the vtree to the right. Given the following tree,
@@ -521,12 +528,16 @@ impl VTreeManager {
     /// i.e. `x` is an internal node and its left child `w`
     /// is also an internal node.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if called on a vtree that cannot be rotated.
-    pub(crate) fn rotate_right(&mut self, x: &VTreeRef) {
-        let w = x.left_child().unwrap();
-        let b = w.right_child().unwrap();
+    /// Returns an error if called on a vtree that cannot be rotated.
+    pub(crate) fn rotate_right(&mut self, x: &VTreeRef) -> Result<()> {
+        let Some(w) = x.left_child() else {
+            bail!("{} must be an internal node", x.index())
+        };
+        let Some(b) = w.right_child() else {
+            bail!("left child of {} must be an internal node", w.index())
+        };
         let parent = x.parent();
 
         x.set_parent(Some(&w));
@@ -548,18 +559,19 @@ impl VTreeManager {
         }
 
         VTreeManager::set_inorder_indices(&self.root, VTreeIdx(0));
+        Ok(())
     }
 
     /// Swaps children of internal node.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if called on a vtree representing a leaf node.
-    pub fn swap(&mut self, vtree: &VTreeRef) {
+    /// Returns an error if called on a vtree representing a leaf node.
+    pub(crate) fn swap(&mut self, vtree: &VTreeRef) -> Result<()> {
         {
             let mut borrowed = vtree.0.borrow_mut();
             match &borrowed.node {
-                Node::Leaf(_) => panic!("cannot swap children of a leaf node"),
+                Node::Leaf(_) => bail!("cannot swap children of a leaf node"),
                 Node::Internal(lc, rc) => {
                     borrowed.node = Node::Internal(rc.clone(), lc.clone());
                 }
@@ -567,6 +579,7 @@ impl VTreeManager {
         }
 
         VTreeManager::set_inorder_indices(&self.root, VTreeIdx(0));
+        Ok(())
     }
 
     /// Get a leaf vtree given the variable it covers.
@@ -670,8 +683,14 @@ impl Dot for VTreeManager {
         while let Some(vtree) = nodes.pop() {
             let vtree = vtree.0.borrow();
             if let Node::Internal(lc, rc) = vtree.node.clone() {
-                writer.add_edge(Edge::Simple(vtree.idx.0 as usize, lc.index().0 as usize));
-                writer.add_edge(Edge::Simple(vtree.idx.0 as usize, rc.index().0 as usize));
+                writer.add_edge(EdgeType::Simple(
+                    vtree.idx.0 as usize,
+                    lc.index().0 as usize,
+                ));
+                writer.add_edge(EdgeType::Simple(
+                    vtree.idx.0 as usize,
+                    rc.index().0 as usize,
+                ));
                 nodes.push(lc.clone());
                 nodes.push(rc.clone());
 
@@ -829,14 +848,14 @@ pub(crate) mod test {
         let root = manager.root.clone();
 
         // <A, B> ~> <B, A>
-        manager.swap(&root);
+        manager.swap(&root).unwrap();
         orders_eq(
             &manager.variables_total_order(),
             &[Variable::new("B", 1), Variable::new("A", 0)],
         );
 
         // <B, A> ~> <A, B>
-        manager.swap(&root);
+        manager.swap(&root).unwrap();
         orders_eq(
             &manager.variables_total_order(),
             &[Variable::new("A", 0), Variable::new("B", 1)],
@@ -873,7 +892,7 @@ pub(crate) mod test {
             Node::Internal(_, rc) => rc,
         };
 
-        manager.rotate_left(&y);
+        manager.rotate_left(&y).unwrap();
 
         // The total order must not change when rotating.
         orders_eq(&manager.variables_total_order(), &want_order);
@@ -908,7 +927,7 @@ pub(crate) mod test {
             }
         };
 
-        manager.rotate_right(&y);
+        manager.rotate_right(&y).unwrap();
 
         // The total order must not change when rotating.
         orders_eq(&manager.variables_total_order(), &want_order);

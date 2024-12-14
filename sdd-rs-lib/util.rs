@@ -41,7 +41,7 @@ pub(crate) fn quick_draw(manager: &SddManager, sdd: &SddRef, path: &str) {
     let f = File::create(format!("{path}_vtree.dot")).unwrap();
     let mut b = BufWriter::new(f);
     manager
-        .draw_vtree_graph(&mut b as &mut dyn std::io::Write)
+        .draw_vtree(&mut b as &mut dyn std::io::Write)
         .unwrap();
 }
 

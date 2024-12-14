@@ -1,5 +1,5 @@
 use crate::{
-    dot_writer::{Dot, DotWriter, Edge, NodeType},
+    dot_writer::{Dot, DotWriter, EdgeType, NodeType},
     manager::SddManager,
     sdd::{Sdd, SddId, SddRef, SddType},
 };
@@ -76,14 +76,14 @@ impl Dot for Element {
             ..
         } = self.prime.0.borrow().to_owned()
         {
-            writer.add_edge(Edge::Prime(idx, node.hash()));
+            writer.add_edge(EdgeType::Prime(idx, node.hash()));
         }
         if let Sdd {
             sdd_type: SddType::Decision(node),
             ..
         } = self.sub.0.borrow().to_owned()
         {
-            writer.add_edge(Edge::Sub(idx, node.hash()));
+            writer.add_edge(EdgeType::Sub(idx, node.hash()));
         };
     }
 }

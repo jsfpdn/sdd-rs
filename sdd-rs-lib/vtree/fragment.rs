@@ -1,5 +1,6 @@
 #![allow(clippy::many_single_char_names, clippy::similar_names)]
 
+use anyhow::{Context, Result};
 use std::rc::Rc;
 use tracing::instrument;
 
@@ -175,31 +176,36 @@ impl Fragment {
     }
 
     #[instrument(skip_all, ret, level = tracing::Level::DEBUG)]
-    pub(crate) fn next(&mut self, direction: &Direction, manager: &SddManager) {
+    pub(crate) fn next(&mut self, direction: &Direction, manager: &SddManager) -> Result<()> {
         let next_move = self.state.next(direction);
         tracing::debug!(?next_move);
 
         match next_move {
             Move::LeftRotateChild => {
-                manager.rotate_left(&self.current_child);
+                manager.rotate_left(&self.current_child)?;
                 self.swap();
             }
             Move::RightRotateRoot => {
-                manager.rotate_right(self.current_root.clone());
+                manager.rotate_right(&self.current_root.clone())?;
                 self.swap();
             }
             Move::SwapChild => {
-                manager.swap(self.current_child.clone());
+                manager.swap(&self.current_child.clone())?;
             }
         }
+
+        Ok(())
     }
 
-    pub(crate) fn rewind(&mut self, state: usize, manager: &SddManager) {
+    pub(crate) fn rewind(&mut self, state: usize, manager: &SddManager) -> Result<()> {
         assert!(self.state.index > state);
 
         while self.state.index > state {
-            self.next(&Direction::Backward, manager);
+            self.next(&Direction::Backward, manager)
+                .with_context(|| format!("moving backward to state {}", self.state.index))?;
         }
+
+        Ok(())
     }
 
     fn swap(&mut self) {
@@ -511,7 +517,7 @@ mod test {
 
         for i in 0..=11 {
             let next_move = fragment.state.forward_moves[fragment.state.index];
-            fragment.next(&Direction::Forward, &manager);
+            fragment.next(&Direction::Forward, &manager).unwrap();
 
             assert!(a_and_b_or_c.is_trimmed(&manager));
             assert!(a_and_b_or_c.is_compressed(&manager));
@@ -524,7 +530,7 @@ mod test {
         }
 
         // Try to roll back to the 5th state (e.g. RR, SC, LR, SC, RR)
-        fragment.rewind(5, &manager);
+        fragment.rewind(5, &manager).unwrap();
         assert_eq!(fragment.state.index, 5);
         assert_eq!(
             models,

@@ -14,7 +14,7 @@ Crate's API documentation can be found [here](https://github.com/jsfpdn/sdd-rs/)
 
 The compiler currently supports:
 
-* incremental compilation of Boolean functions (knowledge bases) to *compressed* SDDs,
+* incremental compilation of Boolean functions (knowledge bases) to *compressed* and *trimmed* SDDs,
 * efficient querying of model count, model enumeration, and equivalence of SDDs
 * dynamic minimization of SDDs via *vtree fragments*,
 * garbage collection of dead nodes,
@@ -52,9 +52,9 @@ fn main() {
     let manager = SddManager::new(options);
 
     // Retrieve SDDs for literals A, B, and C.
-    let a = manager.literal("A", Polarity::Positive);
-    let b = manager.literal("B", Polarity::Positive);
-    let c = manager.literal("C", Polarity::Positive);
+    let a = manager.literal("A", Polarity::Positive).unwrap();
+    let b = manager.literal("B", Polarity::Positive).unwrap();
+    let c = manager.literal("C", Polarity::Positive).unwrap();
 
     // Compute "A ∧ B"
     let a_and_b = manager.conjoin(&a, &b);
@@ -78,7 +78,7 @@ fn main() {
     let f = File::create(vtree_path).unwrap();
     let mut b = BufWriter::new(f);
     manager
-        .draw_vtree_graph(&mut b as &mut dyn std::io::Write)
+        .draw_vtree(&mut b as &mut dyn std::io::Write)
         .unwrap();
 
     println!("Rendered SDD to '{sdd_path}' and vtree to '{vtree_path}'");

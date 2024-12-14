@@ -5,18 +5,18 @@ pub trait Dot {
 }
 
 #[derive(PartialEq)]
-pub enum Edge {
+pub enum EdgeType {
     Simple(usize, usize),
     Prime(usize, usize),
     Sub(usize, usize),
 }
 
-impl std::fmt::Display for Edge {
+impl std::fmt::Display for EdgeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Edge::Simple(from, to) => write!(f, "{from} -> {to}"),
-            Edge::Prime(from, to) => write!(f, "{from}:f0 -> {to}"),
-            Edge::Sub(from, to) => write!(f, "{from}:f1 -> {to}"),
+            EdgeType::Simple(from, to) => write!(f, "{from} -> {to}"),
+            EdgeType::Prime(from, to) => write!(f, "{from}:f0 -> {to}"),
+            EdgeType::Sub(from, to) => write!(f, "{from}:f1 -> {to}"),
         }
     }
 }
@@ -29,7 +29,7 @@ pub struct DotWriter {
     show_ids: bool,
 
     nodes: Vec<(usize, NodeType)>,
-    edges: Vec<Edge>,
+    edges: Vec<EdgeType>,
 }
 
 #[derive(Debug)]
@@ -79,7 +79,7 @@ impl DotWriter {
         self.nodes.push((node_idx, node_type));
     }
 
-    pub(crate) fn add_edge(&mut self, edge: Edge) {
+    pub(crate) fn add_edge(&mut self, edge: EdgeType) {
         for other in &self.edges {
             if *other == edge {
                 // We have already added this edge.

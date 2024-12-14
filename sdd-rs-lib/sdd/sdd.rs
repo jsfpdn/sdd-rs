@@ -5,7 +5,6 @@ use std::{collections::BTreeSet, fmt::Display};
 
 use crate::{
     btreeset,
-    dot_writer::{Dot, DotWriter, Edge, NodeType},
     literal::{Literal, Variable},
     manager::{CachedOperation, SddManager, FALSE_SDD_IDX, TRUE_SDD_IDX},
     sdd::{Decision, Element, SddRef},
@@ -61,26 +60,6 @@ pub(crate) struct Sdd {
     pub(crate) vtree: VTreeRef,
     pub(crate) model_count: Option<u64>,
     pub(crate) models: Option<Vec<BitVec>>,
-}
-
-impl Dot for Sdd {
-    fn draw<'a>(&self, writer: &mut DotWriter) {
-        match self.sdd_type.clone() {
-            // Do not render literals and constants as they do not provide any
-            // value and only take up space.
-            SddType::True | SddType::False | SddType::Literal(..) => (),
-            SddType::Decision(node) => {
-                let idx = node.hash();
-                for elem in &node.elements {
-                    elem.draw(writer);
-                    writer.add_edge(Edge::Simple(idx, elem.hash()));
-                }
-                let node_type =
-                    NodeType::Circle(self.vtree.index().0.to_string(), Some(self.id().0 as usize));
-                writer.add_node(idx, node_type);
-            }
-        };
-    }
 }
 
 impl Sdd {

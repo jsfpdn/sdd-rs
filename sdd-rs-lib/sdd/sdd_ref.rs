@@ -1,3 +1,4 @@
+use crate::dot_writer::{Dot, DotWriter, EdgeType, NodeType};
 use crate::manager::{CachedOperation, SddManager, FALSE_SDD_IDX, TRUE_SDD_IDX};
 use crate::sdd::{Decision, Sdd, SddId, SddType};
 use crate::vtree::VTreeRef;
@@ -31,6 +32,28 @@ impl Ord for SddRef {
 impl PartialOrd for SddRef {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+impl Dot for SddRef {
+    fn draw<'a>(&self, writer: &mut DotWriter) {
+        match self.0.borrow().sdd_type.clone() {
+            // Do not render literals and constants as they do not provide any
+            // value and only take up space.
+            SddType::True | SddType::False | SddType::Literal(..) => (),
+            SddType::Decision(node) => {
+                let idx = node.hash();
+                for elem in &node.elements {
+                    elem.draw(writer);
+                    writer.add_edge(EdgeType::Simple(idx, elem.hash()));
+                }
+                let node_type = NodeType::Circle(
+                    self.vtree().unwrap().index().0.to_string(),
+                    Some(self.id().0 as usize),
+                );
+                writer.add_node(idx, node_type);
+            }
+        };
     }
 }
 
