@@ -227,9 +227,9 @@ impl VTreeRef {
         self.0.borrow().idx
     }
 
-    /// Create {left,right}-linear fragment with [`self`] as the fragment root.
-    /// Returns none if the fragment cannot be created (when either [`self`] or
-    /// its child depending on [`linearity`] are not internal nodes)
+    /// Create {left,right}-linear fragment with this vtree as the fragment root.
+    /// Returns none if the fragment cannot be created (when either the vtree or
+    /// its child depending on [`Linearity`] are not internal nodes)
     #[must_use]
     pub fn fragment(&self, linearity: Linearity) -> Option<Fragment> {
         match self.0.borrow().node {
@@ -446,7 +446,7 @@ impl VTreeManager {
 
     /// Rotates the vtree to the left. Given the following tree,
     ///
-    /// ```ignore
+    /// ```text
     ///       w
     ///      / \
     ///     a   x
@@ -456,7 +456,7 @@ impl VTreeManager {
     ///
     /// `rotate_left(x)` will mutate the tree as follows:
     ///
-    /// ```ignore
+    /// ```text
     ///       x
     ///      / \
     ///     w   c
@@ -506,7 +506,7 @@ impl VTreeManager {
 
     /// Rotates the vtree to the right. Given the following tree,
     ///
-    /// ```ignore
+    /// ```text
     ///       x
     ///      / \
     ///     w   c
@@ -516,7 +516,7 @@ impl VTreeManager {
     ///
     /// `rotate_right(x)` will mutate the tree as follows:
     ///
-    /// ```ignore
+    /// ```text
     ///      w
     ///     / \
     ///    a   x

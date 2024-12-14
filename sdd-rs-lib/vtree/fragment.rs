@@ -118,7 +118,7 @@ impl FragmentState {
 }
 
 /// Given the following vtree rooted at `x`:
-/// ```ignore
+/// ```text
 ///        x
 ///      /   \
 ///     w     c
@@ -139,7 +139,7 @@ pub(crate) enum LeftDependence {
 }
 
 /// Given the following vtree rooted at `w`:
-/// ```ignore
+/// ```text
 ///      w
 ///    /   \
 ///   a     x

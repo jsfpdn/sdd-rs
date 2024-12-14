@@ -1382,7 +1382,7 @@ impl SddManager {
     /// The user must make sure that [`x`] is 'rotatable', i.e., [`x`]
     /// is an internal node and has a parent.
     ///
-    /// ```ignore
+    /// ```text
     ///      w                x
     ///     / \              / \
     ///    a   x     ~>     w   c
@@ -1448,7 +1448,7 @@ impl SddManager {
     /// The user must make sure that [`x`] is 'rotatable', i.e., [`x`]
     /// is an internal node an its left child `w` is an internal node as well.
     ///
-    /// ```ignore
+    /// ```text
     ///       x                w
     ///      / \              / \
     ///     w   c     ~>     a   x
@@ -1498,7 +1498,7 @@ impl SddManager {
     /// The user must make sure that [`x`] is 'swappable', i.e., it is
     /// an internal node.
     ///
-    /// ```ignore
+    /// ```text
     ///     x          x
     ///    / \   ~>   / \
     ///   a   b      b   a

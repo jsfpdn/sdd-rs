@@ -15,11 +15,11 @@ Crate's API documentation can be found [here](https://github.com/jsfpdn/sdd-rs/)
 The compiler currently supports:
 
 * incremental compilation of Boolean functions (knowledge bases) to *compressed* and *trimmed* SDDs,
-* efficient querying of model count, model enumeration, and equivalence of SDDs
+* efficient querying of model count, model enumeration, and equivalence of SDDs,
 * dynamic minimization of SDDs via *vtree fragments*,
 * garbage collection of dead nodes,
 * SDD compilation from CNF in
-  [DIMACS](https://www21.in.tum.de/~lammich/2015_SS_Seminar_SAT/resources/dimacs-cnf.pdf) format
+  [DIMACS](https://www21.in.tum.de/~lammich/2015_SS_Seminar_SAT/resources/dimacs-cnf.pdf) format.
 
 ## Usage
 

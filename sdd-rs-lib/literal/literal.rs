@@ -132,7 +132,7 @@ impl Display for Literal {
         let polarity = if self.polarity == Polarity::Positive {
             ""
         } else {
-            "!"
+            "¬"
         };
         write!(f, "{}{}", polarity, self.variable.label)
     }

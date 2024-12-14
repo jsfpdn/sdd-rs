@@ -25,8 +25,7 @@ pub enum FragmentHeuristic {
     /// If its right child is an internal node, the fragment is
     /// right-linear. It is left-linear otherwise.
     Root,
-    /// Chooses vtree node with [`VTreeIdx`] as the root of the
-    /// fragment and makes it either left-linear or right-linear.
+    /// Provide a custom fragment.
     Custom(Fragment),
 }
 
