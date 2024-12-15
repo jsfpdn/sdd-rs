@@ -25,7 +25,7 @@ path = "main.rs"
 tracing-subscriber = "0.3"
 tracing = "0.1"
 clap = { version = "4.5.4", features = ["derive"] }
-sddrs = { path = "../sddrs" }
+sddrs = { version = "0.1" }
 anyhow = "1.0"
 
 [lints]

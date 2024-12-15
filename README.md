@@ -6,9 +6,7 @@
 [Sentential Decision Diagrams (SDD)](https://en.wikipedia.org/wiki/Sentential_decision_diagram):
 a succinct representation of Boolean functions.**
 
-<!-- TODO: FIx links. -->
-Comprehensive introduction to this library can be found [here](https://github.com/jsfpdn/sdd-rs/).
-Crate's API documentation can be found [here](https://github.com/jsfpdn/sdd-rs/).
+Crate's API documentation can be found [here](https://docs.rs/sddrs/latest/sddrs/).
 
 ## :tada: Features
 
@@ -29,7 +27,7 @@ To use the compiler within a project, add the following line to your Cargo.toml:
 
 ```toml
 [dependencies]
-sddrs = { git = "https://github.com/jsfpdn/sdd-rs" }
+sddrs = { version = "0.1" }
 ```
 
 Then import the crate, initialize an `SddManager` and compile Boolean functions!
