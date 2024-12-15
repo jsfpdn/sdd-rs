@@ -116,6 +116,8 @@ pub struct SddManager {
     rotating: RefCell<bool>,
 
     gc_stats: RefCell<GCStatistics>,
+
+    apply_level: RefCell<u32>,
 }
 
 // True and false SDDs have indicies 0 and 1 throughout the whole computation.
@@ -164,6 +166,7 @@ impl SddManager {
             vtree_manager: RefCell::new(VTreeManager::new(options.vtree_strategy, &variables)),
             literal_manager: RefCell::new(LiteralManager::new()),
             rotating: RefCell::new(false),
+            apply_level: RefCell::new(0),
             gc_stats: RefCell::new(GCStatistics {
                 nodes_collected: 0,
                 gc_triggered: 0,
@@ -246,13 +249,6 @@ impl SddManager {
                         )?;
                         tracing::info!(sdd_id = sdd.id().0, size = sdd.size(), "after minimizing");
                     }
-
-                    // TODO: Remove this once garbage is collected from within
-                    // top-level apply.
-                    if self.should_collect_garbage() {
-                        self.collect_garbage();
-                    }
-
                     i += 1;
                 }
             }
@@ -867,7 +863,7 @@ impl SddManager {
         matches!(
             self.options.garbage_collection,
             GarbageCollection::Automatic
-        )
+        ) && *self.apply_level.borrow() == 0
     }
 
     #[instrument(skip_all, level = tracing::Level::DEBUG)]
@@ -1073,6 +1069,8 @@ impl SddManager {
             .borrow()
             .least_common_ancestor(fst.vtree().unwrap().index(), snd.vtree().unwrap().index());
 
+        *self.apply_level.borrow_mut() += 1;
+
         let elements = match order {
             VTreeOrder::Equal => self._apply_eq(fst, snd, op),
             VTreeOrder::Inequal => self._apply_ineq(fst, snd, op),
@@ -1088,7 +1086,11 @@ impl SddManager {
         self.insert_node(&sdd);
         self.cache_operation(&CachedOperation::BinOp(fst.id(), op, snd.id()), sdd.id());
 
-        // TODO: collect garbage for top-level apply if conditions are met.
+        *self.apply_level.borrow_mut() -= 1;
+
+        if self.should_collect_garbage() {
+            self.collect_garbage();
+        }
 
         sdd
     }

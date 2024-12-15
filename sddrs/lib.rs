@@ -19,14 +19,16 @@
 //! use sddrs::manager::{options, GCStatistics, SddManager};
 //! use sddrs::literal::literal::Polarity;
 //! use bon::arr;
+//! use std::fs::File;
+//! use std::io::BufWriter;
 //!
 //! let options = options::SddOptions::builder()
 //!     // Create right-linear vtree.
-//!     .vtree_strategy(options::VTreeStragey::RightLinear)
+//!     .vtree_strategy(options::VTreeStrategy::RightLinear)
 //!     // Initialize the manager with variables A, B, and C.
 //!     .variables(["A".to_string(), "B".to_string(), "C".to_string()])
 //!     .build();
-//! let manager = SddManager::new(options);
+//! let manager = SddManager::new(&options);
 //!
 //! // Retrieve SDDs for literals A, B, and C.
 //! let a = manager.literal("A", Polarity::Positive).unwrap();
@@ -44,14 +46,14 @@
 //! println!("'(A ∧ B) ∨ C' has {model_count} models.");
 //! println!("They are:\n{models}");
 //!
-//! let sdd_path = "my_formula.dot"
+//! let sdd_path = "my_formula.dot";
 //! let f = File::create(sdd_path).unwrap();
 //! let mut b = BufWriter::new(f);
 //! manager
-//!     .draw_sdd(&mut b as &mut dyn std::io::Write, &sdd)
-//!      .unwrap();
+//!     .draw_sdd(&mut b as &mut dyn std::io::Write, &a_and_b_or_c)
+//!     .unwrap();
 //!
-//! let vtree_path = "my_vtree.dot"
+//! let vtree_path = "my_vtree.dot";
 //! let f = File::create(vtree_path).unwrap();
 //! let mut b = BufWriter::new(f);
 //! manager
