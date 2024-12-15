@@ -1,10 +1,10 @@
-# :books: sddrs: Bottom-Up Sentential Decision Diagram Compiler
+# sddrs: Bottom-Up Sentential Decision Diagram Compiler
 
 **Incrementally build, manipualate, and optimize
 [Sentential Decision Diagrams (SDD)](https://en.wikipedia.org/wiki/Sentential_decision_diagram):
 a succinct representation of Boolean functions.**
 
-## :tada: Features
+## Features
 
 The compiler currently supports:
 
@@ -15,7 +15,7 @@ The compiler currently supports:
 * SDD compilation from CNF in
   [DIMACS](https://www21.in.tum.de/~lammich/2015_SS_Seminar_SAT/resources/dimacs-cnf.pdf) format.
 
-## :package: Usage
+## Usage
 
 The following snippet compiles the function $(A \land B) \lor C$ to an SDD,
 computes number of its models, enumerates and prints them to the stdout,
@@ -69,7 +69,7 @@ fn main() {
 }
 ```
 
-## :page_with_curl: Related Links
+## Related Links
 
 * [SDD: A New Canonical Representation of Propositional Knowledge Bases - Adnad Darwiche](http://reasoning.cs.ucla.edu/fetch.php?id=121&type=pdf):
   paper introducing SDDs
