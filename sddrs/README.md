@@ -17,7 +17,7 @@ The compiler currently supports:
 
 ## Usage
 
-The following snippet compiles the function $(A \land B) \lor C$ to an SDD,
+The following snippet compiles the function `(A & B) | C` to an SDD,
 computes number of its models, enumerates and prints them to the stdout,
 and renders the compiled SDD and its vtree to the DOT format.
 
