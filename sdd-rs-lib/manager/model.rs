@@ -1,6 +1,7 @@
 use crate::literal::{Literal, Polarity, Variable};
 use bitvec::prelude::*;
 use std::fmt::Display;
+use tabled::{builder::Builder, grid::config::HorizontalLine, settings::Theme};
 
 /// All models of the knowledge base.
 #[derive(Debug, PartialEq)]
@@ -30,15 +31,21 @@ impl Models {
 
 impl Display for Models {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{{\n{}\n}}",
-            self.all_models()
-                .iter()
-                .map(|model| format!("  {model}"))
-                .collect::<Vec<String>>()
-                .join(",\n")
-        )
+        let mut builder = Builder::default();
+        builder.push_record(self.variables.iter().map(|v| v.label()));
+
+        for model in &self.models {
+            builder.push_record(
+                model
+                    .iter()
+                    .map(|assignment| if *assignment { "1" } else { "0" }),
+            );
+        }
+
+        let mut style = Theme::default();
+        style.insert_horizontal_line(1, HorizontalLine::full('-', '-', ' ', ' '));
+        let output = builder.build().with(style).to_string();
+        write!(f, "{output}")
     }
 }
 

@@ -20,6 +20,7 @@ clap = { version = "4.5.4", features = ["derive"] }
 bon = "3"
 rustc-hash = "2.1"
 anyhow = "1.0"
+tabled = "0.17.0"
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
