@@ -9,13 +9,7 @@
 //! * efficient querying of model count, model enumeration, and equivalence of SDDs,
 //! * dynamic minimization of SDDs via *vtree fragments*,
 //! * garbage collection of dead nodes,
-//! * SDD compilation from CNF in
-//!  [DIMACS](https://www21.in.tum.de/~lammich/2015_SS_Seminar_SAT/resources/dimacs-cnf.pdf) format.
-//!
-//!
-//!
-//!
-//!
+//! * SDD compilation from CNF in [DIMACS](https://www21.in.tum.de/~lammich/2015_SS_Seminar_SAT/resources/dimacs-cnf.pdf) format.
 //!
 //! The following snippet compiles the function `(A ∧ B) ∨ C` to SDD,
 //! computes number of its models, enumerates and prints them to the stdout,
@@ -26,47 +20,45 @@
 //! use sddrs::literal::literal::Polarity;
 //! use bon::arr;
 //!
-//! fn main() {
-//!    let options = options::SddOptions::builder()
-//!        // Create right-linear vtree.
-//!        .vtree_strategy(options::VTreeStragey::RightLinear)
-//!        // Initialize the manager with variables A, B, and C.
-//!        .variables(["A".to_string(), "B".to_string(), "C".to_string()])
-//!        .build();
-//!    let manager = SddManager::new(options);
+//! let options = options::SddOptions::builder()
+//!     // Create right-linear vtree.
+//!     .vtree_strategy(options::VTreeStragey::RightLinear)
+//!     // Initialize the manager with variables A, B, and C.
+//!     .variables(["A".to_string(), "B".to_string(), "C".to_string()])
+//!     .build();
+//! let manager = SddManager::new(options);
 //!
-//!    // Retrieve SDDs for literals A, B, and C.
-//!    let a = manager.literal("A", Polarity::Positive).unwrap();
-//!    let b = manager.literal("B", Polarity::Positive).unwrap();
-//!    let c = manager.literal("C", Polarity::Positive).unwrap();
+//! // Retrieve SDDs for literals A, B, and C.
+//! let a = manager.literal("A", Polarity::Positive).unwrap();
+//! let b = manager.literal("B", Polarity::Positive).unwrap();
+//! let c = manager.literal("C", Polarity::Positive).unwrap();
 //!
-//!    // Compute "A ∧ B"
-//!    let a_and_b = manager.conjoin(&a, &b);
-//!    // Compute "(A ∧ B) ∨ C"
-//!    let a_and_b_or_c = manager.disjoin(&a_and_b, &c);
+//! // Compute "A ∧ B"
+//! let a_and_b = manager.conjoin(&a, &b);
+//! // Compute "(A ∧ B) ∨ C"
+//! let a_and_b_or_c = manager.disjoin(&a_and_b, &c);
 //!
-//!    let model_count = manager.model_count(&a_and_b_or_c);
-//!    let models = manager.model_enumeration(&a_and_b_or_c);
+//! let model_count = manager.model_count(&a_and_b_or_c);
+//! let models = manager.model_enumeration(&a_and_b_or_c);
 //!
-//!    println!("'(A ∧ B) ∨ C' has {model_count} models.");
-//!    println!("They are:\n{models}");
+//! println!("'(A ∧ B) ∨ C' has {model_count} models.");
+//! println!("They are:\n{models}");
 //!
-//!    let sdd_path = "my_formula.dot"
-//!    let f = File::create(sdd_path).unwrap();
-//!    let mut b = BufWriter::new(f);
-//!    manager
-//!        .draw_sdd(&mut b as &mut dyn std::io::Write, &sdd)
-//!        .unwrap();
+//! let sdd_path = "my_formula.dot"
+//! let f = File::create(sdd_path).unwrap();
+//! let mut b = BufWriter::new(f);
+//! manager
+//!     .draw_sdd(&mut b as &mut dyn std::io::Write, &sdd)
+//!      .unwrap();
 //!
-//!    let vtree_path = "my_vtree.dot"
-//!    let f = File::create(vtree_path).unwrap();
-//!    let mut b = BufWriter::new(f);
-//!    manager
-//!        .draw_vtree(&mut b as &mut dyn std::io::Write)
-//!        .unwrap();
+//! let vtree_path = "my_vtree.dot"
+//! let f = File::create(vtree_path).unwrap();
+//! let mut b = BufWriter::new(f);
+//! manager
+//!     .draw_vtree(&mut b as &mut dyn std::io::Write)
+//!     .unwrap();
 //!
-//!    println!("Rendered SDD to '{sdd_path}' and vtree to '{vtree_path}'");
-//! }
+//! println!("Rendered SDD to '{sdd_path}' and vtree to '{vtree_path}'");
 //! ```
 //!
 //! ---

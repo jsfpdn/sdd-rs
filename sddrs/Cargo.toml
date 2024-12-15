@@ -6,11 +6,11 @@ authors = ["Josef Podany"]
 repository = "https://github.com/jsfpdn/sdd-rs"
 description = "Bottom-up Sentential Decision Diagram compiler library."
 keywords = [
-    "knowledge-compilation",
+    "knowledge-base",
     "boolean-functions",
-    "sentential-decision-diagrams",
+    "decision-diagrams",
     "model-counting",
-    "satisfiability",
+    "sdd",
 ]
 categories = ["compilers", "data-structures", "mathematics"]
 license = "BSD-3-Clause"

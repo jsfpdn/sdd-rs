@@ -8,3 +8,4 @@ unsafe_code = "forbid"
 [workspace.lints.clippy]
 mutable_key_type = "allow"
 module_inception = "allow"
+doc_markdown = "allow"
