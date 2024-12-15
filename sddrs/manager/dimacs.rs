@@ -1,3 +1,4 @@
+//! DIMACS module responsible for parsing DIMACS CNF problem files.
 use crate::literal::{Polarity, VariableIdx};
 use crate::manager::SddManager;
 use crate::sdd::SddRef;

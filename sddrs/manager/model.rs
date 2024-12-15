@@ -1,3 +1,4 @@
+//! Models of the compiled knowledge base.
 use crate::literal::{Literal, Polarity, Variable};
 use bitvec::prelude::*;
 use std::fmt::Display;

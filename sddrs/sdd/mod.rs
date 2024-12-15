@@ -1,3 +1,4 @@
+//! Sentential Decision Diagrams.
 mod decision;
 mod element;
 mod sdd;

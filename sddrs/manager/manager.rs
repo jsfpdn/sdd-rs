@@ -75,13 +75,11 @@ impl GCStatistics {
     }
 }
 
-/// [`SddManager`] is a structure responsible for maintaing the state of the compilation.
+/// Structure responsible for maintaing the state of the compilation.
 /// It is the central piece when compiling Boolean functions --- it is responsible
 /// combining SDDs, querying the knowledge, caching operations, collecting garbage
 /// (if configured), dynamically minimizing compiled knowledge (if configured),
-/// and much more.
-///
-/// See [`SddOptions`] on how [`SddManager`] can be configured.
+/// and much more. See [`SddOptions`] on how [`SddManager`] can be configured.
 ///
 /// ```
 /// use sddrs::literal::literal::Polarity;
@@ -345,7 +343,7 @@ impl SddManager {
         }
     }
 
-    /// Retrieve the SDD representing [`Literal`] with given label and [`Polarity`].
+    /// Retrieve the SDD representing a literal with given label and [`Polarity`].
     /// Returns [`None`] if such variable does not exist.
     pub fn literal(&self, label: &str, polarity: Polarity) -> Option<SddRef> {
         let (_, variants) = self.literal_manager.borrow().find_by_label(label)?;
@@ -1378,8 +1376,8 @@ impl SddManager {
         self.vtree_manager.borrow().root()
     }
 
-    /// Rotate the vtree [`x`] to the left and adjust SDDs accordingly.
-    /// The user must make sure that [`x`] is 'rotatable', i.e., [`x`]
+    /// Rotate the vtree `x` to the left and adjust SDDs accordingly.
+    /// The user must make sure that `x` is 'rotatable', i.e., `x`
     /// is an internal node and has a parent.
     ///
     /// ```text
@@ -1391,7 +1389,7 @@ impl SddManager {
     /// ```
     ///
     /// This is a low-level operation working directly on a vtree. See
-    /// [`SddManager::minimization`] for a more sophisticated way of finding better vtrees.
+    /// [`SddManager::minimize`] for a more sophisticated way of finding better vtrees.
     ///
     /// Children hanged at `w` must be split accordingly, depending on the vtrees
     /// they are normalized for:
@@ -1444,8 +1442,8 @@ impl SddManager {
         }
     }
 
-    /// Rotate the vtree [`x`] to the right and adjust SDDs accordingly.
-    /// The user must make sure that [`x`] is 'rotatable', i.e., [`x`]
+    /// Rotate the vtree `x` to the right and adjust SDDs accordingly.
+    /// The user must make sure that `x` is 'rotatable', i.e., `x`
     /// is an internal node an its left child `w` is an internal node as well.
     ///
     /// ```text
@@ -1457,7 +1455,7 @@ impl SddManager {
     /// ```
     ///
     /// This is a low-level operation working directly on a vtree. See
-    /// [`SddManager::minimization`] for a more sophisticated way of finding better vtrees.
+    /// [`SddManager::minimize`] for a more sophisticated way of finding better vtrees.
     ///
     /// Children hanged at `w` must be split accordingly, depending on the vtrees
     /// they are normalized for:
@@ -1494,8 +1492,8 @@ impl SddManager {
         Ok(())
     }
 
-    /// Swap children of the given vtree [`x`] and adjust SDDs accordingly.
-    /// The user must make sure that [`x`] is 'swappable', i.e., it is
+    /// Swap children of the given vtree `x` and adjust SDDs accordingly.
+    /// The user must make sure that `x` is 'swappable', i.e., it is
     /// an internal node.
     ///
     /// ```text
@@ -1505,7 +1503,7 @@ impl SddManager {
     /// ```
     ///
     /// This is a low-level operation working directly on a vtree. See
-    /// [`SddManager::minimization`] for a more sophisticated way of finding better vtrees.
+    /// [`SddManager::minimize`] for a more sophisticated way of finding better vtrees.
     ///
     /// # Errors
     ///

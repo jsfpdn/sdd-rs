@@ -154,7 +154,7 @@ pub(crate) enum VTreeOrder {
     RightSubOfLeft,
 }
 
-/// Vtree is a node of a full binary tree.
+/// Vtree is a node of a full binary tree for which an [`crate::sdd::SddRef`] is normalized.
 #[derive(Debug, Clone)]
 pub struct VTreeRef(pub(crate) Rc<RefCell<VTree>>);
 

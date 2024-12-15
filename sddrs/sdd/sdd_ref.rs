@@ -137,7 +137,6 @@ impl SddRef {
             return negation == other.id();
         }
 
-        // TODO: This may cause panic w.r.t. borrowing here and later when negating.
         let fst_sdd_type = self.0.borrow().sdd_type.clone();
         let snd_sdd_type = other.0.borrow().sdd_type.clone();
 
@@ -189,7 +188,7 @@ impl SddRef {
         self.0.borrow().canonicalize(manager)
     }
 
-    /// Recursively check whether [`self`] and all its descendants are trimmed.
+    /// Recursively check whether [`SddRef`] and all its descendants are trimmed.
     /// SDD is trimmed if it does not contain decompositions in the form of
     /// `{(true, alpha)}` and `{(alpha, true), (!alpha, false)}`.
     pub fn is_trimmed(&self, manager: &SddManager) -> bool {
@@ -198,7 +197,7 @@ impl SddRef {
 
     /// Recursivelly checks whether the SDD is compressed.
     /// Decision node is compressed if all subs are distinct, i.e.,
-    /// for all indexes i,j such that i != j, it holds that `s_i != s_j`.
+    /// for all indexes i,j such that i != j, it holds that s_i != s_j.
     ///
     /// See definition 8 in [SDD: A New Canonical Representation of Propositional Knowledge Bases](https://ai.dmi.unibas.ch/research/reading_group/darwiche-ijcai2011.pdf).
     ///

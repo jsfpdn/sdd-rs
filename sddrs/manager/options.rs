@@ -1,3 +1,4 @@
+//! Configure [`crate::manager::SddManager`].
 use bon::Builder;
 use clap::ValueEnum;
 
@@ -58,7 +59,7 @@ pub enum MinimizationCutoff {
     BreakAfterFirstImprovement,
 }
 
-/// [`sddrs::manager::SddManager`] configuration options. See individual
+/// [`crate::manager::SddManager`] configuration options. See individual
 /// fields for more information.
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone, Builder)]

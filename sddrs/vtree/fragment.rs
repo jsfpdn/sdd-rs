@@ -1,3 +1,5 @@
+//! Fragment of a [`crate::vtree::VTreeRef`] used for dynamic minimization
+//! [`crate::manager::SddManager::minimize`] to decrease the size of [`crate::sdd::SddRef`].
 #![allow(clippy::many_single_char_names, clippy::similar_names)]
 
 use anyhow::{Context, Result};
@@ -61,6 +63,8 @@ const MOVES_RIGHT_LINEAR: [Move; 12] = [
     Move::SwapChild,
 ];
 
+/// Fragment represents a part of a vtree. It is defined by a root
+/// and a child. It can be either left-linear or right-linear.
 #[derive(Debug, Clone)]
 pub struct Fragment {
     current_root: VTreeRef,
