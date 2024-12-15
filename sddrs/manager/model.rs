@@ -32,7 +32,7 @@ impl Models {
 impl Display for Models {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut builder = Builder::default();
-        builder.push_record(self.variables.iter().map(|v| v.label()));
+        builder.push_record(self.variables.iter().map(Variable::label));
 
         for model in &self.models {
             builder.push_record(

@@ -2,9 +2,18 @@
 name = "sddrs"
 version = "0.1.0"
 edition = "2021"
-authors = ["josef podany"]
+authors = ["Josef Podany"]
 repository = "https://github.com/jsfpdn/sdd-rs"
-description = "Bottom-up sentential decision diagram compiler library."
+description = "Bottom-up Sentential Decision Diagram compiler library."
+keywords = [
+    "knowledge-compilation",
+    "boolean-functions",
+    "sentential-decision-diagrams",
+    "model-counting",
+    "satisfiability",
+]
+categories = ["compilers", "data-structures", "mathematics"]
+license = "BSD-3-Clause"
 
 [lib]
 name = "sddrs"

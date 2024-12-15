@@ -1,5 +1,5 @@
 [workspace]
-members = ["bin", "benchmarks", "sdd-rs-lib"]
+members = ["bin", "benchmarks", "sddrs"]
 resolver = "2"
 
 [workspace.lints.rust]

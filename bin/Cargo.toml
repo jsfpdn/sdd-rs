@@ -1,6 +1,21 @@
 [package]
 name = "sddrsc"
 edition = "2021"
+license = "BSD-3-Clause"
+authors = ["Josef Podany"]
+repository = "https://github.com/jsfpdn/sdd-rs"
+description = "Bottom-up Sentential Decision Diagram compiler."
+keywords = [
+    "knowledge-compilation",
+    "boolean-functions",
+    "sentential-decision-diagrams",
+]
+categories = [
+    "compilers",
+    "data-structures",
+    "mathematics",
+    "command-line-utilities",
+]
 
 [[bin]]
 name = "sddrsc"
@@ -10,7 +25,7 @@ path = "main.rs"
 tracing-subscriber = "0.3"
 tracing = "0.1"
 clap = { version = "4.5.4", features = ["derive"] }
-sddrs = { path = "../sdd-rs-lib" }
+sddrs = { path = "../sddrs" }
 anyhow = "1.0"
 
 [lints]
