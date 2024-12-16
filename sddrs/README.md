@@ -17,6 +17,8 @@ The compiler currently supports:
 
 ## Usage
 
+**See [examples](https://github.com/jsfpdn/sdd-rs/tree/main/sddrs/examples) for more examples.**
+
 The following snippet compiles the function `(A & B) | C` to an SDD,
 computes number of its models, enumerates and prints them to the stdout,
 and renders the compiled SDD and its vtree to the DOT format.
@@ -24,14 +26,13 @@ and renders the compiled SDD and its vtree to the DOT format.
 ```rust
 use sddrs::manager::{options, GCStatistics, SddManager};
 use sddrs::literal::literal::Polarity;
-use bon::arr;
 
 fn main() {
     let options = options::SddOptions::builder()
         // Create right-linear vtree.
         .vtree_strategy(options::VTreeStragey::RightLinear)
         // Initialize the manager with variables A, B, and C.
-        .variables(["A".to_string(), "B".to_string(), "C"])
+        .variables(&["A".to_string(), "B".to_string(), "C".to_string()])
         .build();
     let manager = SddManager::new(options);
 
@@ -51,14 +52,14 @@ fn main() {
     println!("'(A ∧ B) ∨ C' has {model_count} models.");
     println!("They are:\n{models}");
 
-    let sdd_path = "my_formula.dot"
+    let sdd_path = "my_formula.dot";
     let f = File::create(sdd_path).unwrap();
     let mut b = BufWriter::new(f);
     manager
         .draw_sdd(&mut b as &mut dyn std::io::Write, &sdd)
         .unwrap();
 
-    let vtree_path = "my_vtree.dot"
+    let vtree_path = "my_vtree.dot";
     let f = File::create(vtree_path).unwrap();
     let mut b = BufWriter::new(f);
     manager

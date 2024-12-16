@@ -83,6 +83,8 @@ fn main() {
 }
 ```
 
+**See [examples](https://github.com/jsfpdn/sdd-rs/tree/main/sddrs/examples) for more examples.**
+
 ### Binary
 
 The compiler can be also compiled and invoked as a command-line utility.

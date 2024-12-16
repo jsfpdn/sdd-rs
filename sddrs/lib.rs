@@ -11,6 +11,8 @@
 //! * garbage collection of dead nodes,
 //! * SDD compilation from CNF in [DIMACS](https://www21.in.tum.de/~lammich/2015_SS_Seminar_SAT/resources/dimacs-cnf.pdf) format.
 //!
+//! **See [examples](https://github.com/jsfpdn/sdd-rs/tree/main/sddrs/examples) for more examples.**
+//!
 //! The following snippet compiles the function `(A ∧ B) ∨ C` to SDD,
 //! computes number of its models, enumerates and prints them to the stdout,
 //! and renders the compiled SDD and its vtree to the DOT format.
